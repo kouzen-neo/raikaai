@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Translate
+import androidx.compose.material.icons.outlined.EmojiEmotions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -1132,6 +1133,7 @@ private fun getIconVector(iconType: String): ImageVector =
         "reasoning" -> Icons.Default.Psychology
         "speed" -> Icons.Default.Speed
         "shell" -> Icons.Default.Terminal
+        "roleplay" -> Icons.Outlined.EmojiEmotions
         "general" -> Icons.Default.AutoAwesome
         else -> Icons.Default.AutoAwesome
     }

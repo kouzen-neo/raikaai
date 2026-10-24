@@ -1154,7 +1154,8 @@ fun PersonaAvatar(
 ): Boolean {
     if (avatarUri.isBlank()) return false
     val imageModel: Any = when {
-        avatarUri.startsWith("http://") || avatarUri.startsWith("https://") -> avatarUri
+        avatarUri.startsWith("http://") || avatarUri.startsWith("https://") ->
+            com.raikaai.app.data.RoleplayRepository.toThumbnailUrl(avatarUri)
         avatarUri.startsWith("content://") || avatarUri.startsWith("file://") -> android.net.Uri.parse(avatarUri)
         else -> File(avatarUri).takeIf { it.exists() } ?: avatarUri
     }

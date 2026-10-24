@@ -36,18 +36,19 @@ fun RoleplayChatScreen(
             viewModel.loadConversation(conversationId)
         } else {
             val selected = character ?: return@LaunchedEffect
-            viewModel.newChat(
-                PersonaPreset(
-                    id = "roleplay_${selected.id}",
-                    name = selected.name,
-                    description = selected.description.orEmpty(),
-                    greeting = selected.greeting.orEmpty(),
-                    systemPrompt = selected.systemPrompt.orEmpty().ifBlank {
-                        "You are ${selected.name}. Stay in character and respond consistently."
-                    },
-                    avatarUri = selected.avatarUrl.orEmpty(),
-                ),
+            val persona = PersonaPreset(
+                id = "roleplay_${selected.id}",
+                name = selected.name,
+                iconType = "roleplay",
+                description = selected.description.orEmpty(),
+                greeting = selected.greeting.orEmpty(),
+                systemPrompt = selected.systemPrompt.orEmpty().ifBlank {
+                    "You are ${selected.name}. Stay in character and respond consistently."
+                },
+                avatarUri = selected.avatarUrl.orEmpty(),
             )
+            viewModel.registerRoleplayPersona(persona)
+            viewModel.newChat(persona)
         }
     }
 

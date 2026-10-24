@@ -66,6 +66,7 @@ data class Conversation(
     var pinnedModelId: String? = null, // local model id or remote model id pinned to this conversation
     var folder: String = "", // user folder name; "" = no folder
     var tags: List<String> = emptyList(), // user tags; a conversation can carry several (unlike folder)
+    var isRoleplay: Boolean = false,
 )
 
 /** Lightweight conversation metadata for fast listings without parsing message bodies (P6). */
@@ -81,6 +82,7 @@ data class ConversationHeader(
     val tags: List<String> = emptyList(),
     val personaId: String? = null,
     val personaAvatarUri: String = "",
+    val isRoleplay: Boolean = false,
 )
 
 private val conversationIdPattern = Regex("^[A-Za-z0-9-]+$")
@@ -101,6 +103,7 @@ internal fun Conversation.toHeader(): ConversationHeader {
         tags = sanitizeTags(tags),
         personaId = personaId,
         personaAvatarUri = personaAvatarUri,
+        isRoleplay = isRoleplay,
     )
 }
 

@@ -67,20 +67,33 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.util.UUID
+import com.google.gson.annotations.SerializedName
 import com.raikaai.app.ui.roleplay.pages.profile.RoleplayProfileStore
 
 data class PersonaPreset(
+    @SerializedName("id")
     val id: String,
+    @SerializedName("name")
     val name: String,
+    @SerializedName("iconType", alternate = ["icon_type"])
     val iconType: String = "general",
+    @SerializedName("description")
     val description: String = "",
+    @SerializedName("greeting", alternate = ["first_mes"])
     val greeting: String = "",
+    @SerializedName("systemPrompt", alternate = ["system_prompt"])
     val systemPrompt: String,
+    @SerializedName("avatarUri", alternate = ["avatar_uri", "avatar_url", "avatar"])
     val avatarUri: String = "",
+    @SerializedName("temperature")
     val temperature: Float? = null,
+    @SerializedName("topK", alternate = ["top_k"])
     val topK: Int? = null,
+    @SerializedName("personality")
     val personality: String = "",
+    @SerializedName("scenario")
     val scenario: String = "",
+    @SerializedName("exampleDialogues", alternate = ["example_dialogues", "mes_example"])
     val exampleDialogues: String = "",
 ) {
     companion object {
@@ -1341,6 +1354,7 @@ class ChatViewModel(
                     conv.personaSystemPrompt = resolved.systemPrompt
                     conv.personaAvatarUri = resolved.avatarUri
                     roleplayChatRepo.save(conv)
+                    registerRoleplayPersona(resolved)
                 }
                 personaStore.applyPersona(resolved)
                 personaStore.pendingPersonaRestoreId =
@@ -1349,6 +1363,25 @@ class ChatViewModel(
                 refreshConversations()
             }
         }
+    }
+
+    /** Automatically saves a roleplay persona into custom characters and sets it active. */
+    fun registerRoleplayPersona(persona: PersonaPreset) {
+        val existing = customPersonas.firstOrNull { it.id == persona.id }
+        val toSave = if (existing != null) {
+            existing.copy(
+                name = existing.name.ifBlank { persona.name },
+                iconType = existing.iconType.ifBlank { persona.iconType },
+                description = existing.description.ifBlank { persona.description },
+                greeting = existing.greeting.ifBlank { persona.greeting },
+                systemPrompt = existing.systemPrompt.ifBlank { persona.systemPrompt },
+                avatarUri = existing.avatarUri.ifBlank { persona.avatarUri },
+            )
+        } else {
+            persona
+        }
+        personaStore.upsertCustomPersona(toSave)
+        personaStore.applyPersona(toSave)
     }
 
     fun newChat(withPersona: PersonaPreset? = null) {
@@ -1366,6 +1399,7 @@ class ChatViewModel(
             p.greeting.replace("{{user}}", profile.name)
         } ?: p.greeting
         val newConv = Conversation().also { currentConversationId = it.id }
+        newConv.isRoleplay = roleplayMode
         newConv.personaId = p.id
         newConv.personaAvatarUri = p.avatarUri
         newConv.personaName = p.name
@@ -3930,7 +3964,7 @@ class ChatViewModel(
         }
         conv.messages = nodes.toList()
 
-        val isRoleplay = conv.personaId?.startsWith("roleplay_") == true
+        val isRoleplay = conv.isRoleplay || (roleplayMode && conv.personaId?.startsWith("roleplay_") == true)
         val targetRepo = if (isRoleplay) roleplayChatRepo else defaultChatRepo
         // Lazy persistence: a brand-new session is only written to disk once it
         // contains at least one real user message. This keeps Delete All /

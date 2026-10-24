@@ -237,9 +237,6 @@ fun ChatScreen(
     }
     val settings by viewModel.settings.collectAsState()
     val activePersona by viewModel.activePersona.collectAsState()
-    LaunchedEffect(isRolePlay, activePersona.id) {
-        if (!isRolePlay) viewModel.clearRoleplayPersonaForNormalChat()
-    }
     val loadedModelPath by viewModel.loadedModelPath.collectAsState()
     val isGenerating by viewModel.isGenerating
     // B39: hoisted derived state — topBar/bottomBar read this, and reading
