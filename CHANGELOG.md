@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.1.5] - 2026-10-24
 
 ### Added
-- **Interactive Roleplay Hub**: Dedicated roleplay area with categorised character gallery (Honkai Star Rail, Wuthering Waves, Genshin Impact, Zenless Zone Zero, Arknights Endfield, Others), trending carousels, instant search, and community character creation.
+- **Interactive Roleplay Hub**: Dedicated roleplay area with categorised character gallery (Honkai Star Rail, Wuthering Waves, Genshin Impact, Zenless Zone Zero, Arknights Endfield, Others), trending carousels, instant search, and community character creation (contributed by @ilyaSuperGlue in #1).
 - **Supabase Cloud Character Sync**: Centralized community character catalog powered by Supabase PostgreSQL backend with secure Row Level Security (RLS) policies and RPC view counting.
 - **Safebooru Image Integration**: Built-in anime and game image tag search engine for one-tap character avatar selection during character creation.
 - **Right Sidebar Quick Character Switcher**: Dedicated right-hand drawer sheet with avatar previews and search filter for instant character switching. Automatically resumes the latest conversation with the selected character or starts a fresh session.
@@ -28,6 +28,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Pagination Loop Mitigation**: Replaced greedy recomposition triggers with scroll-driven `derivedStateOf` threshold detection for smooth on-demand pagination.
 - **Chat History Leakage**: Resolved issue where roleplay chats exited via back navigation would erroneously persist into the general history repository.
 - **Null Safety in Remote AI Reasoning**: Fixed `RemoteAiClient` JSON parser where `optString` transformed metadata null tokens into the literal string `"null"`.
+
+### Contributors
+- Special thanks to @ilyaSuperGlue for contributing the Roleplay feature in #1!
 
 ## [0.1.4] - 2026-10-16
 
