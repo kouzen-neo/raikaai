@@ -15,6 +15,11 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.FileProvider
 import com.raikaai.app.util.FileSaver
+import coil3.compose.AsyncImage
+import coil3.request.CachePolicy
+import coil3.request.ImageRequest
+import coil3.request.crossfade
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -1137,9 +1142,8 @@ fun AudioMessagePlayer(
 }
 
 /**
- * Circular character profile photo. Returns false (renders nothing) when
- * [avatarUri] is blank or unreadable, so callers show the photo only when set.
- * Accepts an absolute file path (internal avatar copy) or a content URI.
+ * Circular character profile photo. Returns false when [avatarUri] is blank.
+ * Supports remote HTTP(S) URLs, absolute local file paths, and content URIs.
  */
 @Composable
 fun PersonaAvatar(
@@ -1149,35 +1153,21 @@ fun PersonaAvatar(
     contentDescription: String? = null,
 ): Boolean {
     if (avatarUri.isBlank()) return false
-    val context = LocalContext.current
-    // Decode off the main thread, downsampled to avatar size (was:
-    // main-thread decode in remember). No manual recycle: the bitmap is
-    // referenced by the Image below.
-    val bitmap by produceState<Bitmap?>(initialValue = null, avatarUri) {
-        value =
-            withContext(Dispatchers.IO) {
-                try {
-                    val file = File(avatarUri)
-                    if (file.isAbsolute && file.exists()) {
-                        decodeSampledBitmapFromFile(file, reqSizePx = 256)
-                    } else {
-                        context.contentResolver.openInputStream(android.net.Uri.parse(avatarUri))?.use { stream ->
-                            BitmapFactory.decodeStream(stream)
-                        }
-                    }
-                } catch (_: Throwable) {
-                    null
-                }
-            }
+    val imageModel: Any = when {
+        avatarUri.startsWith("http://") || avatarUri.startsWith("https://") ->
+            com.raikaai.app.data.RoleplayRepository.toThumbnailUrl(avatarUri)
+        avatarUri.startsWith("content://") || avatarUri.startsWith("file://") -> android.net.Uri.parse(avatarUri)
+        else -> File(avatarUri).takeIf { it.exists() } ?: avatarUri
     }
-    val currentBitmap = bitmap
-    if (currentBitmap == null) return false
-    Image(
-        bitmap = currentBitmap.asImageBitmap(),
+    AsyncImage(
+        model = ImageRequest.Builder(LocalContext.current)
+            .data(imageModel)
+            .crossfade(true)
+            .memoryCachePolicy(CachePolicy.ENABLED)
+            .diskCachePolicy(CachePolicy.ENABLED)
+            .build(),
         contentDescription = contentDescription,
-        modifier = modifier
-            .size(size)
-            .clip(CircleShape),
+        modifier = modifier.size(size).clip(CircleShape),
         contentScale = ContentScale.Crop,
     )
     return true

@@ -67,19 +67,33 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.util.UUID
+import com.google.gson.annotations.SerializedName
+import com.raikaai.app.ui.roleplay.pages.profile.RoleplayProfileStore
 
 data class PersonaPreset(
+    @SerializedName("id")
     val id: String,
+    @SerializedName("name")
     val name: String,
+    @SerializedName("iconType", alternate = ["icon_type"])
     val iconType: String = "general",
+    @SerializedName("description")
     val description: String = "",
+    @SerializedName("greeting", alternate = ["first_mes"])
     val greeting: String = "",
+    @SerializedName("systemPrompt", alternate = ["system_prompt"])
     val systemPrompt: String,
+    @SerializedName("avatarUri", alternate = ["avatar_uri", "avatar_url", "avatar"])
     val avatarUri: String = "",
+    @SerializedName("temperature")
     val temperature: Float? = null,
+    @SerializedName("topK", alternate = ["top_k"])
     val topK: Int? = null,
+    @SerializedName("personality")
     val personality: String = "",
+    @SerializedName("scenario")
     val scenario: String = "",
+    @SerializedName("exampleDialogues", alternate = ["example_dialogues", "mes_example"])
     val exampleDialogues: String = "",
 ) {
     companion object {
@@ -114,36 +128,6 @@ val PERSONA_PRESETS =
             description = "Local on-device AI assistant ready to help with various tasks and inquiries.",
             greeting = "Hello! I am your local AI assistant. How can I help you today?",
             systemPrompt = DEFAULT_SYSTEM_PROMPT,
-        ),
-        PersonaPreset(
-            id = "coder",
-            name = "Coder",
-            iconType = "coder",
-            description = "Software engineering and system architecture expert.",
-            greeting = "Hello! Programming assistant ready.",
-            systemPrompt = "You are an expert programming assistant.",
-            temperature = 0.1f,
-            topK = 20,
-        ),
-        PersonaPreset(
-            id = "translator",
-            name = "Translator",
-            iconType = "translator",
-            description = "Professional linguist.",
-            greeting = "Hello! Please enter text to translate.",
-            systemPrompt = "You are a professional translator.",
-            temperature = 0.2f,
-            topK = 30,
-        ),
-        PersonaPreset(
-            id = "summarizer",
-            name = "Summarize",
-            iconType = "summarizer",
-            description = "Condenses text into key takeaways.",
-            greeting = "Hello! Provide text to summarize.",
-            systemPrompt = "You are an expert summarizer.",
-            temperature = 0.3f,
-            topK = 40,
         ),
     )
 
@@ -216,7 +200,12 @@ class ChatViewModel(
 
     private val app: Application = appContext
     private val settingsRepo = SettingsRepository(app)
-    private val chatRepo = ChatRepository(app)
+    private val defaultChatRepo = ChatRepository(app)
+    private val roleplayChatRepo = ChatRepository(app, "roleplay_chats")
+    private val roleplayProfileStore = RoleplayProfileStore(app)
+    private var roleplayMode = false
+    private val chatRepo: ChatRepository
+        get() = if (roleplayMode) roleplayChatRepo else defaultChatRepo
     private val modelManager = LocalModelManager(app)
     private val downloader get() = LocalModelDownloader.getInstance(app)
     private val engine get() = LiteRtEngineManager.getInstance(app)
@@ -241,6 +230,10 @@ class ChatViewModel(
     val errorMessage = mutableStateOf<String?>(null)
     val installedModels = mutableStateOf<List<com.raikaai.app.localai.InstalledModel>>(emptyList())
     val conversations = mutableStateOf<List<ConversationHeader>>(emptyList())
+    /** Normal-chat history for the global drawer; never replaced by roleplay history. */
+    val normalConversations = mutableStateOf<List<ConversationHeader>>(emptyList())
+    /** Roleplay-chat history; never mixed with normal history. */
+    val roleplayConversations = mutableStateOf<List<ConversationHeader>>(emptyList())
 
     // Character/persona state lives in PersonaStore; these accessors keep
     // UI and internal call sites unchanged.
@@ -1148,9 +1141,27 @@ class ChatViewModel(
 
     fun refreshConversations() {
         viewModelScope.launch {
-            conversations.value = chatRepo.listConversationHeaders()
+            val normal = defaultChatRepo.listConversationHeaders()
+            val roleplay = roleplayChatRepo.listConversationHeaders()
+            normalConversations.value = normal
+            roleplayConversations.value = roleplay
+            conversations.value = if (roleplayMode) roleplay else normal
         }
     }
+
+    /** Selects the isolated conversation store used by the roleplay area. */
+    fun setRoleplayMode(enabled: Boolean) {
+        if (roleplayMode == enabled) return
+        roleplayMode = enabled
+        refreshConversations()
+    }
+
+    /** Returns the latest saved roleplay chat for a character, if one exists. */
+    suspend fun findRecentRoleplayConversation(personaId: String): String? =
+        roleplayChatRepo
+            .listConversationHeaders()
+            .firstOrNull { it.personaId == personaId }
+            ?.id
 
     fun freeDiskGb(): Float = freeDiskSpaceBytes.value.toFloat() / (1024 * 1024 * 1024)
 
@@ -1275,18 +1286,87 @@ class ChatViewModel(
         if (currentConversationId == id) return
         stopGeneration()
         viewModelScope.launch {
-            val conv = chatRepo.get(id)
+            val conv = if (roleplayMode) {
+                roleplayChatRepo.get(id) ?: defaultChatRepo.get(id)
+            } else {
+                defaultChatRepo.get(id) ?: roleplayChatRepo.get(id)
+            }
             if (conv != null) {
+                val isRp = conv.personaId?.startsWith("roleplay_") == true
+                if (isRp != roleplayMode) {
+                    roleplayMode = isRp
+                }
                 conversation = conv
                 currentConversationId = conv.id
                 rebuildFromTree()
                 // Restore the chat's own character without touching global settings.
                 // If custom personas haven't finished loading yet, retry once they're ready.
-                val resolved = personaStore.resolvePersona(conv.personaId)
+                val storedPersonaId = conv.personaId
+                val resolved = if (
+                    storedPersonaId?.startsWith("roleplay_") == true &&
+                        (conv.personaName as String?).orEmpty().isNotBlank()
+                ) {
+                    PersonaPreset(
+                        id = storedPersonaId,
+                        name = (conv.personaName as String?).orEmpty(),
+                        description = (conv.personaDescription as String?).orEmpty(),
+                        greeting = (conv.personaGreeting as String?).orEmpty(),
+                        systemPrompt = (conv.personaSystemPrompt as String?).orEmpty(),
+                        avatarUri = (conv.personaAvatarUri as String?).orEmpty(),
+                    )
+                } else {
+                    personaStore.resolvePersona(conv.personaId)
+                }
+                if (storedPersonaId?.startsWith("roleplay_") == true) {
+                    conv.personaName = resolved.name
+                    conv.personaDescription = resolved.description
+                    conv.personaGreeting = resolved.greeting
+                    conv.personaSystemPrompt = resolved.systemPrompt
+                    conv.personaAvatarUri = resolved.avatarUri
+                    roleplayChatRepo.save(conv)
+                    registerRoleplayPersona(resolved)
+                }
                 personaStore.applyPersona(resolved)
                 personaStore.pendingPersonaRestoreId =
                     if (conv.personaId != null && resolved.id != conv.personaId) conv.id else null
                 refreshPinState()
+                refreshConversations()
+            }
+        }
+    }
+
+    /** Automatically saves a roleplay persona into custom characters and sets it active. */
+    fun registerRoleplayPersona(persona: PersonaPreset) {
+        val existing = customPersonas.firstOrNull { it.id == persona.id }
+        val toSave = if (existing != null) {
+            existing.copy(
+                name = existing.name.ifBlank { persona.name },
+                iconType = existing.iconType.ifBlank { persona.iconType },
+                description = existing.description.ifBlank { persona.description },
+                greeting = existing.greeting.ifBlank { persona.greeting },
+                systemPrompt = existing.systemPrompt.ifBlank { persona.systemPrompt },
+                avatarUri = existing.avatarUri.ifBlank { persona.avatarUri },
+            )
+        } else {
+            persona
+        }
+        personaStore.upsertCustomPersona(toSave)
+        personaStore.applyPersona(toSave)
+    }
+
+    /** Quick switcher: sets persona active and loads its most recent conversation or starts a fresh one. */
+    fun selectPersonaQuick(persona: PersonaPreset) {
+        viewModelScope.launch {
+            personaStore.applyPersona(persona)
+            val targetRepo = if (roleplayMode) roleplayChatRepo else defaultChatRepo
+            val recentId = targetRepo
+                .listConversationHeaders()
+                .firstOrNull { it.personaId == persona.id }
+                ?.id
+            if (recentId != null) {
+                loadConversation(recentId)
+            } else {
+                newChat(persona)
             }
         }
     }
@@ -1297,19 +1377,36 @@ class ChatViewModel(
         conversation = null
         stopGeneration()
         val p = withPersona ?: activePersona.value
+        val roleplayProfile = if (p.id.startsWith("roleplay_")) {
+            roleplayProfileStore.load()
+        } else {
+            null
+        }
+        val roleplayGreeting = roleplayProfile?.let { profile ->
+            p.greeting.replace("{{user}}", profile.name)
+        } ?: p.greeting
         val newConv = Conversation().also { currentConversationId = it.id }
+        newConv.isRoleplay = roleplayMode
         newConv.personaId = p.id
+        newConv.personaAvatarUri = p.avatarUri
+        newConv.personaName = p.name
+        newConv.personaDescription = p.description
+        newConv.personaGreeting = roleplayGreeting
+        newConv.personaSystemPrompt = p.systemPrompt
+        if (p.id.startsWith("roleplay_")) {
+            newConv.title = p.name
+        }
         personaStore.pendingPersonaRestoreId = null
         conversation = newConv
         nodes.clear()
         messages.clear()
         refreshPinState()
         personaStore.applyPersona(p)
-        if (p.greeting.isNotBlank()) {
+        if (roleplayGreeting.isNotBlank()) {
             messages.add(
                 ChatMessageEntry(
                     role = ChatConstants.ROLE_ASSISTANT,
-                    content = p.greeting,
+                    content = roleplayGreeting,
                 ),
             )
         }
@@ -1317,6 +1414,19 @@ class ChatViewModel(
         // No immediate save: the session is written lazily on the first real
         // message, so Delete All / New Conversation leaves no ghost entries.
         refreshConversations()
+    }
+
+    /** Starts a clean normal chat and clears any roleplay persona context. */
+    fun newGeneralChat() {
+        setRoleplayMode(false)
+        newChat(PERSONA_PRESETS.first())
+    }
+
+    /** Clears only an in-memory roleplay persona when entering normal chat. */
+    fun clearRoleplayPersonaForNormalChat() {
+        if (activePersona.value.id.startsWith("roleplay_") || conversation?.personaId?.startsWith("roleplay_") == true) {
+            newGeneralChat()
+        }
     }
 
     fun clearCurrentChat() {
@@ -3810,7 +3920,11 @@ class ChatViewModel(
         persist()
     }
 
-    private fun persist() {
+    fun persistCurrentChat(force: Boolean = false) {
+        persist(force = force)
+    }
+
+    private fun persist(force: Boolean = false) {
         val conv = conversation ?: return
         // O(n) merge by id (was: indexOfFirst per message = O(n^2)).
         val byId = nodes.associateBy { it.id }.toMutableMap()
@@ -3836,15 +3950,31 @@ class ChatViewModel(
             }
         }
         conv.messages = nodes.toList()
+
+        val isRoleplay = conv.isRoleplay || (roleplayMode && conv.personaId?.startsWith("roleplay_") == true)
+        val targetRepo = if (isRoleplay) roleplayChatRepo else defaultChatRepo
         // Lazy persistence: a brand-new session is only written to disk once it
         // contains at least one real user message. This keeps Delete All /
         // New Conversation from leaving empty "New Chat" entries behind.
         val hasRealContent = conv.messages.any { it.role == ChatConstants.ROLE_USER }
         viewModelScope.launch {
-            if (!hasRealContent && !chatRepo.exists(conv.id)) return@launch
-            chatRepo.save(conv)
+            if (!force && !hasRealContent && !targetRepo.exists(conv.id)) return@launch
+            targetRepo.save(conv)
+            // Ensure no stale duplicate exists in the wrong storage
+            val wrongRepo = if (isRoleplay) defaultChatRepo else roleplayChatRepo
+            if (wrongRepo.exists(conv.id)) {
+                wrongRepo.delete(conv.id)
+            }
             refreshConversations()
         }
+    }
+
+    /** Creates a persisted roleplay history entry immediately after publishing. */
+    fun saveRoleplayCharacterToHistory(character: PersonaPreset) {
+        setRoleplayMode(true)
+        newChat(character)
+        conversation?.title = character.name
+        persist(force = true)
     }
 
     // ── Sampler Presets & Per-Model Parameters ───────────────────────
@@ -4377,7 +4507,21 @@ class ChatViewModel(
     private fun resolveSystemPrompt(s: Settings): String {
         val persona = activePersona.value
         if (persona.id == "general" || persona.id.isBlank()) return s.systemPrompt
-        return CharacterPrompt.build(persona)
+        val profile = if (persona.id.startsWith("roleplay_")) {
+            roleplayProfileStore.load()
+        } else {
+            null
+        }
+        val userName = profile?.name ?: "User"
+        val prompt = CharacterPrompt.build(persona, userName)
+        if (profile == null) return prompt
+        val description = profile.description.trim()
+        return buildString {
+            append(prompt)
+            append("\n\nYou are talking to ${profile.name} (${profile.gender})")
+            if (description.isNotBlank()) append(", $description")
+            append(".")
+        }
     }
 
     /** Effective sampler values: persona override wins, settings is the fallback. */

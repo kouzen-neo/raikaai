@@ -29,6 +29,7 @@ import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Edit
@@ -41,6 +42,7 @@ import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Translate
+import androidx.compose.material.icons.outlined.EmojiEmotions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -592,24 +594,24 @@ fun CharactersScreen(
                 // Edit = update in place. Builtin presets (unknown id) are
                 // still saved as a new custom copy with a fresh id.
                 val isCustom = viewModel.customPersonas.any { it.id == persona.id }
-                viewModel.upsertCustomPersona(
-                    PersonaPreset(
-                        id = if (isCustom) persona.id else "custom_" + System.currentTimeMillis(),
-                        name = name,
-                        iconType = iconType,
-                        description = persona.description,
-                        greeting = greeting,
-                        systemPrompt = prompt,
-                        avatarUri = avatar,
-                        temperature = temp,
-                        topK = topK,
-                        personality = personality,
-                        scenario = scenario,
-                        exampleDialogues = examples,
-                    ),
+                val newPersona = PersonaPreset(
+                    id = if (isCustom) persona.id else "custom_" + System.currentTimeMillis(),
+                    name = name,
+                    iconType = iconType,
+                    description = persona.description,
+                    greeting = greeting,
+                    systemPrompt = prompt,
+                    avatarUri = avatar,
+                    temperature = temp,
+                    topK = topK,
+                    personality = personality,
+                    scenario = scenario,
+                    exampleDialogues = examples,
                 )
+                viewModel.upsertCustomPersona(newPersona)
+                viewModel.applyPersona(newPersona)
                 editingPersona = null
-                Toast.makeText(context, "Character '$name' updated!", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Character '$name' saved!", Toast.LENGTH_SHORT).show()
             },
         )
     }
@@ -728,21 +730,21 @@ private fun CharacterCardItem(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = onExportJson, modifier = Modifier.size(32.dp)) {
                         Icon(
-                            Icons.Default.FileDownload,
-                            contentDescription = "Export JSON",
+                            Icons.Default.ContentCopy,
+                            contentDescription = "Copy JSON",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(16.dp),
+                        )
+                    }
+                    IconButton(onClick = onEdit, modifier = Modifier.size(32.dp)) {
+                        Icon(
+                            Icons.Default.Edit,
+                            contentDescription = "Edit / Preview",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(16.dp),
                         )
                     }
                     if (isCustom) {
-                        IconButton(onClick = onEdit, modifier = Modifier.size(32.dp)) {
-                            Icon(
-                                Icons.Default.Edit,
-                                contentDescription = "Edit",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(16.dp),
-                            )
-                        }
                         IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
                             Icon(
                                 Icons.Default.Delete,
@@ -1132,6 +1134,7 @@ private fun getIconVector(iconType: String): ImageVector =
         "reasoning" -> Icons.Default.Psychology
         "speed" -> Icons.Default.Speed
         "shell" -> Icons.Default.Terminal
+        "roleplay" -> Icons.Outlined.EmojiEmotions
         "general" -> Icons.Default.AutoAwesome
         else -> Icons.Default.AutoAwesome
     }

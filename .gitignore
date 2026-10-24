@@ -30,6 +30,8 @@ build/
 
 # Local configuration file (sdk.dir, etc)
 local.properties
+opencode.json
+.playwright-mcp/
 
 # Signing keys & passwords must never be committed
 *.keystore

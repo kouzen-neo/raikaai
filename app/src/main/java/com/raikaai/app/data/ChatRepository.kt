@@ -57,10 +57,16 @@ data class Conversation(
     var summary: String? = null, // rolling compressed-memory summary (context compression)
     var summarizedUntilId: String? = null, // id of the last message folded into the summary
     var personaId: String? = null, // id of the PersonaPreset this chat belongs to (null = legacy / General)
+    var personaAvatarUri: String = "", // snapshot used by roleplay history thumbnails
+    var personaName: String = "",
+    var personaDescription: String = "",
+    var personaGreeting: String = "",
+    var personaSystemPrompt: String = "",
     var pinnedModelSource: String? = null, // "local" | "remote" — null = follow global setting
     var pinnedModelId: String? = null, // local model id or remote model id pinned to this conversation
     var folder: String = "", // user folder name; "" = no folder
     var tags: List<String> = emptyList(), // user tags; a conversation can carry several (unlike folder)
+    var isRoleplay: Boolean = false,
 )
 
 /** Lightweight conversation metadata for fast listings without parsing message bodies (P6). */
@@ -75,6 +81,8 @@ data class ConversationHeader(
     val hasPinnedModel: Boolean = false,
     val tags: List<String> = emptyList(),
     val personaId: String? = null,
+    val personaAvatarUri: String = "",
+    val isRoleplay: Boolean = false,
 )
 
 private val conversationIdPattern = Regex("^[A-Za-z0-9-]+$")
@@ -94,6 +102,8 @@ internal fun Conversation.toHeader(): ConversationHeader {
         hasPinnedModel = !pinnedModelId.isNullOrBlank(),
         tags = sanitizeTags(tags),
         personaId = personaId,
+        personaAvatarUri = personaAvatarUri,
+        isRoleplay = isRoleplay,
     )
 }
 
@@ -173,10 +183,11 @@ internal fun writeAtomically(
  */
 class ChatRepository(
     context: Context,
+    storageDirectory: String = "chats",
 ) {
     private val gson = Gson()
     private val dir: File =
-        File(context.filesDir, "chats").apply { if (!exists()) mkdirs() }
+        File(context.filesDir, storageDirectory).apply { if (!exists()) mkdirs() }
 
     /** Serializes all writes (save/rename/delete) per conversation id (B2/B6). */
     private val writeLocks = StripedWriteLocks()

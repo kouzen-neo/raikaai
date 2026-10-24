@@ -495,11 +495,16 @@ object RemoteAiClient {
                                     val fr = firstChoice.optString("finish_reason", "")
                                     if (fr.isNotBlank() && fr != "null") lastFinishReason = fr
                                     val delta = firstChoice.optJSONObject("delta")
-                                    val content = delta?.optString("content", "") ?: ""
+                                    // JSONObject.optString() turns JSON null into
+                                    // the literal string "null". Streaming
+                                    // providers commonly send null content in
+                                    // metadata chunks, so only accept actual
+                                    // String values here.
+                                    val content = delta?.opt("content") as? String ?: ""
                                     val reasoning =
-                                        delta?.optString("reasoning_content", "")
+                                        (delta?.opt("reasoning_content") as? String)
                                             ?.takeIf { it.isNotBlank() }
-                                            ?: delta?.optString("reasoning", "")
+                                            ?: (delta?.opt("reasoning") as? String)
                                                 ?.takeIf { it.isNotBlank() }
                                             ?: ""
 

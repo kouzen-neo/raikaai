@@ -175,9 +175,11 @@ class PersonaStore(
             val persona = parsed.copy(
                 id = "imported_" + System.currentTimeMillis(),
                 name = parsed.name.take(80),
+                iconType = parsed.iconType.take(40).ifBlank { "custom" },
                 description = parsed.description.take(500),
                 greeting = parsed.greeting.take(2_000),
                 systemPrompt = parsed.systemPrompt.take(20_000),
+                avatarUri = parsed.avatarUri.take(2_000),
                 personality = parsed.personality.take(2_000),
                 scenario = parsed.scenario.take(2_000),
                 exampleDialogues = parsed.exampleDialogues.take(8_000),

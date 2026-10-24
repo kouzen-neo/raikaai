@@ -229,7 +229,13 @@ fun ChatScreen(
     onOpenDrawer: () -> Unit = {},
     onNavigateToCharacters: () -> Unit = {},
     onNavigateToModels: () -> Unit = {},
+    onBack: () -> Unit = {},
+    onOpenRightDrawer: () -> Unit = {},
+    isRolePlay: Boolean = false
 ) {
+    LaunchedEffect(isRolePlay) {
+        viewModel.setRoleplayMode(isRolePlay)
+    }
     val settings by viewModel.settings.collectAsState()
     val activePersona by viewModel.activePersona.collectAsState()
     val loadedModelPath by viewModel.loadedModelPath.collectAsState()
@@ -458,6 +464,9 @@ fun ChatScreen(
                 onOpenDrawer = onOpenDrawer,
                 onNavigateToModels = onNavigateToModels,
                 onNewChat = { viewModel.newChat() },
+                onBack = onBack,
+                onOpenRightDrawer = onOpenRightDrawer,
+                isRolePlay = isRolePlay
             )
         },
         bottomBar = {

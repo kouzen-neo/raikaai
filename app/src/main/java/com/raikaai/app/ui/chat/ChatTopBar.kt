@@ -11,8 +11,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.outlined.Psychology
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -39,11 +41,16 @@ fun ChatTopBar(
     onOpenDrawer: () -> Unit,
     onNavigateToModels: () -> Unit,
     onNewChat: () -> Unit,
+    onBack: () -> Unit = {},
+    onOpenRightDrawer: () -> Unit = {},
+    isRolePlay: Boolean = false
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surface,
         tonalElevation = 2.dp,
-        modifier = Modifier.fillMaxWidth().statusBarsPadding(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .statusBarsPadding(),
     ) {
         TopAppBar(
             title = {
@@ -74,11 +81,21 @@ fun ChatTopBar(
             },
             navigationIcon = {
                 IconButton(
-                    onClick = onOpenDrawer,
+                    onClick = {
+                        if (isRolePlay) {
+                            onBack()
+                        } else {
+                            onOpenDrawer()
+                        }
+                    },
                     modifier = Modifier.padding(start = 4.dp),
                 ) {
                     Icon(
-                        Icons.Default.Menu,
+                        imageVector = if (isRolePlay) {
+                            Icons.AutoMirrored.Filled.ArrowBack
+                        } else {
+                            Icons.Default.Menu
+                        },
                         contentDescription = stringResource(R.string.chat_menu),
                         tint = MaterialTheme.colorScheme.onSurface,
                     )
@@ -89,6 +106,13 @@ fun ChatTopBar(
                     Icon(
                         Icons.Default.Add,
                         contentDescription = stringResource(R.string.chat_new_chat),
+                        tint = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+                IconButton(onClick = onOpenRightDrawer) {
+                    Icon(
+                        Icons.Outlined.Psychology,
+                        contentDescription = "Characters",
                         tint = MaterialTheme.colorScheme.onSurface,
                     )
                 }

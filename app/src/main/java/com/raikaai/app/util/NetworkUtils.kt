@@ -30,6 +30,17 @@ object NetworkUtils {
                 .build()
         }
 
+        /** General client for REST APIs (15s connect, 20s read/write). */
+        val apiClient: OkHttpClient by lazy {
+            OkHttpClient.Builder()
+                .connectTimeout(15, TimeUnit.SECONDS)
+                .readTimeout(20, TimeUnit.SECONDS)
+                .writeTimeout(20, TimeUnit.SECONDS)
+                .connectionPool(ConnectionPool(10, 5, TimeUnit.MINUTES))
+                .followRedirects(true)
+                .build()
+        }
+
         /** Long-timeout client for remote AI streaming (120s read timeout). */
         val streamingClient: OkHttpClient by lazy {
             OkHttpClient.Builder()
