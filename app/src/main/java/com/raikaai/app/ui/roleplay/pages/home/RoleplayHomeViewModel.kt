@@ -130,7 +130,7 @@ class RoleplayHomeViewModel(application: Application) : AndroidViewModel(applica
         persistCache()
 
         viewModelScope.launch {
-            RoleplayRepository.incrementView(characterId, nextView)
+            RoleplayRepository.incrementView(characterId)
         }
     }
 

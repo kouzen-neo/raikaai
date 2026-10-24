@@ -66,16 +66,15 @@ object RoleplayRepository {
         return if (categoryId == 9999) result.shuffled() else result
     }
 
-    suspend fun incrementView(characterId: Int, nextView: Int) {
+    suspend fun incrementView(characterId: Int) {
         withContext(Dispatchers.IO) {
             runCatching {
-                val body = gson.toJson(mapOf("view" to nextView))
+                val body = gson.toJson(mapOf("char_id" to characterId))
                     .toRequestBody("application/json".toMediaType())
                 val request = Request.Builder()
-                    .url("${RolePlayConstants.BASE_URL}characters?id=eq.$characterId")
-                    .patch(body)
+                    .url("${RolePlayConstants.BASE_URL}rpc/increment_character_view")
+                    .post(body)
                     .header("apikey", RolePlayConstants.PUBLIC_KEY)
-                    .header("Prefer", "return=representation")
                     .build()
                 client.newCall(request).execute().use { response ->
                     if (!response.isSuccessful) error("HTTP ${response.code}")
