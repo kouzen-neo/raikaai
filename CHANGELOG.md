@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased]
+## [0.1.5] - 2026-10-24
 
 ### Added
 - **Interactive Roleplay Hub**: Dedicated roleplay area with categorised character gallery (Honkai Star Rail, Wuthering Waves, Genshin Impact, Zenless Zone Zero, Arknights Endfield, Others), trending carousels, instant search, and community character creation.
