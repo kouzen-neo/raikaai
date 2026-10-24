@@ -26,7 +26,11 @@ import com.raikaai.app.ui.roleplay.pages.safebooru.RoleplaySafeBooruScreen
 import com.raikaai.app.ui.roleplay.pages.search.RoleplaySearchScreen
 
 @Composable
-fun RoleplayScreen(viewModel: ChatViewModel, onOpenDrawer: () -> Unit = {}) {
+fun RoleplayScreen(
+    viewModel: ChatViewModel,
+    onOpenDrawer: () -> Unit = {},
+    onOpenRightDrawer: () -> Unit = {}
+) {
     val navController = rememberNavController()
     val scope = rememberCoroutineScope()
     var selectedCharacter by remember { mutableStateOf<RoleplayCharacter?>(null) }
@@ -147,6 +151,7 @@ fun RoleplayScreen(viewModel: ChatViewModel, onOpenDrawer: () -> Unit = {}) {
                         viewModel.persistCurrentChat()
                         navController.popBackStack()
                     },
+                    onOpenRightDrawer = onOpenRightDrawer,
                 )
             }
         }
@@ -154,5 +159,9 @@ fun RoleplayScreen(viewModel: ChatViewModel, onOpenDrawer: () -> Unit = {}) {
 }
 
 @Composable
-fun RolePlayHomeScreen(viewModel: ChatViewModel, onOpenDrawer: () -> Unit = {}) =
-    RoleplayScreen(viewModel, onOpenDrawer)
+fun RolePlayHomeScreen(
+    viewModel: ChatViewModel,
+    onOpenDrawer: () -> Unit = {},
+    onOpenRightDrawer: () -> Unit = {}
+) =
+    RoleplayScreen(viewModel, onOpenDrawer, onOpenRightDrawer)

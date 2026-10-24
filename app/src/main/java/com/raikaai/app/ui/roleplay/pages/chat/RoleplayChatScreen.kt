@@ -20,6 +20,7 @@ fun RoleplayChatScreen(
     viewModel: ChatViewModel,
     onOpenDrawer: () -> Unit = {},
     onBack: () -> Unit = {},
+    onOpenRightDrawer: () -> Unit = {},
 ) {
     BackHandler(onBack = onBack)
 
@@ -56,6 +57,7 @@ fun RoleplayChatScreen(
         viewModel = viewModel,
         onOpenDrawer = onOpenDrawer,
         onBack = onBack,
+        onOpenRightDrawer = onOpenRightDrawer,
         isRolePlay = true
     )
 }

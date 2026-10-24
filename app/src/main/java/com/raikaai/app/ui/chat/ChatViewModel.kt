@@ -1354,13 +1354,30 @@ class ChatViewModel(
         personaStore.applyPersona(toSave)
     }
 
+    /** Quick switcher: sets persona active and loads its most recent conversation or starts a fresh one. */
+    fun selectPersonaQuick(persona: PersonaPreset) {
+        viewModelScope.launch {
+            personaStore.applyPersona(persona)
+            val targetRepo = if (roleplayMode) roleplayChatRepo else defaultChatRepo
+            val recentId = targetRepo
+                .listConversationHeaders()
+                .firstOrNull { it.personaId == persona.id }
+                ?.id
+            if (recentId != null) {
+                loadConversation(recentId)
+            } else {
+                newChat(persona)
+            }
+        }
+    }
+
     fun newChat(withPersona: PersonaPreset? = null) {
         // Detach the old conversation BEFORE cancelling generation, so the
         // cancelled job's persist() can never resurrect a just-deleted chat.
         conversation = null
         stopGeneration()
         val p = withPersona ?: activePersona.value
-        val roleplayProfile = if (roleplayMode && p.id.startsWith("roleplay_")) {
+        val roleplayProfile = if (p.id.startsWith("roleplay_")) {
             roleplayProfileStore.load()
         } else {
             null
@@ -4490,7 +4507,7 @@ class ChatViewModel(
     private fun resolveSystemPrompt(s: Settings): String {
         val persona = activePersona.value
         if (persona.id == "general" || persona.id.isBlank()) return s.systemPrompt
-        val profile = if (roleplayMode && persona.id.startsWith("roleplay_")) {
+        val profile = if (persona.id.startsWith("roleplay_")) {
             roleplayProfileStore.load()
         } else {
             null

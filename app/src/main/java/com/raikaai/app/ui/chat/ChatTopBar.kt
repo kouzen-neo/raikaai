@@ -14,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.outlined.Psychology
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -41,6 +42,7 @@ fun ChatTopBar(
     onNavigateToModels: () -> Unit,
     onNewChat: () -> Unit,
     onBack: () -> Unit = {},
+    onOpenRightDrawer: () -> Unit = {},
     isRolePlay: Boolean = false
 ) {
     Surface(
@@ -104,6 +106,13 @@ fun ChatTopBar(
                     Icon(
                         Icons.Default.Add,
                         contentDescription = stringResource(R.string.chat_new_chat),
+                        tint = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+                IconButton(onClick = onOpenRightDrawer) {
+                    Icon(
+                        Icons.Outlined.Psychology,
+                        contentDescription = "Characters",
                         tint = MaterialTheme.colorScheme.onSurface,
                     )
                 }
