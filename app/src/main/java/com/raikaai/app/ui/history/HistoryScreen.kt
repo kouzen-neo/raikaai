@@ -87,15 +87,9 @@ private enum class HistorySortMode { TIME, NAME }
 
 private fun stripThinkingProcess(raw: String): String {
     val clean =
-        raw.replace(
-            Regex("(?is)<(?:think|thought|thinking)(?:\\s+[^>]*)?>.*?</(?:think|thought|thinking)>"),
-            ""
-        )
+        raw.replace(Regex("(?is)<(?:think|thought|thinking)(?:\\s+[^>]*)?>.*?</(?:think|thought|thinking)>"), "")
             .replace(Regex("(?is)<(?:think|thought|thinking)(?:\\s+[^>]*)?>.*"), "")
-            .replace(
-                Regex("(?is)<(?:tool_call|action)(?:\\s+[^>]*)?>.*?</(?:tool_call|action)>"),
-                ""
-            )
+            .replace(Regex("(?is)<(?:tool_call|action)(?:\\s+[^>]*)?>.*?</(?:tool_call|action)>"), "")
             .replace(Regex("(?is)<(?:tool_call|action)(?:\\s+[^>]*)?>.*"), "")
             .trim()
     return clean.ifBlank { raw.trim() }
@@ -156,23 +150,14 @@ fun HistoryScreen(
     }
 
     val filteredList =
-        remember(
-            conversations,
-            query,
-            sortMode,
-            sortDescending,
-            bodyMatchIds,
-            bodySearchQuery,
-            folderFilter,
-            tagFilter
-        ) {
+        remember(conversations, query, sortMode, sortDescending, bodyMatchIds, bodySearchQuery, folderFilter, tagFilter) {
             var list =
                 if (query.isBlank()) {
                     conversations
                 } else {
                     conversations.filter {
                         it.title.contains(query, ignoreCase = true) ||
-                                (query == bodySearchQuery && bodyMatchIds.contains(it.id))
+                            (query == bodySearchQuery && bodyMatchIds.contains(it.id))
                     }
                 }
             val ff = folderFilter
@@ -204,9 +189,7 @@ fun HistoryScreen(
         ) {
             // ── 0. Top Header ──
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -258,16 +241,9 @@ fun HistoryScreen(
                     onClick = { selectedTab = 0 },
                     text = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                Icons.Outlined.History,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp)
-                            )
+                            Icon(Icons.Outlined.History, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(6.dp))
-                            Text(
-                                "Conversations (${conversations.size})",
-                                fontWeight = FontWeight.SemiBold
-                            )
+                            Text("Conversations (${conversations.size})", fontWeight = FontWeight.SemiBold)
                         }
                     },
                 )
@@ -276,11 +252,7 @@ fun HistoryScreen(
                     onClick = { selectedTab = 1 },
                     text = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                Icons.Default.Backup,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp)
-                            )
+                            Icon(Icons.Default.Backup, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(6.dp))
                             Text("Backup & Storage", fontWeight = FontWeight.SemiBold)
                         }
@@ -291,17 +263,14 @@ fun HistoryScreen(
             // ── 2. Content Views ──
             // Hoisted: remember() is illegal inside LazyListScope.
             val folderNames = remember(conversations) {
-                conversations.mapNotNull { it.folder.takeIf { f -> f.isNotBlank() } }.distinct()
-                    .sorted()
+                conversations.mapNotNull { it.folder.takeIf { f -> f.isNotBlank() } }.distinct().sorted()
             }
             val allTagNames = remember(conversations) {
                 conversations.flatMap { it.tags }.filter { it.isNotBlank() }.distinct().sorted()
             }
             if (selectedTab == 0) {
                 LazyColumn(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp),
                     contentPadding = PaddingValues(bottom = 32.dp),
                 ) {
@@ -331,10 +300,7 @@ fun HistoryScreen(
                                     trailingIcon = {
                                         if (query.isNotEmpty()) {
                                             IconButton(onClick = { query = "" }) {
-                                                Icon(
-                                                    Icons.Default.Clear,
-                                                    contentDescription = "Clear search"
-                                                )
+                                                Icon(Icons.Default.Clear, contentDescription = "Clear search")
                                             }
                                         }
                                     },
@@ -343,15 +309,9 @@ fun HistoryScreen(
                                     colors =
                                         OutlinedTextFieldDefaults.colors(
                                             focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant.copy(
-                                                alpha = 0.3f
-                                            ),
-                                            focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(
-                                                alpha = 0.5f
-                                            ),
-                                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(
-                                                alpha = 0.5f
-                                            ),
+                                            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
+                                            focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.5f),
+                                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.5f),
                                         ),
                                     modifier = Modifier.fillMaxWidth(),
                                 )
@@ -379,10 +339,7 @@ fun HistoryScreen(
                                             style = MaterialTheme.typography.labelSmall,
                                             fontWeight = if (isTime) FontWeight.Bold else FontWeight.Normal,
                                             color = if (isTime) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.padding(
-                                                horizontal = 10.dp,
-                                                vertical = 6.dp
-                                            ),
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                                         )
                                     }
 
@@ -404,10 +361,7 @@ fun HistoryScreen(
                                             style = MaterialTheme.typography.labelSmall,
                                             fontWeight = if (isName) FontWeight.Bold else FontWeight.Normal,
                                             color = if (isName) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.padding(
-                                                horizontal = 10.dp,
-                                                vertical = 6.dp
-                                            ),
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                                         )
                                     }
                                 }
@@ -432,10 +386,7 @@ fun HistoryScreen(
                                 items(folderNames, key = { "folder_$it" }) { folder ->
                                     FilterChip(
                                         selected = folderFilter == folder,
-                                        onClick = {
-                                            folderFilter =
-                                                if (folderFilter == folder) null else folder
-                                        },
+                                        onClick = { folderFilter = if (folderFilter == folder) null else folder },
                                         label = { Text(folder) },
                                         leadingIcon = {
                                             Icon(
@@ -467,9 +418,7 @@ fun HistoryScreen(
                                 items(allTagNames, key = { "tag_$it" }) { tag ->
                                     FilterChip(
                                         selected = tagFilter == tag,
-                                        onClick = {
-                                            tagFilter = if (tagFilter == tag) null else tag
-                                        },
+                                        onClick = { tagFilter = if (tagFilter == tag) null else tag },
                                         label = { Text(tag) },
                                         leadingIcon = {
                                             Icon(
@@ -495,375 +444,215 @@ fun HistoryScreen(
                     } else {
                         items(filteredList, key = { it.id }) { conv ->
                             val isActive = conv.id == activeConvId
-                            val dateFormatted =
-                                SimpleDateFormat("MMM d, yyyy · HH:mm", Locale.getDefault()).format(
-                                    Date(conv.updatedAt)
-                                )
+                            val dateFormatted = SimpleDateFormat("MMM d, yyyy · HH:mm", Locale.getDefault()).format(Date(conv.updatedAt))
                             val rawLastMsg = conv.lastMessagePreview
-                            val preview =
-                                stripThinkingProcess(rawLastMsg).take(80).replace("\n", " ")
-                                    .ifBlank { "No messages" }
+                            val preview = stripThinkingProcess(rawLastMsg).take(80).replace("\n", " ").ifBlank { "No messages" }
 
-                            Card(
-                                shape = RoundedCornerShape(16.dp),
-                                colors =
-                                    CardDefaults.cardColors(
-                                        containerColor =
-                                            if (isActive) {
-                                                MaterialTheme.colorScheme.surfaceContainerHigh
-                                            } else {
-                                                MaterialTheme.colorScheme.surfaceContainerLow
-                                            },
-                                    ),
-                                border =
-                                    if (isActive) {
-                                        androidx.compose.foundation.BorderStroke(
-                                            1.dp,
-                                            MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
-                                        )
-                                    } else {
-                                        null
-                                    },
-                                modifier =
-                                    Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(16.dp))
-                                        .clickable {
-                                            viewModel.loadConversation(conv.id)
-                                            onOpenConversation()
+                    Card(
+                        shape = RoundedCornerShape(16.dp),
+                            colors =
+                                CardDefaults.cardColors(
+                                    containerColor =
+                                        if (isActive) {
+                                            MaterialTheme.colorScheme.surfaceContainerHigh
+                                        } else {
+                                            MaterialTheme.colorScheme.surfaceContainerLow
                                         },
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(14.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    // Left Icon container
-                                    Icon(
-                                        Icons.Outlined.ChatBubbleOutline,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.size(24.dp),
+                                ),
+                        border =
+                            if (isActive) {
+                                androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
+                            } else {
+                                null
+                            },
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(16.dp))
+                                .clickable {
+                                    viewModel.loadConversation(conv.id)
+                                    onOpenConversation()
+                                },
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            // Left Icon container
+                            Icon(
+                                Icons.Outlined.ChatBubbleOutline,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(24.dp),
+                            )
+
+                            Spacer(Modifier.width(12.dp))
+
+                            // Middle Info
+                            Column(modifier = Modifier.weight(1f)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = conv.title.ifBlank { "Untitled Chat" },
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f, fill = false),
                                     )
-
-                                    Spacer(Modifier.width(12.dp))
-
-                                    // Middle Info
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Text(
-                                                text = conv.title.ifBlank { "Untitled Chat" },
-                                                style = MaterialTheme.typography.titleMedium,
-                                                fontWeight = FontWeight.SemiBold,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
-                                                modifier = Modifier.weight(1f, fill = false),
-                                            )
-                                            if (conv.hasPinnedModel) {
-                                                Spacer(Modifier.width(4.dp))
-                                                Icon(
-                                                    imageVector = Icons.Default.PushPin,
-                                                    contentDescription = "Pinned model",
-                                                    tint = MaterialTheme.colorScheme.primary,
-                                                    modifier = Modifier.size(12.dp),
-                                                )
-                                            }
-                                        }
-                                        if (conv.folder.isNotBlank()) {
-                                            Spacer(Modifier.height(2.dp))
+                                    if (conv.hasPinnedModel) {
+                                        Spacer(Modifier.width(4.dp))
+                                        Icon(
+                                            imageVector = Icons.Default.PushPin,
+                                            contentDescription = "Pinned model",
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(12.dp),
+                                        )
+                                    }
+                                }
+                                if (conv.folder.isNotBlank()) {
+                                    Spacer(Modifier.height(2.dp))
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = MaterialTheme.colorScheme.secondaryContainer,
+                                    ) {
+                                        Text(
+                                            conv.folder,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
+                                            maxLines = 1,
+                                        )
+                                    }
+                                }
+                                if (conv.tags.isNotEmpty()) {
+                                    Spacer(Modifier.height(2.dp))
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        conv.tags.take(3).forEach { tag ->
                                             Surface(
                                                 shape = RoundedCornerShape(6.dp),
-                                                color = MaterialTheme.colorScheme.secondaryContainer,
+                                                color = MaterialTheme.colorScheme.tertiaryContainer,
                                             ) {
                                                 Text(
-                                                    conv.folder,
+                                                    "#$tag",
                                                     style = MaterialTheme.typography.labelSmall,
                                                     fontSize = 11.sp,
-                                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                                    modifier = Modifier.padding(
-                                                        horizontal = 6.dp,
-                                                        vertical = 1.dp
-                                                    ),
+                                                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
                                                     maxLines = 1,
                                                 )
                                             }
                                         }
-                                        if (conv.tags.isNotEmpty()) {
-                                            Spacer(Modifier.height(2.dp))
-                                            Row(
-                                                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                            ) {
-                                                conv.tags.take(3).forEach { tag ->
-                                                    Surface(
-                                                        shape = RoundedCornerShape(6.dp),
-                                                        color = MaterialTheme.colorScheme.tertiaryContainer,
-                                                    ) {
-                                                        Text(
-                                                            "#$tag",
-                                                            style = MaterialTheme.typography.labelSmall,
-                                                            fontSize = 11.sp,
-                                                            color = MaterialTheme.colorScheme.onTertiaryContainer,
-                                                            modifier = Modifier.padding(
-                                                                horizontal = 6.dp,
-                                                                vertical = 1.dp
-                                                            ),
-                                                            maxLines = 1,
-                                                        )
-                                                    }
-                                                }
-                                                if (conv.tags.size > 3) {
-                                                    Text(
-                                                        "+${conv.tags.size - 3}",
-                                                        style = MaterialTheme.typography.labelSmall,
-                                                        fontSize = 11.sp,
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                    )
-                                                }
-                                            }
-                                        }
-                                        Spacer(Modifier.height(2.dp))
-                                        Text(
-                                            text = preview,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                        )
-                                        Spacer(Modifier.height(4.dp))
-                                        Text(
-                                            text = "$dateFormatted · ${conv.messageCount} msgs",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            fontSize = 11.sp,
-                                        )
-                                    }
-
-                                    // Actions
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        IconButton(
-                                            onClick = {
-                                                folderTarget = conv
-                                                folderInput = conv.folder
-                                            },
-                                            modifier = Modifier.size(32.dp),
-                                        ) {
-                                            Icon(
-                                                Icons.Default.Folder,
-                                                contentDescription = "Move to folder",
-                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                modifier = Modifier.size(18.dp),
-                                            )
-                                        }
-
-                                        IconButton(
-                                            onClick = {
-                                                tagTarget = conv
-                                                tagInput = conv.tags.joinToString(", ")
-                                            },
-                                            modifier = Modifier.size(32.dp),
-                                        ) {
-                                            Icon(
-                                                Icons.Default.Tag,
-                                                contentDescription = "Edit tags",
-                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                modifier = Modifier.size(18.dp),
-                                            )
-                                        }
-
-                                        IconButton(
-                                            onClick = {
-                                                scope.launch {
-                                                    val md =
-                                                        viewModel.exportChatMarkdownById(conv.id)
-                                                    val sendIntent =
-                                                        Intent().apply {
-                                                            action = Intent.ACTION_SEND
-                                                            putExtra(Intent.EXTRA_TEXT, md)
-                                                            type = "text/plain"
-                                                        }
-                                                    context.startActivity(
-                                                        Intent.createChooser(
-                                                            sendIntent,
-                                                            "Export Conversation"
-                                                        )
-                                                    )
-                                                }
-                                            },
-                                            modifier = Modifier.size(32.dp),
-                                        ) {
-                                            Icon(
-                                                Icons.Default.Share,
-                                                contentDescription = "Export",
-                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                modifier = Modifier.size(18.dp),
-                                            )
-                                        }
-
-                                        IconButton(
-                                            onClick = {
-                                                renameTarget = conv
-                                                renameTitle = conv.title
-                                            },
-                                            modifier = Modifier.size(32.dp),
-                                        ) {
-                                            Icon(
-                                                Icons.Default.Edit,
-                                                contentDescription = "Rename",
-                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                modifier = Modifier.size(18.dp),
-                                            )
-                                        }
-
-                                        IconButton(
-                                            onClick = { deleteTarget = conv },
-                                            modifier = Modifier.size(32.dp),
-                                        ) {
-                                            Icon(
-                                                Icons.Default.Delete,
-                                                contentDescription = "Delete",
-                                                tint = MaterialTheme.colorScheme.error,
-                                                modifier = Modifier.size(18.dp),
+                                        if (conv.tags.size > 3) {
+                                            Text(
+                                                "+${conv.tags.size - 3}",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontSize = 11.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             )
                                         }
                                     }
                                 }
+                                Spacer(Modifier.height(2.dp))
+                                Text(
+                                    text = preview,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    text = "$dateFormatted · ${conv.messageCount} msgs",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontSize = 11.sp,
+                                )
                             }
-                        }
-                    }
-                }
-            } else {
-                // ── Tab 1: Backup & Storage ──
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
-                    contentPadding = PaddingValues(bottom = 32.dp),
-                ) {
-                    // Backup & Export Card
-                    item(key = "backup_card") {
-                        Card(
-                            shape = RoundedCornerShape(16.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(16.dp),
-                                verticalArrangement = Arrangement.spacedBy(12.dp),
-                            ) {
-                                Column {
-                                    Text(
-                                        "Backup & Export",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                    )
-                                    Text(
-                                        "Export all conversations to Markdown or JSON for safekeeping",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+
+                            // Actions
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                IconButton(
+                                    onClick = {
+                                        folderTarget = conv
+                                        folderInput = conv.folder
+                                    },
+                                    modifier = Modifier.size(32.dp),
+                                ) {
+                                    Icon(
+                                        Icons.Default.Folder,
+                                        contentDescription = "Move to folder",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(18.dp),
                                     )
                                 }
 
-                                Button(
+                                IconButton(
+                                    onClick = {
+                                        tagTarget = conv
+                                        tagInput = conv.tags.joinToString(", ")
+                                    },
+                                    modifier = Modifier.size(32.dp),
+                                ) {
+                                    Icon(
+                                        Icons.Default.Tag,
+                                        contentDescription = "Edit tags",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                }
+
+                                IconButton(
                                     onClick = {
                                         scope.launch {
-                                            val allText = viewModel.exportAllChatsMarkdown()
+                                            val md = viewModel.exportChatMarkdownById(conv.id)
                                             val sendIntent =
                                                 Intent().apply {
                                                     action = Intent.ACTION_SEND
-                                                    putExtra(Intent.EXTRA_TEXT, allText)
+                                                    putExtra(Intent.EXTRA_TEXT, md)
                                                     type = "text/plain"
                                                 }
-                                            context.startActivity(
-                                                Intent.createChooser(
-                                                    sendIntent,
-                                                    "Export All Conversations"
-                                                )
-                                            )
+                                            context.startActivity(Intent.createChooser(sendIntent, "Export Conversation"))
                                         }
                                     },
-                                    enabled = conversations.isNotEmpty(),
-                                    shape = RoundedCornerShape(12.dp),
-                                    modifier = Modifier.fillMaxWidth(),
+                                    modifier = Modifier.size(32.dp),
                                 ) {
                                     Icon(
                                         Icons.Default.Share,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Spacer(Modifier.width(6.dp))
-                                    Text("Export All Conversations (${conversations.size})")
-                                }
-                            }
-                        }
-                    }
-
-                    // Storage & Data Management Card
-                    item(key = "storage_management_card") {
-                        Card(
-                            shape = RoundedCornerShape(16.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(16.dp),
-                                verticalArrangement = Arrangement.spacedBy(12.dp),
-                            ) {
-                                Column {
-                                    Text(
-                                        "Data Management",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                    )
-                                    Text(
-                                        "Clear cached history or delete all stored local conversations",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        contentDescription = "Export",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(18.dp),
                                     )
                                 }
 
-                                val totalMsgs = conversations.sumOf { it.messageCount }
-                                Surface(
-                                    shape = RoundedCornerShape(12.dp),
-                                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                                    modifier = Modifier.fillMaxWidth(),
-                                ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .padding(12.dp)
-                                            .fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically,
-                                    ) {
-                                        Text(
-                                            "Total Saved Messages",
-                                            style = MaterialTheme.typography.bodyMedium
-                                        )
-                                        Text(
-                                            "$totalMsgs messages",
-                                            style = MaterialTheme.typography.labelLarge,
-                                            color = MaterialTheme.colorScheme.primary,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
-                                }
-
-                                Button(
-                                    onClick = { showClearAllConfirm = true },
-                                    enabled = conversations.isNotEmpty(),
-                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                                    shape = RoundedCornerShape(12.dp),
-                                    modifier = Modifier.fillMaxWidth(),
+                                IconButton(
+                                    onClick = {
+                                        renameTarget = conv
+                                        renameTitle = conv.title
+                                    },
+                                    modifier = Modifier.size(32.dp),
                                 ) {
                                     Icon(
-                                        Icons.Default.DeleteSweep,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(16.dp)
+                                        Icons.Default.Edit,
+                                        contentDescription = "Rename",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(18.dp),
                                     )
-                                    Spacer(Modifier.width(6.dp))
-                                    Text("Clear All Conversation History")
+                                }
+
+                                IconButton(
+                                    onClick = { deleteTarget = conv },
+                                    modifier = Modifier.size(32.dp),
+                                ) {
+                                    Icon(
+                                        Icons.Default.Delete,
+                                        contentDescription = "Delete",
+                                        tint = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.size(18.dp),
+                                    )
                                 }
                             }
                         }
@@ -871,23 +660,129 @@ fun HistoryScreen(
                 }
             }
         }
+    } else {
+        // ── Tab 1: Backup & Storage ──
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+            contentPadding = PaddingValues(bottom = 32.dp),
+        ) {
+            // Backup & Export Card
+            item(key = "backup_card") {
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Column {
+                            Text(
+                                "Backup & Export",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                            )
+                            Text(
+                                "Export all conversations to Markdown or JSON for safekeeping",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+
+                        Button(
+                            onClick = {
+                                scope.launch {
+                                    val allText = viewModel.exportAllChatsMarkdown()
+                                    val sendIntent =
+                                        Intent().apply {
+                                            action = Intent.ACTION_SEND
+                                            putExtra(Intent.EXTRA_TEXT, allText)
+                                            type = "text/plain"
+                                        }
+                                context.startActivity(Intent.createChooser(sendIntent, "Export All Conversations"))
+                                }
+                            },
+                            enabled = conversations.isNotEmpty(),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Export All Conversations (${conversations.size})")
+                        }
+                    }
+                }
+            }
+
+            // Storage & Data Management Card
+            item(key = "storage_management_card") {
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Column {
+                            Text(
+                                "Data Management",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                            )
+                            Text(
+                                "Clear cached history or delete all stored local conversations",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+
+                        val totalMsgs = conversations.sumOf { it.messageCount }
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp).fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text("Total Saved Messages", style = MaterialTheme.typography.bodyMedium)
+                                Text("$totalMsgs messages", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                            }
+                        }
+
+                        Button(
+                            onClick = { showClearAllConfirm = true },
+                            enabled = conversations.isNotEmpty(),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Icon(Icons.Default.DeleteSweep, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Clear All Conversation History")
+                        }
+                    }
+                }
+            }
+        }
     }
+}
+}
 
     // ── Dialogs ──
     if (folderTarget != null) {
         val existingFolders = remember(conversations) {
-            conversations.mapNotNull { it.folder.takeIf { f -> f.isNotBlank() } }.distinct()
-                .sorted()
+            conversations.mapNotNull { it.folder.takeIf { f -> f.isNotBlank() } }.distinct().sorted()
         }
         AlertDialog(
             onDismissRequest = { folderTarget = null },
-            icon = {
-                Icon(
-                    Icons.Default.Folder,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary
-                )
-            },
+            icon = { Icon(Icons.Default.Folder, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
             title = { Text("Move to Folder") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -905,12 +800,7 @@ fun HistoryScreen(
                                 FilterChip(
                                     selected = folderInput == folder,
                                     onClick = { folderInput = folder },
-                                    label = {
-                                        Text(
-                                            folder,
-                                            style = MaterialTheme.typography.labelSmall
-                                        )
-                                    },
+                                    label = { Text(folder, style = MaterialTheme.typography.labelSmall) },
                                 )
                             }
                         }
@@ -942,13 +832,7 @@ fun HistoryScreen(
         }
         AlertDialog(
             onDismissRequest = { tagTarget = null },
-            icon = {
-                Icon(
-                    Icons.Default.Tag,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary
-                )
-            },
+            icon = { Icon(Icons.Default.Tag, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
             title = { Text("Edit Tags") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -975,12 +859,7 @@ fun HistoryScreen(
                                                 (currentTags + tag).joinToString(", ")
                                             }
                                     },
-                                    label = {
-                                        Text(
-                                            tag,
-                                            style = MaterialTheme.typography.labelSmall
-                                        )
-                                    },
+                                    label = { Text(tag, style = MaterialTheme.typography.labelSmall) },
                                 )
                             }
                         }
@@ -1011,13 +890,7 @@ fun HistoryScreen(
     if (renameTarget != null) {
         AlertDialog(
             onDismissRequest = { renameTarget = null },
-            icon = {
-                Icon(
-                    Icons.Outlined.Edit,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary
-                )
-            },
+            icon = { Icon(Icons.Outlined.Edit, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
             title = { Text("Rename Chat") },
             text = {
                 OutlinedTextField(
@@ -1048,13 +921,7 @@ fun HistoryScreen(
     if (deleteTarget != null) {
         AlertDialog(
             onDismissRequest = { deleteTarget = null },
-            icon = {
-                Icon(
-                    Icons.Default.Delete,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.error
-                )
-            },
+            icon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
             title = { Text("Delete Conversation?") },
             text = { Text("This will permanently delete '${deleteTarget?.title}'.") },
             confirmButton = {
@@ -1077,13 +944,7 @@ fun HistoryScreen(
     if (showClearAllConfirm) {
         AlertDialog(
             onDismissRequest = { showClearAllConfirm = false },
-            icon = {
-                Icon(
-                    Icons.Default.DeleteSweep,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.error
-                )
-            },
+            icon = { Icon(Icons.Default.DeleteSweep, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
             title = { Text("Clear All History?") },
             text = { Text("This will delete all saved conversation transcripts. This action cannot be undone.") },
             confirmButton = {

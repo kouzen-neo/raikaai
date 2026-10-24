@@ -4,19 +4,11 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.gson.Gson
-import com.google.gson.JsonParser
 import com.google.gson.annotations.SerializedName
-import com.google.gson.reflect.TypeToken
-import kotlinx.coroutines.Dispatchers
+import com.raikaai.app.data.RoleplayRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
-import com.raikaai.app.data.RolePlayConstants
 
 data class RoleplayCategory(val id: Int, val name: String, val slug: String)
 data class RoleplayCharacter(
@@ -56,40 +48,21 @@ private data class RoleplayHomeCache(
 )
 
 class RoleplayHomeViewModel(application: Application) : AndroidViewModel(application) {
-    private val client = OkHttpClient()
     private val gson = Gson()
     private val pages = mutableMapOf<Int, MutableList<RoleplayCharacter>>()
     private val offsets = mutableMapOf<Int, Int>()
     private val state = MutableStateFlow(RoleplayHomeState())
     val uiState: StateFlow<RoleplayHomeState> = state
+
     // v2 avoids restoring entries written by the old Gson model, which could
     // contain JVM nulls in Kotlin non-null fields after a release update.
     private val cachePreferences = application.getSharedPreferences("roleplay_home_cache_v2", 0)
 
-    // Gson can bypass Kotlin constructors and inject null into non-null fields.
-    // Normalize API rows before exposing them to Compose.
-    private fun parseCharacters(json: String): List<RoleplayCharacter> = runCatching {
-        JsonParser.parseString(json).asJsonArray.mapNotNull { value ->
-            val o = value.asJsonObject
-            val id = o.get("id")?.asInt ?: return@mapNotNull null
-            val name = o.get("name")?.asString?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
-            RoleplayCharacter(
-                id = id,
-                name = name,
-                slug = o.get("slug")?.asString.orEmpty(),
-                description = o.get("description")?.takeUnless { it.isJsonNull }?.asString,
-                greeting = o.get("greeting")?.takeUnless { it.isJsonNull }?.asString,
-                systemPrompt = o.get("system_prompt")?.takeUnless { it.isJsonNull }?.asString,
-                avatarUrl = o.get("avatar_url")?.takeUnless { it.isJsonNull }?.asString,
-                categoryId = o.get("category_id")?.asInt ?: 9999,
-                view = o.get("view")?.asInt ?: 0,
-            )
-        }
-    }.getOrDefault(emptyList())
-
     init {
         restoreCache()
-        loadCategories(); loadTrending(); loadCategory(9999, true)
+        loadCategories()
+        loadTrending()
+        loadCategory(9999, true)
     }
 
     private fun restoreCache() {
@@ -125,8 +98,7 @@ class RoleplayHomeViewModel(application: Application) : AndroidViewModel(applica
 
     private fun loadTrending() = viewModelScope.launch {
         runCatching {
-            val json = get("characters?select=id,name,slug,description,greeting,system_prompt,avatar_url,category_id,view&order=view.desc&limit=4")
-            parseCharacters(json)
+            RoleplayRepository.loadTrending()
         }.onSuccess {
             state.value = state.value.copy(trending = it)
             persistCache()
@@ -157,52 +129,25 @@ class RoleplayHomeViewModel(application: Application) : AndroidViewModel(applica
         )
         persistCache()
 
-        viewModelScope.launch(Dispatchers.IO) {
-            runCatching {
-                val body = gson.toJson(mapOf("view" to nextView))
-                    .toRequestBody("application/json".toMediaType())
-                client.newCall(
-                    Request.Builder()
-                        .url("${RolePlayConstants.BASE_URL}characters?id=eq.$characterId")
-                        .patch(body)
-                        .header("apikey", RolePlayConstants.PUBLIC_KEY)
-                        .header("Prefer", "return=representation")
-                        .build(),
-                ).execute().use { response ->
-                    if (!response.isSuccessful) error("HTTP ${response.code}")
-                }
-            }.onFailure { error ->
-                println("Roleplay view update failed for $characterId: ${error.message}")
-            }
+        viewModelScope.launch {
+            RoleplayRepository.incrementView(characterId, nextView)
         }
     }
 
     fun loadMore() {
-        if (!state.value.loading && !state.value.loadingMore && state.value.hasMore) loadCategory(
-            state.value.selectedCategoryId,
-            false
-        )
+        if (!state.value.loading && !state.value.loadingMore && state.value.hasMore) {
+            loadCategory(state.value.selectedCategoryId, false)
+        }
     }
 
     private fun loadCategories() = viewModelScope.launch {
-            runCatching {
-            get("categories?select=id,name,slug&order=id.asc").let {
-                JsonParser.parseString(it).asJsonArray.mapNotNull { value ->
-                    val o = value.asJsonObject
-                    val id = o.get("id")?.asInt ?: return@mapNotNull null
-                    val name = o.get("name")?.asString?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
-                    RoleplayCategory(id, name, o.get("slug")?.asString.orEmpty())
-                }
-            }
-        }.onSuccess {
+        runCatching {
+            RoleplayRepository.loadCategories()
+        }.onSuccess { fetched ->
             state.value = state.value.copy(
                 categories = (listOf(
-                    RoleplayCategory(
-                        9999,
-                        "Discover",
-                        "discover"
-                    )
-                ) + it).distinctBy { category -> category.id }
+                    RoleplayCategory(9999, "Discover", "discover")
+                ) + fetched).distinctBy { category -> category.id }
             )
             persistCache()
         }
@@ -220,35 +165,21 @@ class RoleplayHomeViewModel(application: Application) : AndroidViewModel(applica
             state.value = state.value.copy(loading = reset, loadingMore = !reset, error = null)
             runCatching {
                 val offset = if (reset) 0 else offsets[categoryId] ?: 0
-                val filter = if (categoryId == 9999) "" else "&category_id=eq.$categoryId"
-                val json =
-            get("characters?select=id,name,slug,description,greeting,system_prompt,avatar_url,category_id,view&order=name.asc&limit=50&offset=$offset$filter")
-                val result = parseCharacters(json)
-                if (categoryId == 9999) result.shuffled() else result
+                RoleplayRepository.loadCharacters(categoryId, offset)
             }.onSuccess { result ->
                 val list =
                     if (reset) result.toMutableList() else (pages[categoryId].orEmpty() + result).toMutableList()
                 pages[categoryId] = list
                 offsets[categoryId] = list.size
-                if (state.value.selectedCategoryId == categoryId) state.value =
-                    state.value.copy(characters = list, hasMore = result.size == 50)
+                if (state.value.selectedCategoryId == categoryId) {
+                    state.value = state.value.copy(characters = list, hasMore = result.size == 50)
+                }
                 persistCache()
             }.onFailure {
-                if (state.value.selectedCategoryId == categoryId) state.value =
-                    state.value.copy(error = it.message)
+                if (state.value.selectedCategoryId == categoryId) {
+                    state.value = state.value.copy(error = it.message)
+                }
             }
             state.value = state.value.copy(loading = false, loadingMore = false)
         }
-
-    private suspend fun get(path: String): String = withContext(Dispatchers.IO) {
-        client.newCall(Request.Builder().url(RolePlayConstants.BASE_URL + path).header("apikey", RolePlayConstants.PUBLIC_KEY).build())
-            .execute().use { response ->
-            if (!response.isSuccessful) error(
-                "HTTP ${response.code}: ${
-                    response.body?.string().orEmpty()
-                }"
-            )
-            response.body?.string().orEmpty()
-        }
-    }
 }

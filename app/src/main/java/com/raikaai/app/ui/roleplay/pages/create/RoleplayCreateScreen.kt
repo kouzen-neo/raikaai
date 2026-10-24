@@ -16,7 +16,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -27,24 +26,16 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import com.raikaai.app.data.RoleplayRepository
 import com.raikaai.app.ui.chat.ChatViewModel
-import com.raikaai.app.data.RolePlayConstants
-import com.raikaai.app.ui.roleplay.pages.home.RoleplayCharacter
-import com.google.gson.Gson
-import com.google.gson.JsonParser
-import kotlinx.coroutines.Dispatchers
+import com.raikaai.app.ui.chat.PersonaPreset
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 
 @Composable
 fun RoleplayCreateScreen(
@@ -62,6 +53,7 @@ fun RoleplayCreateScreen(
     var isPublishing by remember { mutableStateOf(false) }
     var publishError by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+
     LaunchedEffect(selectedImageUrl) {
         if (selectedImageUrl.isNotBlank()) imageUrl = selectedImageUrl
     }
@@ -119,7 +111,7 @@ fun RoleplayCreateScreen(
                         modifier = Modifier.size(70.dp),
                     )
                     Spacer(Modifier.width(10.dp))
-                    Column { 
+                    Column {
                         Text(name, style = MaterialTheme.typography.headlineSmall)
                         Text(description, maxLines = 3, style = MaterialTheme.typography.bodySmall)
                     }
@@ -140,10 +132,16 @@ fun RoleplayCreateScreen(
                         scope.launch {
                             isPublishing = true
                             publishError = null
-                            val character = publishCharacter(name, description, greeting, systemPrompt, imageUrl)
+                            val character = RoleplayRepository.publishCharacter(
+                                name = name,
+                                description = description,
+                                greeting = greeting,
+                                systemPrompt = systemPrompt,
+                                avatarUrl = imageUrl,
+                            )
                             if (character != null) {
                                 viewModel?.saveRoleplayCharacterToHistory(
-                                    com.raikaai.app.ui.chat.PersonaPreset(
+                                    PersonaPreset(
                                         id = "roleplay_${character.id}",
                                         name = character.name,
                                         description = character.description.orEmpty(),
@@ -179,54 +177,6 @@ fun RoleplayCreateScreen(
             confirmButton = { TextButton(onClick = { publishError = null }) { Text("OK") } },
         )
     }
-}
-
-private suspend fun publishCharacter(
-    name: String,
-    description: String,
-    greeting: String,
-    systemPrompt: String,
-    avatarUrl: String,
-): RoleplayCharacter? = withContext(Dispatchers.IO) {
-    runCatching {
-        val slug = name.trim().lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-')
-        val payload = Gson().toJson(
-            mapOf(
-                "name" to name.trim(),
-                "slug" to slug,
-                "description" to description.trim(),
-                "greeting" to greeting.trim(),
-                "system_prompt" to systemPrompt.trim(),
-                "avatar_url" to avatarUrl.trim().ifBlank { null },
-            ),
-        )
-        OkHttpClient().newCall(
-            Request.Builder()
-                .url("${RolePlayConstants.BASE_URL}characters")
-                .post(payload.toRequestBody("application/json".toMediaType()))
-                .header("apikey", RolePlayConstants.PUBLIC_KEY)
-                .header("Prefer", "return=representation")
-                .build(),
-        ).execute().use { response ->
-            if (!response.isSuccessful) error("HTTP ${response.code}")
-            JsonParser.parseString(response.body?.string().orEmpty()).asJsonArray.firstOrNull()?.let { value ->
-                val o = value.asJsonObject
-                val id = o.get("id")?.asInt ?: return@let null
-                val createdName = o.get("name")?.asString?.takeIf { it.isNotBlank() } ?: return@let null
-                RoleplayCharacter(
-                    id = id,
-                    name = createdName,
-                    slug = o.get("slug")?.asString.orEmpty(),
-                    description = o.get("description")?.takeUnless { it.isJsonNull }?.asString,
-                    greeting = o.get("greeting")?.takeUnless { it.isJsonNull }?.asString,
-                    systemPrompt = o.get("system_prompt")?.takeUnless { it.isJsonNull }?.asString,
-                    avatarUrl = o.get("avatar_url")?.takeUnless { it.isJsonNull }?.asString,
-                    categoryId = o.get("category_id")?.asInt ?: 9999,
-                    view = o.get("view")?.asInt ?: 0,
-                )
-            }
-        }
-    }.getOrNull()
 }
 
 @Composable

@@ -4,12 +4,14 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.CircularProgressIndicator
@@ -20,24 +22,24 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import coil3.request.CachePolicy
 import coil3.request.ImageRequest
+import com.raikaai.app.util.NetworkUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.Request
 import org.json.JSONArray
 import java.net.URLEncoder
-import java.net.HttpURLConnection
-import java.net.URL
 
 private data class SafeBooruTag(val label: String, val value: String)
 private data class SafeBooruPost(val id: Int, val previewUrl: String, val sampleUrl: String)
@@ -55,6 +57,7 @@ fun RoleplaySafeBooruScreen(
     var loading by remember { mutableStateOf(false) }
     var page by remember { mutableStateOf(0) }
     var hasMore by remember { mutableStateOf(true) }
+    val gridState = rememberLazyGridState()
 
     LaunchedEffect(query) {
         val search = query.trim()
@@ -81,6 +84,20 @@ fun RoleplaySafeBooruScreen(
         posts = if (page == 0) result else posts + result
         hasMore = result.isNotEmpty()
         loading = false
+    }
+
+    val shouldLoadMore by remember {
+        derivedStateOf {
+            val total = gridState.layoutInfo.totalItemsCount
+            val lastVisible = gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            total > 0 && lastVisible >= total - 6
+        }
+    }
+
+    LaunchedEffect(shouldLoadMore) {
+        if (shouldLoadMore && !loading && hasMore && posts.isNotEmpty()) {
+            page += 1
+        }
     }
 
     Column(modifier.fillMaxSize()) {
@@ -113,6 +130,7 @@ fun RoleplaySafeBooruScreen(
             Text(tag.label, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(horizontal = 16.dp))
         }
         LazyVerticalGrid(
+            state = gridState,
             columns = GridCells.Fixed(3),
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(16.dp),
@@ -130,10 +148,6 @@ fun RoleplaySafeBooruScreen(
             }
             if (loading) {
                 item { CircularProgressIndicator(Modifier.padding(16.dp)) }
-            } else if (hasMore && posts.isNotEmpty()) {
-                item {
-                    LaunchedEffect(posts.size) { page += 1 }
-                }
             }
         }
     }
@@ -141,18 +155,44 @@ fun RoleplaySafeBooruScreen(
 
 private suspend fun requestTags(query: String): List<SafeBooruTag> = withContext(Dispatchers.IO) {
     runCatching {
-        val json = URL("https://safebooru.org/autocomplete.php?q=${URLEncoder.encode(query, "UTF-8")}").readText()
-        val array = JSONArray(json)
-        (0 until minOf(array.length(), 5)).map { SafeBooruTag(array.getJSONObject(it).getString("label"), array.getJSONObject(it).getString("value")) }
+        val encoded = URLEncoder.encode(query, "UTF-8")
+        val url = "https://safebooru.org/autocomplete.php?q=$encoded"
+        val request = Request.Builder()
+            .url(url)
+            .header("User-Agent", "RaikaAI/1.0")
+            .build()
+        NetworkUtils.HttpClient.apiClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) return@runCatching emptyList()
+            val json = response.body?.string().orEmpty()
+            val array = JSONArray(json)
+            (0 until minOf(array.length(), 5)).map {
+                val obj = array.getJSONObject(it)
+                SafeBooruTag(obj.optString("label"), obj.optString("value"))
+            }
+        }
     }.getOrDefault(emptyList())
 }
 
 private suspend fun requestPosts(tag: String, page: Int): List<SafeBooruPost> = withContext(Dispatchers.IO) {
     runCatching {
-        val url = URL("https://safebooru.org/index.php?page=dapi&s=post&q=index&json=1&limit=60&pid=$page&tags=${URLEncoder.encode("$tag sort:score:desc", "UTF-8")}")
-        val text = (url.openConnection() as HttpURLConnection).apply { requestMethod = "GET" }.inputStream.bufferedReader().use { it.readText() }
-        val array = JSONArray(text)
-        (0 until array.length()).map { val post = array.getJSONObject(it); SafeBooruPost(post.getInt("id"), post.getString("preview_url"), post.getString("sample_url")) }
+        val encodedTag = URLEncoder.encode("$tag sort:score:desc", "UTF-8")
+        val url = "https://safebooru.org/index.php?page=dapi&s=post&q=index&json=1&limit=60&pid=$page&tags=$encodedTag"
+        val request = Request.Builder()
+            .url(url)
+            .header("User-Agent", "RaikaAI/1.0")
+            .build()
+        NetworkUtils.HttpClient.apiClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) return@runCatching emptyList()
+            val text = response.body?.string().orEmpty()
+            val array = JSONArray(text)
+            (0 until array.length()).mapNotNull { i ->
+                val post = array.optJSONObject(i) ?: return@mapNotNull null
+                val id = post.optInt("id", 0).takeIf { it > 0 } ?: return@mapNotNull null
+                val preview = post.optString("preview_url", "")
+                val sample = post.optString("sample_url", preview)
+                if (preview.isBlank()) return@mapNotNull null
+                SafeBooruPost(id, preview, sample)
+            }
+        }
     }.getOrDefault(emptyList())
 }
-
