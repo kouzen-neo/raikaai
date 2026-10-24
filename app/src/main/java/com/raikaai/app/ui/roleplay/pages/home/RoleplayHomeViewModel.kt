@@ -162,7 +162,12 @@ class RoleplayHomeViewModel(application: Application) : AndroidViewModel(applica
                 )
                 return@launch
             }
-            state.value = state.value.copy(loading = reset, loadingMore = !reset, error = null)
+            val hasCached = pages[categoryId]?.isNotEmpty() == true
+            state.value = state.value.copy(
+                loading = reset && !hasCached,
+                loadingMore = !reset,
+                error = null
+            )
             runCatching {
                 val offset = if (reset) 0 else offsets[categoryId] ?: 0
                 RoleplayRepository.loadCharacters(categoryId, offset)

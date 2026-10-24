@@ -14,6 +14,16 @@ import okhttp3.RequestBody.Companion.toRequestBody
 object RoleplayRepository {
     private val client get() = NetworkUtils.HttpClient.apiClient
     private val gson = Gson()
+    private val safebooruRegex = Regex(
+        """safebooru\.org/(?:images|samples)/(\d+)/(?:sample_)?([a-f0-9]+)\.(?:jpg|png|jpeg|webp)""",
+        RegexOption.IGNORE_CASE
+    )
+
+    fun toThumbnailUrl(url: String?): String {
+        val raw = url.orEmpty().trim()
+        if (raw.isBlank()) return ""
+        return raw.replace(safebooruRegex, "safebooru.org/thumbnails/$1/thumbnail_$2.jpg")
+    }
 
     fun parseCharacters(json: String): List<RoleplayCharacter> = runCatching {
         JsonParser.parseString(json).asJsonArray.mapNotNull { value ->

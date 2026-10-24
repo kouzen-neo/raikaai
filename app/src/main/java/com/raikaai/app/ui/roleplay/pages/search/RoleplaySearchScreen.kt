@@ -116,7 +116,7 @@ fun RoleplaySearchScreen(
                 ) {
                     AsyncImage(
                         model = ImageRequest.Builder(LocalContext.current)
-                            .data(character.avatarUrl)
+                            .data(RoleplayRepository.toThumbnailUrl(character.avatarUrl))
                             .memoryCachePolicy(CachePolicy.ENABLED)
                             .diskCachePolicy(CachePolicy.ENABLED)
                             .build(),

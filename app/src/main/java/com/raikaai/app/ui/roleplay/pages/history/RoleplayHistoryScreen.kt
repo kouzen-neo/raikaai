@@ -130,7 +130,7 @@ private fun HistoryConversationRow(
         if (conversation.personaAvatarUri.isNotBlank()) {
             AsyncImage(
                 model = ImageRequest.Builder(LocalContext.current)
-                    .data(conversation.personaAvatarUri)
+                    .data(com.raikaai.app.data.RoleplayRepository.toThumbnailUrl(conversation.personaAvatarUri))
                     .memoryCachePolicy(CachePolicy.ENABLED)
                     .diskCachePolicy(CachePolicy.ENABLED)
                     .build(),
