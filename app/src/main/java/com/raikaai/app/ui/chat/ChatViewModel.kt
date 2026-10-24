@@ -129,36 +129,6 @@ val PERSONA_PRESETS =
             greeting = "Hello! I am your local AI assistant. How can I help you today?",
             systemPrompt = DEFAULT_SYSTEM_PROMPT,
         ),
-        PersonaPreset(
-            id = "coder",
-            name = "Coder",
-            iconType = "coder",
-            description = "Software engineering and system architecture expert.",
-            greeting = "Hello! Programming assistant ready.",
-            systemPrompt = "You are an expert programming assistant.",
-            temperature = 0.1f,
-            topK = 20,
-        ),
-        PersonaPreset(
-            id = "translator",
-            name = "Translator",
-            iconType = "translator",
-            description = "Professional linguist.",
-            greeting = "Hello! Please enter text to translate.",
-            systemPrompt = "You are a professional translator.",
-            temperature = 0.2f,
-            topK = 30,
-        ),
-        PersonaPreset(
-            id = "summarizer",
-            name = "Summarize",
-            iconType = "summarizer",
-            description = "Condenses text into key takeaways.",
-            greeting = "Hello! Provide text to summarize.",
-            systemPrompt = "You are an expert summarizer.",
-            temperature = 0.3f,
-            topK = 40,
-        ),
     )
 
 /**
