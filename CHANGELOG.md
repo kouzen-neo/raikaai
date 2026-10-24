@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### Added
+- **Interactive Roleplay Hub**: Dedicated roleplay area with categorised character gallery (Honkai Star Rail, Wuthering Waves, Genshin Impact, Zenless Zone Zero, Arknights Endfield, Others), trending carousels, instant search, and community character creation.
+- **Supabase Cloud Character Sync**: Centralized community character catalog powered by Supabase PostgreSQL backend with secure Row Level Security (RLS) policies and RPC view counting.
+- **Safebooru Image Integration**: Built-in anime and game image tag search engine for one-tap character avatar selection during character creation.
+- **Right Sidebar Quick Character Switcher**: Dedicated right-hand drawer sheet with avatar previews and search filter for instant character switching. Automatically resumes the latest conversation with the selected character or starts a fresh session.
+- **Roleplay Profile & Persona Persistence**: Isolated roleplay user persona (Name, Gender, Description) and `{{user}}` dynamic greeting variable substitution that automatically carries over when roleplay characters are selected in main chat.
+- **Character JSON Export & Copy**: Full Character Card v2 schema compatibility with one-tap JSON copying to clipboard for both custom and built-in personas.
+- **Supabase Keep-Alive Automation**: Scheduled GitHub Actions workflow pinging backend endpoints to prevent inactivity auto-pause on free-tier infrastructure.
+
+### Changed
+- **Isolated Roleplay Storage**: Roleplay conversations are stored in an independent database partition (`roleplay_chats`), preventing roleplay sessions from cluttering the primary drawer history.
+- **Streamlined Built-in Presets**: Simplified built-in personas down to General as the primary default, allowing full preview, prompt editing, and JSON export.
+- **Coil 3 Image Pipeline**: Added Coil 3 Compose image loader supporting HTTP(S), local files, and content URIs with automatic disk/memory caching and crossfade animations.
+
+### Fixed & Optimized
+- **Instant Roleplay Gallery Loading**: Converted raw multi-megabyte Safebooru PNG downloads to lightweight thumbnail CDN endpoints (~14 KB per image), reducing category load times from 20+ seconds to instant.
+- **Pagination Loop Mitigation**: Replaced greedy recomposition triggers with scroll-driven `derivedStateOf` threshold detection for smooth on-demand pagination.
+- **Chat History Leakage**: Resolved issue where roleplay chats exited via back navigation would erroneously persist into the general history repository.
+- **Null Safety in Remote AI Reasoning**: Fixed `RemoteAiClient` JSON parser where `optString` transformed metadata null tokens into the literal string `"null"`.
+
 ## [0.1.4] - 2026-10-16
 
 ### Added
