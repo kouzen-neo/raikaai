@@ -111,7 +111,11 @@ fun HistoryScreen(
     onBack: () -> Unit = {},
     onOpenConversation: () -> Unit = {},
 ) {
-    val conversations = viewModel.conversations.value
+    LaunchedEffect(Unit) {
+        viewModel.setRoleplayMode(false)
+        viewModel.refreshConversations()
+    }
+    val conversations = viewModel.normalConversations.value
     val activeConvId = viewModel.currentConversationId
     val context = LocalContext.current
     val scope = rememberCoroutineScope()

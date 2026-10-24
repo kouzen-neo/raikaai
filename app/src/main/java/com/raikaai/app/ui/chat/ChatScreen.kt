@@ -229,6 +229,7 @@ fun ChatScreen(
     onOpenDrawer: () -> Unit = {},
     onNavigateToCharacters: () -> Unit = {},
     onNavigateToModels: () -> Unit = {},
+    onBack: () -> Unit = {},
     isRolePlay: Boolean = false
 ) {
     LaunchedEffect(isRolePlay) {
@@ -465,6 +466,7 @@ fun ChatScreen(
                 onOpenDrawer = onOpenDrawer,
                 onNavigateToModels = onNavigateToModels,
                 onNewChat = { viewModel.newChat() },
+                onBack = onBack,
                 isRolePlay = isRolePlay
             )
         },

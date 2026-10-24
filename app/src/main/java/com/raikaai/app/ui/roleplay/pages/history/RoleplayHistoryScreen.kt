@@ -49,8 +49,11 @@ fun RoleplayHistoryScreen(
     viewModel: ChatViewModel,
     onOpenChat: (String) -> Unit = {},
 ) {
-    LaunchedEffect(Unit) { viewModel.setRoleplayMode(true) }
-    val conversations = viewModel.conversations.value
+    LaunchedEffect(Unit) {
+        viewModel.setRoleplayMode(true)
+        viewModel.refreshConversations()
+    }
+    val conversations = viewModel.roleplayConversations.value
     var query by remember { mutableStateOf("") }
     var deleteTarget by remember { mutableStateOf<ConversationHeader?>(null) }
 

@@ -249,6 +249,8 @@ class ChatViewModel(
     val conversations = mutableStateOf<List<ConversationHeader>>(emptyList())
     /** Normal-chat history for the global drawer; never replaced by roleplay history. */
     val normalConversations = mutableStateOf<List<ConversationHeader>>(emptyList())
+    /** Roleplay-chat history; never mixed with normal history. */
+    val roleplayConversations = mutableStateOf<List<ConversationHeader>>(emptyList())
 
     // Character/persona state lives in PersonaStore; these accessors keep
     // UI and internal call sites unchanged.
@@ -1156,9 +1158,11 @@ class ChatViewModel(
 
     fun refreshConversations() {
         viewModelScope.launch {
-            val activeRepo = chatRepo
-            conversations.value = activeRepo.listConversationHeaders()
-            normalConversations.value = defaultChatRepo.listConversationHeaders()
+            val normal = defaultChatRepo.listConversationHeaders()
+            val roleplay = roleplayChatRepo.listConversationHeaders()
+            normalConversations.value = normal
+            roleplayConversations.value = roleplay
+            conversations.value = if (roleplayMode) roleplay else normal
         }
     }
 
@@ -1299,8 +1303,16 @@ class ChatViewModel(
         if (currentConversationId == id) return
         stopGeneration()
         viewModelScope.launch {
-            val conv = chatRepo.get(id)
+            val conv = if (roleplayMode) {
+                roleplayChatRepo.get(id) ?: defaultChatRepo.get(id)
+            } else {
+                defaultChatRepo.get(id) ?: roleplayChatRepo.get(id)
+            }
             if (conv != null) {
+                val isRp = conv.personaId?.startsWith("roleplay_") == true
+                if (isRp != roleplayMode) {
+                    roleplayMode = isRp
+                }
                 conversation = conv
                 currentConversationId = conv.id
                 rebuildFromTree()
@@ -1328,12 +1340,13 @@ class ChatViewModel(
                     conv.personaGreeting = resolved.greeting
                     conv.personaSystemPrompt = resolved.systemPrompt
                     conv.personaAvatarUri = resolved.avatarUri
-                    chatRepo.save(conv)
+                    roleplayChatRepo.save(conv)
                 }
                 personaStore.applyPersona(resolved)
                 personaStore.pendingPersonaRestoreId =
                     if (conv.personaId != null && resolved.id != conv.personaId) conv.id else null
                 refreshPinState()
+                refreshConversations()
             }
         }
     }
@@ -1359,6 +1372,9 @@ class ChatViewModel(
         newConv.personaDescription = p.description
         newConv.personaGreeting = roleplayGreeting
         newConv.personaSystemPrompt = p.systemPrompt
+        if (p.id.startsWith("roleplay_")) {
+            newConv.title = p.name
+        }
         personaStore.pendingPersonaRestoreId = null
         conversation = newConv
         nodes.clear()
@@ -1387,8 +1403,8 @@ class ChatViewModel(
 
     /** Clears only an in-memory roleplay persona when entering normal chat. */
     fun clearRoleplayPersonaForNormalChat() {
-        if (activePersona.value.id.startsWith("roleplay_")) {
-            personaStore.applyPersona(PERSONA_PRESETS.first())
+        if (activePersona.value.id.startsWith("roleplay_") || conversation?.personaId?.startsWith("roleplay_") == true) {
+            newGeneralChat()
         }
     }
 
@@ -3883,6 +3899,10 @@ class ChatViewModel(
         persist()
     }
 
+    fun persistCurrentChat(force: Boolean = false) {
+        persist(force = force)
+    }
+
     private fun persist(force: Boolean = false) {
         val conv = conversation ?: return
         // O(n) merge by id (was: indexOfFirst per message = O(n^2)).
@@ -3909,13 +3929,21 @@ class ChatViewModel(
             }
         }
         conv.messages = nodes.toList()
+
+        val isRoleplay = conv.personaId?.startsWith("roleplay_") == true
+        val targetRepo = if (isRoleplay) roleplayChatRepo else defaultChatRepo
         // Lazy persistence: a brand-new session is only written to disk once it
         // contains at least one real user message. This keeps Delete All /
         // New Conversation from leaving empty "New Chat" entries behind.
         val hasRealContent = conv.messages.any { it.role == ChatConstants.ROLE_USER }
         viewModelScope.launch {
-            if (!force && !hasRealContent && !chatRepo.exists(conv.id)) return@launch
-            chatRepo.save(conv)
+            if (!force && !hasRealContent && !targetRepo.exists(conv.id)) return@launch
+            targetRepo.save(conv)
+            // Ensure no stale duplicate exists in the wrong storage
+            val wrongRepo = if (isRoleplay) defaultChatRepo else roleplayChatRepo
+            if (wrongRepo.exists(conv.id)) {
+                wrongRepo.delete(conv.id)
+            }
             refreshConversations()
         }
     }

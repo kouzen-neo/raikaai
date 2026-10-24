@@ -143,6 +143,10 @@ fun RoleplayScreen(viewModel: ChatViewModel, onOpenDrawer: () -> Unit = {}) {
                     conversationId = selectedConversationId,
                     viewModel = viewModel,
                     onOpenDrawer = onOpenDrawer,
+                    onBack = {
+                        viewModel.persistCurrentChat()
+                        navController.popBackStack()
+                    },
                 )
             }
         }

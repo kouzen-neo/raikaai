@@ -1,6 +1,5 @@
 package com.raikaai.app.ui.chat
 
-import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import com.raikaai.app.R
 
 import androidx.compose.foundation.clickable
@@ -41,11 +40,9 @@ fun ChatTopBar(
     onOpenDrawer: () -> Unit,
     onNavigateToModels: () -> Unit,
     onNewChat: () -> Unit,
+    onBack: () -> Unit = {},
     isRolePlay: Boolean = false
 ) {
-    val backDispatcher =
-        LocalOnBackPressedDispatcherOwner.current
-            ?.onBackPressedDispatcher
     Surface(
         color = MaterialTheme.colorScheme.surface,
         tonalElevation = 2.dp,
@@ -84,7 +81,7 @@ fun ChatTopBar(
                 IconButton(
                     onClick = {
                         if (isRolePlay) {
-                            backDispatcher?.onBackPressed()
+                            onBack()
                         } else {
                             onOpenDrawer()
                         }
