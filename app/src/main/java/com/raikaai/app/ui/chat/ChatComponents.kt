@@ -360,6 +360,28 @@ internal fun MessageList(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
+        // Pi runtime panel: only present while an agent turn is running.
+        val runtimeTool by viewModel.runtimeToolState
+        val runtimeApproval by viewModel.runtimeApprovalState
+        if (runtimeTool != null || runtimeApproval != null) {
+            Column(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                runtimeTool?.let { ToolCard(state = it) }
+                runtimeApproval?.let { approval ->
+                    ApprovalCard(
+                        state = approval,
+                        onDecline = { viewModel.respondRuntimeApproval("decline") },
+                        onAllowOnce = { viewModel.respondRuntimeApproval("once") },
+                        onAllowForChat = { viewModel.respondRuntimeApproval("always") },
+                    )
+                }
+            }
+        }
         LazyColumn(
             state = listState,
             reverseLayout = true,

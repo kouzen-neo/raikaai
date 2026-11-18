@@ -27,6 +27,26 @@ class PiAgentRuntime(
     /** Last event sequence consumed from the adapter's bounded snapshot. */
     private var lastSeq: Long = 0L
 
+    /** Request an orderly abort of the active Pi turn. */
+    suspend fun abort() {
+        val root = normalizedBaseUrl()
+        val url = "$root/v1/abort"
+        val connection = openConnection(url, "POST")
+        try {
+            val status = connection.responseCode
+            if (status !in 200..299) {
+                throw IllegalStateException(
+                    "Pi adapter rejected abort at $url (HTTP $status): ${errorPreview(connection)}",
+                )
+            }
+            connection.inputStream.use { it.readBytes() }
+        } catch (error: IOException) {
+            throw IllegalStateException("Could not abort Pi at $url: ${error.message}", error)
+        } finally {
+            connection.disconnect()
+        }
+    }
+
     override suspend fun runTurn(
         messages: List<AgentMessage>,
         onEvent: (RuntimeEvent) -> Unit,

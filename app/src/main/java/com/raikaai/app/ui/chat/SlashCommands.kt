@@ -38,6 +38,13 @@ val DEFAULT_SLASH_COMMANDS =
             icon = Icons.Default.Compress,
         ),
         SlashCommand(
+            command = "/agent",
+            title = "Pi Agent",
+            description = "Run a turn through the Pi runtime (KAZETERM_PI mode)",
+            promptTemplate = "/agent ",
+            icon = Icons.Default.Terminal,
+        ),
+        SlashCommand(
             command = "/summarize",
             title = "Summarize",
             description = "Condense text into concise key points",

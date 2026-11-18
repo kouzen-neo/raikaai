@@ -256,6 +256,78 @@ class ChatViewModel(
             com.raikaai.app.runtime.ToolRequest(name, argumentsJson),
         ) { /* events are consumed by the runtime-specific UI when connected */ }
 
+    // Pi agent runtime, exposed through /agent and the chat runtime panel.
+    val runtimeToolState = mutableStateOf<com.raikaai.app.ui.chat.ToolUiState?>(null)
+    val runtimeApprovalState = mutableStateOf<com.raikaai.app.ui.chat.ApprovalUiState?>(null)
+    val runtimeAutoApprove = mutableStateOf(false)
+    private var runtimeAbort: (() -> Unit)? = null
+
+    fun respondRuntimeApproval(action: String) {
+        when (action) {
+            "decline" -> {
+                runtimeAbort?.invoke()
+                runtimeAbort = null
+                runtimeApprovalState.value = null
+            }
+            "once" -> runtimeApprovalState.value = null
+            "always" -> {
+                runtimeAutoApprove.value = true
+                runtimeApprovalState.value = null
+            }
+        }
+    }
+
+    /** Run one turn through the Pi adapter when KAZETERM_PI is selected. */
+    suspend fun runAgentTurn(prompt: String) {
+        val s = settings.value
+        if (s.runtimeMode != com.raikaai.app.runtime.RuntimeMode.KAZETERM_PI.name) {
+            errorMessage.value = "Select KAZETERM_PI in Settings → Runtime first."
+            return
+        }
+        val runtime = com.raikaai.app.runtime.PiAgentRuntime(
+            baseUrl = "http://${s.piAdapterHost}:${s.piAdapterPort}",
+            token = s.piAdapterToken,
+        )
+        runtimeAbort = { viewModelScope.launch { runCatching { runtime.abort() } } }
+        val history = messages.takeLast(10).map {
+            com.raikaai.app.runtime.AgentMessage(it.role, it.content)
+        } + com.raikaai.app.runtime.AgentMessage("user", prompt)
+        val streamed = StringBuilder()
+        try {
+            val reply = runtime.runTurn(history) { event ->
+                when (event) {
+                    is com.raikaai.app.runtime.RuntimeEvent.AssistantDelta ->
+                        streamed.append(event.text)
+                    is com.raikaai.app.runtime.RuntimeEvent.ToolCall ->
+                        runtimeToolState.value = com.raikaai.app.ui.chat.ToolUiState(
+                            name = event.name,
+                            arguments = event.argumentsJson,
+                            summary = event.argumentsJson.take(120),
+                            status = com.raikaai.app.ui.chat.ToolStatus.RUNNING,
+                        )
+                    is com.raikaai.app.runtime.RuntimeEvent.ApprovalRequest ->
+                        if (!runtimeAutoApprove.value) {
+                            runtimeApprovalState.value = com.raikaai.app.ui.chat.ApprovalUiState(
+                                name = event.name,
+                                command = event.argumentsJson.take(2000),
+                                reason = event.reason,
+                            )
+                        }
+                    is com.raikaai.app.runtime.RuntimeEvent.TurnEnd ->
+                        runtimeToolState.value = null
+                    else -> Unit
+                }
+            }
+            appendLocalExchange(prompt, reply.ifBlank { streamed.toString() })
+        } catch (error: Exception) {
+            errorMessage.value = "Pi runtime: ${error.message ?: error.javaClass.simpleName}"
+        } finally {
+            runtimeAbort = null
+            runtimeToolState.value = null
+            runtimeApprovalState.value = null
+        }
+    }
+
     /** Estimated cumulative remote API spend in USD (owned by ServerControls). */
     val messages = mutableStateListOf<ChatMessageEntry>()
     val isGenerating = mutableStateOf(false)
@@ -2522,6 +2594,22 @@ class ChatViewModel(
         return true
     }
 
+    /** Runs `/agent <prompt>` through the Pi runtime when KAZETERM_PI is selected. */
+    private fun tryHandleAgentCommand(body: String): Boolean {
+        val match = Regex("""^/agent\s+(.+)""", RegexOption.IGNORE_CASE).find(body.trim())
+            ?: return false
+        val prompt = match.groupValues[1].trim()
+        if (prompt.isBlank()) return false
+        viewModelScope.launch {
+            isGenerating.value = true
+            errorMessage.value = null
+            runCatching { runAgentTurn(prompt) }
+                .onFailure { errorMessage.value = "Pi runtime: ${it.message ?: it.javaClass.simpleName}" }
+            isGenerating.value = false
+        }
+        return true
+    }
+
     /**
      * Handles explicit container slash commands (no model call):
      * - `/run <shell>` → execute in Alpine, reply with output
@@ -3061,6 +3149,7 @@ class ChatViewModel(
         if (pending.isEmpty() && currentAudioFile == null && tryHandleReminderCommand(body)) return
         if (pending.isEmpty() && currentAudioFile == null && tryHandleImageCommand(body)) return
         if (pending.isEmpty() && currentAudioFile == null && tryHandleCompactCommand(body)) return
+        if (pending.isEmpty() && currentAudioFile == null && tryHandleAgentCommand(body)) return
         if (pending.isEmpty() && currentAudioFile == null && tryHandleContainerCommand(body)) return
         if (pending.isEmpty() && currentAudioFile == null && tryHandleYoloCommand(body)) return
         if (pending.isEmpty() && currentAudioFile == null && tryHandlePermissionCommand(body)) return
