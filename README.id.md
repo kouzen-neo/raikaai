@@ -23,17 +23,15 @@ Aplikasi ini juga menyertakan **server HTTP kompatibel OpenAI (`/v1`)** berbasis
 <div align="center">
   <table>
     <tr>
-      <td align="center" width="20%"><b>Layar&nbsp;Obrolan</b></td>
-      <td align="center" width="20%"><b>Hub&nbsp;Model</b></td>
-      <td align="center" width="20%"><b>Karakter</b></td>
-      <td align="center" width="20%"><b>Skills&nbsp;&amp;&nbsp;Tools</b></td>
-      <td align="center" width="20%"><b>Riwayat&nbsp;Chat</b></td>
+      <td align="center" width="25%"><b>Layar&nbsp;Obrolan</b></td>
+      <td align="center" width="25%"><b>Hub&nbsp;Model</b></td>
+      <td align="center" width="25%"><b>Karakter</b></td>
+      <td align="center" width="25%"><b>Riwayat&nbsp;Chat</b></td>
     </tr>
     <tr>
       <td align="center" valign="top"><img src="docs/screenshots/chat.png" width="220" height="489" alt="Layar Obrolan"></td>
       <td align="center" valign="top"><img src="docs/screenshots/models.png" width="220" height="489" alt="Hub Model"></td>
       <td align="center" valign="top"><img src="docs/screenshots/characters.png" width="220" height="489" alt="Karakter"></td>
-      <td align="center" valign="top"><img src="docs/screenshots/skills.png" width="220" height="489" alt="Skills & Tools"></td>
       <td align="center" valign="top"><img src="docs/screenshots/history.png" width="220" height="489" alt="Riwayat Chat"></td>
     </tr>
   </table>
@@ -52,7 +50,7 @@ Aplikasi ini juga menyertakan **server HTTP kompatibel OpenAI (`/v1`)** berbasis
 - **Manajemen model**: katalog bawaan berisi model yang sudah diuji; cari dan unduh bobot `.litertlm` dari Hugging Face (repo gated didukung via access token) dengan jeda dan lanjut; atau impor file model dari penyimpanan HP (SAF).
 - **Karakter**: buat persona kustom berisi avatar, system prompt, sapaan, dan contoh dialog. Bisa ganti persona di tengah percakapan. Impor/ekspor sebagai JSON.
 - **Chat dokumen (RAG)**: lampirkan file PDF, TXT, MD, CSV, atau kode sumber. Jawaban mencantumkan kutipan yang dirujuk (`[Doc1]`, `[Doc2]`).
-- **Skills & MCP**: paket skill modular dan klien Model Context Protocol (MCP). Setiap eksekusi tool selalu meminta persetujuan pengguna dulu.
+- **Klien Model Context Protocol (MCP)**: hubungkan server MCP untuk menambah tool bagi asisten. Setiap eksekusi tool selalu meminta persetujuan pengguna dulu.
 - **Vision & audio**: kirim gambar ke model yang mendukung vision, lampirkan klip audio, dan input suara via speech-to-text.
 - **Mode perbandingan**: jalankan satu prompt di dua model sekaligus (lokal/lokal atau lokal/remote).
 - **Benchmark**: ukur time-to-first-token (TTFT), token per detik, dan perbandingan GPU vs CPU di HP sendiri.

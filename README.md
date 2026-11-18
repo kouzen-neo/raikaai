@@ -23,17 +23,15 @@ It also includes a built-in **OpenAI-compatible HTTP server (`/v1`)** based on *
 <div align="center">
   <table>
     <tr>
-      <td align="center" width="20%"><b>Chat&nbsp;Screen</b></td>
-      <td align="center" width="20%"><b>Models&nbsp;Hub</b></td>
-      <td align="center" width="20%"><b>Characters</b></td>
-      <td align="center" width="20%"><b>Skills&nbsp;&amp;&nbsp;Tools</b></td>
-      <td align="center" width="20%"><b>Chat&nbsp;History</b></td>
+      <td align="center" width="25%"><b>Chat&nbsp;Screen</b></td>
+      <td align="center" width="25%"><b>Models&nbsp;Hub</b></td>
+      <td align="center" width="25%"><b>Characters</b></td>
+      <td align="center" width="25%"><b>Chat&nbsp;History</b></td>
     </tr>
     <tr>
       <td align="center" valign="top"><img src="docs/screenshots/chat.png" width="220" height="489" alt="Chat Screen"></td>
       <td align="center" valign="top"><img src="docs/screenshots/models.png" width="220" height="489" alt="Models Hub"></td>
       <td align="center" valign="top"><img src="docs/screenshots/characters.png" width="220" height="489" alt="Characters"></td>
-      <td align="center" valign="top"><img src="docs/screenshots/skills.png" width="220" height="489" alt="Skills & Tools"></td>
       <td align="center" valign="top"><img src="docs/screenshots/history.png" width="220" height="489" alt="Chat History"></td>
     </tr>
   </table>
@@ -52,7 +50,7 @@ It also includes a built-in **OpenAI-compatible HTTP server (`/v1`)** based on *
 - **Model manager**: built-in catalog of tested mobile models; search and download `.litertlm` weights from Hugging Face (gated repos supported via access token) with pause and resume; or import model files from device storage (SAF).
 - **Characters**: create custom personas with avatar, system prompt, greeting, and example dialogues. Switch persona mid-conversation. Import/export as JSON.
 - **Document chat (RAG)**: attach PDF, TXT, MD, CSV, or source code files. Answers cite the referenced excerpts (`[Doc1]`, `[Doc2]`).
-- **Skills & MCP**: modular skill packs plus a Model Context Protocol (MCP) client. Tool execution always asks for user approval first.
+- **Model Context Protocol (MCP) client**: connect MCP servers to expose additional tools to the assistant. Tool execution always asks for user approval first.
 - **Vision & audio**: send images to vision-capable models, attach audio clips, and dictate input via speech-to-text.
 - **Compare mode**: run one prompt on two models side by side (local/local or local/remote).
 - **Benchmark**: measure time-to-first-token (TTFT), tokens per second, and GPU vs CPU performance on your own device.

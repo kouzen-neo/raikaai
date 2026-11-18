@@ -165,9 +165,8 @@ class PersonaStore(
     }
 
     fun importPersonaJson(jsonString: String): Boolean {
-        // Bound untrusted clipboard input before parsing/serializing (mirrors
-        // the skill import caps): one giant paste must not bloat DataStore or
-        // the per-emission settings payload.
+        // Bound untrusted clipboard input before parsing/serializing: one giant
+        // paste must not bloat DataStore or the per-emission settings payload.
         if (jsonString.isBlank() || jsonString.length > AppLimits.PERSONA_IMPORT_MAX_CHARS) return false
         return try {
             val parsed = Gson().fromJson(jsonString, PersonaPreset::class.java)?.normalize() ?: return false

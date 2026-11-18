@@ -106,7 +106,7 @@ data class Settings(
     // On-device RAG (knowledge documents)
     val ragEnabled: Boolean = true,
     val useChatMemory: Boolean = true,
-    // Context & Capability Skills
+    // Context & capability flags
     val autoCompress: Boolean = true,
     val captureArtifacts: Boolean = true,
     val enableVision: Boolean = true,

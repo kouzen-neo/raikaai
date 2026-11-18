@@ -1,4 +1,4 @@
-package com.raikaai.app.skills
+package com.raikaai.app.core.tool
 
 import com.google.gson.Gson
 import com.google.gson.JsonObject

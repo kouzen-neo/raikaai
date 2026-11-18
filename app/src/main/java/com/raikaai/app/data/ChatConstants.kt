@@ -51,6 +51,5 @@ object AppLimits {
     const val SAFE_FILENAME_CHARS = 80
     const val SUMMARY_MAX_WORDS = 180
     const val PERSONA_IMPORT_MAX_CHARS = 200_000
-    const val SKILL_IMPORT_MAX_CHARS = 200_000
     const val TEXT_FILE_BUFFER = 8192
 }

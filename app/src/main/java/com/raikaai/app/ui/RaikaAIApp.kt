@@ -94,7 +94,6 @@ object NavRoute {
     const val CHAT = "chat"
     const val CHARACTERS = "characters"
     const val ROLEPLAY = "roleplay"
-    const val SKILLS = "skills"
     const val SAMPLER = "sampler"
     const val MODELS = "models"
     const val SERVER = "server"
@@ -224,7 +223,6 @@ fun RaikaAIApp(
                     val moreItems =
                         listOf(
                             DrawerMenuItem(NavRoute.SERVER, "Server", Icons.Outlined.Dns),
-                            DrawerMenuItem(NavRoute.SKILLS, "Skills", Icons.Outlined.AutoAwesome),
                             DrawerMenuItem(NavRoute.MCP, "MCP Servers", Icons.Outlined.Build),
                             DrawerMenuItem(NavRoute.ENVIRONMENT, "Linux Env", Icons.Default.Terminal),
                             DrawerMenuItem(NavRoute.LOGS, "Telemetry Logs", Icons.Outlined.Terminal),
@@ -349,12 +347,6 @@ fun RaikaAIApp(
                                 )
                             }
 
-                composable(NavRoute.SKILLS) {
-                    com.raikaai.app.ui.skills.SkillsScreen(
-                        viewModel = viewModel,
-                        onOpenDrawer = { scope.launch { drawerState.open() } },
-                    )
-                }
                 composable(NavRoute.MCP) {
                     com.raikaai.app.ui.mcp.McpScreen(
                         viewModel = viewModel,

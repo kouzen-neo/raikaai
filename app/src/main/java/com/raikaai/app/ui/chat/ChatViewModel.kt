@@ -211,10 +211,8 @@ class ChatViewModel(
     private val engine get() = LiteRtEngineManager.getInstance(app)
     private val rag get() = RagManager.getInstance(app)
     private val artifactStore get() = ArtifactStore.getInstance(app)
-    private val skillsManager get() = com.raikaai.app.skills.SkillsManager.getInstance(app)
     private val webSearch get() = com.raikaai.app.web.WebSearchManager.getInstance(app)
 
-    val skills: StateFlow<List<com.raikaai.app.skills.Skill>> get() = skillsManager.skills
     val artifacts: StateFlow<List<com.raikaai.app.artifacts.Artifact>> get() = artifactStore.artifacts
     val isCompressing = mutableStateOf(false)
     val compressionTick = mutableStateOf(0)
@@ -886,10 +884,6 @@ class ChatViewModel(
     ): Pair<String, List<String>?> {
         val ctx = ragContext(query)
         var system = if (base.isBlank()) CODE_OUTPUT_RULES.trimStart('\n') else base + CODE_OUTPUT_RULES
-        val activeSkills = skillsManager.getActivePromptInstructions()
-        if (activeSkills.isNotBlank()) {
-            system = "$system$activeSkills"
-        }
         s?.let { system += mcpToolsPromptBlock(it) }
         s?.let { system += containerToolsPromptBlock(it) }
         if (s != null && s.modelSource == ChatConstants.SOURCE_REMOTE && (s.remoteImageModelId.isNotBlank() || s.remoteModelId.isNotBlank())) {
@@ -903,12 +897,11 @@ class ChatViewModel(
 
         val allSources = (ctx?.second ?: emptyList()).toMutableList()
         val isExplicitSearch = query.startsWith("/search", ignoreCase = true) || query.startsWith("/web", ignoreCase = true)
-        val isWebSkillActive = skills.value.any { it.isEnabled && (it.id == "builtin_web_researcher" || it.iconCategory.equals("search", ignoreCase = true) || it.category.equals("Research", ignoreCase = true)) }
         // Word boundaries: plain contains() false-positives on words like
         // "hasilnya", "dijadwalkan", or "mencari".
         val hasSearchKeyword = WEB_SEARCH_KEYWORD_REGEX.containsMatchIn(query)
 
-        val shouldSearch = settings.value.enableWebSearch || isWebSkillActive || isExplicitSearch || hasSearchKeyword
+        val shouldSearch = settings.value.enableWebSearch || isExplicitSearch || hasSearchKeyword
 
         if (shouldSearch && query.isNotBlank()) {
             val cleanQuery = query.removePrefix("/search").removePrefix("/Search").removePrefix("/web").removePrefix("/Web").trim()
@@ -1810,9 +1803,9 @@ class ChatViewModel(
         onMetricsUpdate: (LiteRtEngineManager.InferenceMetrics) -> Unit,
     ): List<String>? {
         val lastContent = messages.lastOrNull { it.role == ChatConstants.ROLE_ASSISTANT }?.content.orEmpty()
-        val toolCall = com.raikaai.app.skills.ToolCallParser.parse(lastContent)
+        val toolCall = com.raikaai.app.core.tool.ToolCallParser.parse(lastContent)
         if (toolCall == null) {
-            val genericCall = com.raikaai.app.skills.ToolCallParser.parseGenericCall(lastContent)
+            val genericCall = com.raikaai.app.core.tool.ToolCallParser.parseGenericCall(lastContent)
             if (genericCall != null) {
                 if (genericCall.name.equals("generate_image", ignoreCase = true)) {
                     val imgPrompt = genericCall.arguments.get("prompt")?.asString?.ifBlank { null }
@@ -2329,7 +2322,7 @@ class ChatViewModel(
      * with the result injected. Exactly one round per generation.
      */
     private suspend fun handleContainerToolCall(
-        call: com.raikaai.app.skills.ToolCallParser.GenericToolCall,
+        call: com.raikaai.app.core.tool.ToolCallParser.GenericToolCall,
         modelPath: String,
         s: Settings,
         targetChatId: String?,
@@ -2426,7 +2419,7 @@ class ChatViewModel(
      * runaway model cannot trigger unbounded tool executions.
      */
     private suspend fun handleMcpToolCall(
-        call: com.raikaai.app.skills.ToolCallParser.GenericToolCall,
+        call: com.raikaai.app.core.tool.ToolCallParser.GenericToolCall,
         modelPath: String,
         s: Settings,
         targetChatId: String?,
@@ -3296,7 +3289,7 @@ class ChatViewModel(
                         // Check if model called generate_image tool
                         if (messages.isNotEmpty() && messages.last().role == ChatConstants.ROLE_ASSISTANT) {
                             val lastIdx = messages.lastIndex
-                            val genericCall = com.raikaai.app.skills.ToolCallParser.parseGenericCall(messages[lastIdx].content)
+                            val genericCall = com.raikaai.app.core.tool.ToolCallParser.parseGenericCall(messages[lastIdx].content)
                             if (genericCall != null && genericCall.name.equals("generate_image", ignoreCase = true)) {
                                 val imgPrompt = when {
                                     genericCall.arguments.has("prompt") -> genericCall.arguments.get("prompt").asString
@@ -3587,7 +3580,7 @@ class ChatViewModel(
                         // Check if model called generate_image tool
                         if (messages.isNotEmpty() && messages.last().role == ChatConstants.ROLE_ASSISTANT) {
                             val lastIdx = messages.lastIndex
-                            val genericCall = com.raikaai.app.skills.ToolCallParser.parseGenericCall(messages[lastIdx].content)
+                            val genericCall = com.raikaai.app.core.tool.ToolCallParser.parseGenericCall(messages[lastIdx].content)
                             if (genericCall != null && genericCall.name.equals("generate_image", ignoreCase = true)) {
                                 val imgPrompt = when {
                                     genericCall.arguments.has("prompt") -> genericCall.arguments.get("prompt").asString
@@ -3635,7 +3628,7 @@ class ChatViewModel(
         val idx = messages.lastIndex
         if (idx < 0 || messages[idx].role != ChatConstants.ROLE_ASSISTANT) return
         if (currentConversationId != targetChatId) return
-        val firstCall = com.raikaai.app.skills.ToolCallParser.parseGenericCall(messages[idx].content) ?: return
+        val firstCall = com.raikaai.app.core.tool.ToolCallParser.parseGenericCall(messages[idx].content) ?: return
         if (!isContainerToolCall(firstCall.name)) return
         if (!containerReady(s)) {
             errorMessage.value = "Linux Environment not ready — run /env install or open /env to install, then retry."
@@ -3661,7 +3654,7 @@ class ChatViewModel(
         // input, so the model chains ls -> cat -> run -> verify by itself.
         while (rounds < MAX_CONTAINER_ROUNDS) {
             if (currentConversationId != targetChatId) return
-            val call = com.raikaai.app.skills.ToolCallParser.parseGenericCall(messages[idx].content) ?: break
+            val call = com.raikaai.app.core.tool.ToolCallParser.parseGenericCall(messages[idx].content) ?: break
             if (!isContainerToolCall(call.name)) break
             rounds++
             KLog.d("ChatVM", "Remote container round $rounds/$MAX_CONTAINER_ROUNDS: ${call.name}")
@@ -3704,7 +3697,7 @@ class ChatViewModel(
             agentMessages.add(RemoteChatMessage(role = "user", text = toolContext))
 
             // If there's another tool call already present in this message, execute it in the next round
-            val nextQueuedCall = com.raikaai.app.skills.ToolCallParser.parseGenericCall(messages[idx].content)
+            val nextQueuedCall = com.raikaai.app.core.tool.ToolCallParser.parseGenericCall(messages[idx].content)
             if (nextQueuedCall != null && isContainerToolCall(nextQueuedCall.name)) {
                 continue
             }
@@ -3747,7 +3740,7 @@ class ChatViewModel(
         if (rounds >= MAX_CONTAINER_ROUNDS && currentConversationId == targetChatId &&
             messages[idx].role == ChatConstants.ROLE_ASSISTANT
         ) {
-            val more = com.raikaai.app.skills.ToolCallParser.parseGenericCall(messages[idx].content)
+            val more = com.raikaai.app.core.tool.ToolCallParser.parseGenericCall(messages[idx].content)
             if (more != null && isContainerToolCall(more.name)) {
                 messages[idx] = messages[idx].copy(
                     content = messages[idx].content +

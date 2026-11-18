@@ -15,7 +15,6 @@
 -keep class com.raikaai.app.ui.chat.PersonaPreset { *; }
 -keep class com.raikaai.app.ui.chat.BenchmarkResult { *; }
 -keep class com.raikaai.app.ui.roleplay.** { *; }
--keep class com.raikaai.app.skills.** { *; }
 -keep class com.raikaai.app.web.** { *; }
 -keep class com.raikaai.app.rag.** { *; }
 -keep class com.raikaai.app.artifacts.** { *; }

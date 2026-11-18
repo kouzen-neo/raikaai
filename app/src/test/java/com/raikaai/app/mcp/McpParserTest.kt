@@ -1,6 +1,6 @@
 package com.raikaai.app.mcp
 
-import com.raikaai.app.skills.ToolCallParser
+import com.raikaai.app.core.tool.ToolCallParser
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
