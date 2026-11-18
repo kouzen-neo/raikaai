@@ -1,0 +1,14 @@
+{
+  "name": "pi-adapter",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Self-contained Node adapter between the KazeTerm guest, Pi RPC and RaikaAI's OpenAI-compatible /v1 endpoint.",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test test/*.test.js"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

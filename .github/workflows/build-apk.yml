@@ -39,6 +39,9 @@ jobs:
           cp -r "$ANDROID_HOME/platforms/android-36" "$ANDROID_HOME/platforms/android-37"
           ls "$ANDROID_HOME/platforms/"
 
+      - name: Run Kotlin unit tests
+        run: ./gradlew testDebugUnitTest --stacktrace
+
       - name: Decode release keystore
         if: env.KEYSTORE_BASE64 != ''
         env:

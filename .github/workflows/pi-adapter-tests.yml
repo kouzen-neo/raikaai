@@ -1,0 +1,29 @@
+# Runs the Node.js test suite for the Pi adapter under tools/pi-adapter/.
+
+name: Pi adapter tests
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'tools/pi-adapter/**'
+      - '.github/workflows/pi-adapter-tests.yml'
+  pull_request:
+    paths:
+      - 'tools/pi-adapter/**'
+      - '.github/workflows/pi-adapter-tests.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Run Pi adapter tests
+        working-directory: .
+        run: node --test tools/pi-adapter/test/*.test.js
