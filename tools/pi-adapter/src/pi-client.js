@@ -133,14 +133,15 @@ export class PiClient extends EventEmitter {
   /**
    * Subscribe to `agent_settled` BEFORE sending the prompt, then resolve when
    * Pi settles. `agent_end` is not enough: retries, compaction, steering and
-   * follow-ups may continue after it.
+   * follow-ups may continue after it. The default 10-minute deadline allows a
+   * long multi-round agent turn; callers can override with `timeoutMs`.
    */
   promptAndWait(message, extra = {}) {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         cleanup();
         reject(new Error("Timed out waiting for agent_settled"));
-      }, extra.timeoutMs ?? 30000);
+      }, extra.timeoutMs ?? 600000);
       const { timeoutMs: _timeout, ...promptExtra } = extra;
 
       const cleanup = () => {
