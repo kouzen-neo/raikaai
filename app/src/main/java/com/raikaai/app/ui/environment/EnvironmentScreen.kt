@@ -109,10 +109,12 @@ fun EnvironmentScreen(
     viewModel: ChatViewModel,
     onOpenDrawer: () -> Unit = {},
     onNavigateToChat: () -> Unit = {},
+    backend: TerminalBackend? = null,
 ) {
     val context = LocalContext.current
     val settings by viewModel.settings.collectAsState()
     val manager = remember { viewModel.containerManager }
+    val terminalBackend: TerminalBackend = remember { backend ?: ProotTerminalBackend(viewModel, manager) }
     val installState by manager.installState.collectAsState()
     val servedPort by manager.servedPort.collectAsState()
     var tab by remember { mutableIntStateOf(0) }
@@ -246,6 +248,7 @@ fun EnvironmentScreen(
                 TerminalTab(
                     viewModel = viewModel,
                     manager = manager,
+                    backend = terminalBackend,
                     onCommandDone = { filesTick++ },
                 )
             } else {
@@ -315,9 +318,11 @@ private val TermGreen = Color(0xFF4CAF50)
 private fun TerminalTab(
     viewModel: ChatViewModel,
     manager: ContainerManager,
+    backend: TerminalBackend,
     onCommandDone: () -> Unit,
 ) {
-    val sessions = viewModel.terminalSessions
+    val context = LocalContext.current
+    val sessions = backend.sessions()
     val activeSession = viewModel.activeTerminalSession
     val lines = activeSession.lines
     val history = activeSession.history
@@ -364,9 +369,28 @@ private fun TerminalTab(
     fun exec(cmd: String) {
         val clean = cmd.trim()
         if (clean.isEmpty() || running) return
+        if (!backend.isAvailable()) {
+            toast(context, backend.unavailableReason())
+            return
+        }
         input = TextFieldValue("")
         histPos = -1
-        viewModel.execTerminal(clean, sessionId = activeSession.id) {
+        val sid = activeSession.id
+        try {
+            backend.execute(
+                sessionId = sid,
+                command = clean,
+                onLine = onLine@{ kind, line ->
+                    // Resolve by id so a tab switch mid-command cannot misplace
+                    // output from a backend that streams its own lines.
+                    val target = viewModel.terminalSessions.firstOrNull { it.id == sid } ?: return@onLine
+                    target.lines.add(TermLine(kind, line))
+                    if (target.lines.size > 1500) target.lines.removeRange(0, 100)
+                },
+                onDone = onCommandDone,
+            )
+        } catch (t: Throwable) {
+            toast(context, t.message ?: backend.unavailableReason())
             onCommandDone()
         }
     }

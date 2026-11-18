@@ -55,6 +55,25 @@ function upstreamUrl(baseUrl) {
   return `${String(baseUrl).replace(/\/+$/, "")}/chat/completions`;
 }
 
+/** Accept either a single message string or an OpenAI-shaped messages array. */
+function promptTextFromBody(body) {
+  if (typeof body.message === "string" && body.message.trim()) return body.message;
+  if (!Array.isArray(body.messages)) return null;
+  for (let index = body.messages.length - 1; index >= 0; index -= 1) {
+    const message = body.messages[index];
+    if (!message || message.role !== "user") continue;
+    const content = message.content;
+    if (typeof content === "string" && content.trim()) return content;
+    if (Array.isArray(content)) {
+      const parts = content
+        .filter((part) => part && part.type === "text" && typeof part.text === "string")
+        .map((part) => part.text);
+      if (parts.length > 0) return parts.join("\n");
+    }
+  }
+  return null;
+}
+
 // Read an upstream SSE response, collecting assistant text deltas. We cannot
 // forward deltas verbatim because the tool-call JSON may be split across them.
 async function collectUpstreamSse(response, onText) {
@@ -191,7 +210,8 @@ export function createAdapter({
       }
 
       if (request.method === "GET" && path === "/events") {
-        sendJson(response, 200, translator.snapshot());
+        const since = Number(url.searchParams.get("since") || 0) || 0;
+        sendJson(response, 200, translator.snapshot(since));
         return;
       }
 
@@ -203,11 +223,14 @@ export function createAdapter({
 
       if (request.method === "POST" && path === "/v1/agent/prompt") {
         const body = await readJsonBody(request);
-        if (typeof body.message !== "string") {
-          sendJson(response, 400, { error: { message: "message must be a string" } });
+        const message = promptTextFromBody(body);
+        if (message === null) {
+          sendJson(response, 400, {
+            error: { message: "provide 'message' or an OpenAI-shaped 'messages' array" },
+          });
           return;
         }
-        const result = await piClient.promptAndWait(body.message);
+        const result = await piClient.promptAndWait(message);
         sendJson(response, 200, { ok: true, settled: result.settled });
         return;
       }

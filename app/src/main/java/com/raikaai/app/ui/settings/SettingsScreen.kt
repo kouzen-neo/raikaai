@@ -17,13 +17,17 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.outlined.Brightness4
 import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.Dns
 import androidx.compose.material.icons.outlined.Keyboard
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.Speed
@@ -54,11 +58,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import com.raikaai.app.data.SettingsRepository
+import com.raikaai.app.runtime.RuntimeMode
 import com.raikaai.app.ui.chat.ChatViewModel
 import com.raikaai.app.ui.component.ChipsRow
 import com.raikaai.app.ui.component.Material3SettingsGroup
 import com.raikaai.app.ui.component.Material3SettingsItem
+import com.raikaai.app.ui.component.SettingsTextField
 import com.raikaai.app.ui.component.createM3Item
 import kotlinx.coroutines.launch
 
@@ -74,6 +84,15 @@ fun SettingsScreen(
     val context = LocalContext.current
     val settings by viewModel.settings.collectAsState()
     val scope = rememberCoroutineScope()
+
+    // Runtime settings are owned by SettingsRepository; ChatViewModel has no
+    // setters for them yet. A screen-scoped repository keeps token writes in the
+    // same flow that feeds this section (secure token bumps are per instance).
+    val runtimeRepo = remember(context.applicationContext) {
+        SettingsRepository(context.applicationContext)
+    }
+    val runtimeSettings by runtimeRepo.settingsFlow.collectAsState(initial = settings)
+    var showPiToken by remember { mutableStateOf(false) }
 
     var showClearHistoryDialog by remember { mutableStateOf(false) }
 
@@ -218,7 +237,111 @@ fun SettingsScreen(
                 )
             }
 
-            // ── 3. Data & Storage Management ──
+            // ── 3. Runtime ──
+            item(key = "runtime_mode_group") {
+                Material3SettingsGroup(
+                    title = "Runtime",
+                    items =
+                        listOf(
+                            Material3SettingsItem(
+                                leadingContent = { Icon(Icons.Outlined.Dns, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(24.dp)) },
+                                title = { Text("Runtime Mode") },
+                                description = {
+                                    Column(
+                                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                                        modifier = Modifier.padding(top = 2.dp),
+                                    ) {
+                                        Text(
+                                            "Current: ${runtimeSettings.runtimeMode}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            listOf(
+                                                RuntimeMode.ON_DEVICE.name to "On-device",
+                                                RuntimeMode.KAZETERM_PI.name to "KazeTerm Pi",
+                                                RuntimeMode.LEGACY_PROOT.name to "Legacy PRoot",
+                                            ).forEach { (mode, label) ->
+                                                FilterChip(
+                                                    selected = runtimeSettings.runtimeMode == mode,
+                                                    onClick = { scope.launch { runtimeRepo.setRuntimeMode(mode) } },
+                                                    label = { Text(label) },
+                                                    shape = RoundedCornerShape(50),
+                                                )
+                                            }
+                                        }
+                                        Text(
+                                            "ON_DEVICE runs without Linux. KAZETERM_PI needs the KazeTerm guest and Pi adapter (not bundled yet). LEGACY_PROOT is transitional.",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                },
+                            ),
+                        ),
+                )
+            }
+
+            item(key = "pi_adapter_group") {
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Text("Pi Adapter", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text(
+                            "Connection details used when the runtime mode is KAZETERM_PI.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            SettingsTextField(
+                                initialValue = runtimeSettings.piAdapterHost,
+                                onSave = { value -> scope.launch { runtimeRepo.setPiAdapterHost(value) } },
+                                label = { Text("Adapter Host") },
+                                placeholder = { Text("127.0.0.1") },
+                                modifier = Modifier.weight(0.6f),
+                            )
+                            SettingsTextField(
+                                initialValue = runtimeSettings.piAdapterPort.toString(),
+                                onSave = { value ->
+                                    value.toIntOrNull()?.let { port -> scope.launch { runtimeRepo.setPiAdapterPort(port) } }
+                                },
+                                label = { Text("Port") },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                modifier = Modifier.weight(0.4f),
+                            )
+                        }
+
+                        SettingsTextField(
+                            initialValue = runtimeSettings.piAdapterToken,
+                            onSave = { value -> scope.launch { runtimeRepo.setPiAdapterToken(value) } },
+                            label = { Text("Adapter Token (optional)") },
+                            placeholder = { Text("Leave empty for none") },
+                            visualTransformation = if (showPiToken) VisualTransformation.None else PasswordVisualTransformation(),
+                            trailingIcon = {
+                                IconButton(onClick = { showPiToken = !showPiToken }) {
+                                    Icon(
+                                        if (showPiToken) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                        contentDescription = if (showPiToken) "Hide token" else "Show token",
+                                    )
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
+            }
+
+            // ── 4. Data & Storage Management ──
             item(key = "data_management_group") {
                 Material3SettingsGroup(
                     title = "Data & Storage",
@@ -267,7 +390,7 @@ fun SettingsScreen(
                 )
             }
 
-            // ── 4. About RaikaAI Card ──
+            // ── 5. About RaikaAI Card ──
             item(key = "about_card") {
                 Card(
                     shape = RoundedCornerShape(16.dp),

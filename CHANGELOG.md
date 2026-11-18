@@ -11,7 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Porting plan documentation.** `docs/PORT_DSH_GO.md` and `docs/PORT_PI.md` record the source-verified feature inventory and the migration plan for the Pi agent harness and KazeTerm Linux runtime.
-- **Pi adapter seam.** A Node adapter under `tools/pi-adapter/` wraps Pi RPC and provides an OpenAI-compatible tool-calling shim for RaikaAI's `/v1`, with 19 local tests. Kotlin `RuntimeMode`/`ToolRuntime`/`AgentRuntime` interfaces define the on-device and KazeTerm+Pi runtime boundary. `ChatViewModel` now selects a `ToolRuntime` from persisted `runtimeMode`/adapter settings, defaulting to the unchanged on-device behavior.
+- **Pi adapter seam.** A Node adapter under `tools/pi-adapter/` wraps Pi RPC and provides an OpenAI-compatible tool-calling shim for RaikaAI's `/v1`, with 21 local tests. Kotlin `RuntimeMode`/`ToolRuntime`/`AgentRuntime` define the runtime boundary; `PiAgentRuntime` talks to the adapter, and `ChatViewModel` selects a `ToolRuntime` from persisted settings. Default stays ON_DEVICE.
+- **Runtime settings UI.** Settings now exposes runtime mode plus Pi adapter host, port and encrypted token.
+- **Frontend maturity.** Markdown streaming repair, stable block splitting and long-text clipping; reusable tool and approval cards; a swappable Linux terminal backend ready for KazeTerm. `docs/KAZETERM_INTEGRATION.md` records the AAR/JNI/rootfs plan and legacy skill removal checklist.
 
 ### Fixed
 - **Multiple thinking phases no longer overwrite each other.** Each `<think>` block now renders as its own stable card instead of being merged into one, and expansion state stays put when a block completes. The thinking-only fallback no longer clears the streamed message before retrying, so earlier text and reasoning remain visible.

@@ -62,6 +62,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.raikaai.app.ui.component.markdown.clipLongText
+import com.raikaai.app.ui.component.markdown.hiddenLinesMarker
+import com.raikaai.app.ui.component.markdown.repairStreamingMarkdown
+import com.raikaai.app.ui.component.markdown.splitMarkdownBlocks
 import com.raikaai.app.util.CodeArtifacts
 import com.raikaai.app.util.FileSaver
 import java.util.regex.Pattern
@@ -93,7 +97,12 @@ fun MarkdownText(
     // Extract thinking tags (<think>...</think>)
     val parsedThinking = remember(markdown, enableThinking) { extractThinking(markdown, enableThinking) }
     val formattedText = remember(parsedThinking.mainText) { formatToolCallsForDisplay(parsedThinking.mainText) }
-    val blocks = remember(formattedText) { parseBlocks(formattedText) }
+    // Tail repair is a no-op on balanced, finished text, so parsing the repaired
+    // source keeps early blocks stable while a reply is still arriving.
+    val blockSource = remember(formattedText) { repairStreamingMarkdown(formattedText) }
+    // Split into stable, keyed pieces: finished pieces keep their parsed result,
+    // only the last (still growing) piece re-parses as tokens arrive.
+    val splitPieces = remember(blockSource) { splitMarkdownBlocks(blockSource) }
 
     Column(
         modifier = modifier,
@@ -110,82 +119,87 @@ fun MarkdownText(
             }
         }
 
-            blocks.forEach { block ->
-                when (block.type) {
-                    BlockType.CODE_BLOCK -> {
-                        CodeBlockCard(
-                            language = block.language,
-                            code = block.text,
-                            onCopy = { clipboard.setText(AnnotatedString(block.text)) },
-                            onPreviewHtml = onPreviewHtml,
-                        )
-                    }
-                    BlockType.HEADER_1 -> {
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            text = rememberAnnotated(block.text, scheme),
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                            color = if (color != Color.Unspecified) color else scheme.primary,
-                        )
-                    }
-                    BlockType.HEADER_2 -> {
-                        Spacer(Modifier.height(2.dp))
-                        Text(
-                            text = rememberAnnotated(block.text, scheme),
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = if (color != Color.Unspecified) color else scheme.primary,
-                        )
-                    }
-                    BlockType.HEADER_3 -> {
-                        Text(
-                            text = rememberAnnotated(block.text, scheme),
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.SemiBold,
-                            color = if (color != Color.Unspecified) color else scheme.onSurface,
-                        )
-                    }
-                    BlockType.BLOCKQUOTE -> {
-                        BlockquoteCard(text = block.text, scheme = scheme)
-                    }
-                    BlockType.BULLET -> {
-                        Row(modifier = Modifier.padding(start = 4.dp)) {
-                            Text("•", style = MaterialTheme.typography.bodyMedium, color = scheme.primary)
-                            Spacer(Modifier.width(6.dp))
-                            Text(
-                                text = rememberAnnotated(block.text, scheme),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = color,
+        splitPieces.forEach { piece ->
+            key(piece.id) {
+                val blocks = remember(piece.text) { parseBlocks(piece.text) }
+                blocks.forEach { block ->
+                    when (block.type) {
+                        BlockType.CODE_BLOCK -> {
+                            CodeBlockCard(
+                                language = block.language,
+                                code = block.text,
+                                onCopy = { clipboard.setText(AnnotatedString(block.text)) },
+                                onPreviewHtml = onPreviewHtml,
                             )
                         }
-                    }
-                    BlockType.NUMBERED -> {
-                        Row(modifier = Modifier.padding(start = 4.dp)) {
-                            Text(block.language, style = MaterialTheme.typography.bodyMedium, color = scheme.primary, fontWeight = FontWeight.SemiBold)
-                            Spacer(Modifier.width(4.dp))
+                        BlockType.HEADER_1 -> {
+                            Spacer(Modifier.height(4.dp))
                             Text(
                                 text = rememberAnnotated(block.text, scheme),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = color,
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = if (color != Color.Unspecified) color else scheme.primary,
                             )
                         }
-                    }
-                    BlockType.TABLE -> {
-                        TableCard(tableRaw = block.text, scheme = scheme)
-                    }
-                    BlockType.PARAGRAPH -> {
-                        if (block.text.isNotBlank()) {
+                        BlockType.HEADER_2 -> {
+                            Spacer(Modifier.height(2.dp))
                             Text(
                                 text = rememberAnnotated(block.text, scheme),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = color,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = if (color != Color.Unspecified) color else scheme.primary,
                             )
+                        }
+                        BlockType.HEADER_3 -> {
+                            Text(
+                                text = rememberAnnotated(block.text, scheme),
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (color != Color.Unspecified) color else scheme.onSurface,
+                            )
+                        }
+                        BlockType.BLOCKQUOTE -> {
+                            BlockquoteCard(text = block.text, scheme = scheme)
+                        }
+                        BlockType.BULLET -> {
+                            Row(modifier = Modifier.padding(start = 4.dp)) {
+                                Text("•", style = MaterialTheme.typography.bodyMedium, color = scheme.primary)
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    text = rememberAnnotated(block.text, scheme),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = color,
+                                )
+                            }
+                        }
+                        BlockType.NUMBERED -> {
+                            Row(modifier = Modifier.padding(start = 4.dp)) {
+                                Text(block.language, style = MaterialTheme.typography.bodyMedium, color = scheme.primary, fontWeight = FontWeight.SemiBold)
+                                Spacer(Modifier.width(4.dp))
+                                Text(
+                                    text = rememberAnnotated(block.text, scheme),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = color,
+                                )
+                            }
+                        }
+                        BlockType.TABLE -> {
+                            TableCard(tableRaw = block.text, scheme = scheme)
+                        }
+                        BlockType.PARAGRAPH -> {
+                            if (block.text.isNotBlank()) {
+                                Text(
+                                    text = rememberAnnotated(block.text, scheme),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = color,
+                                )
+                            }
                         }
                     }
                 }
             }
         }
+    }
 }
 
 /**
@@ -530,8 +544,17 @@ private fun CodeBlockCard(
     val totalLines = lines.size
     val isCollapsible = totalLines > 10
     var isExpanded by remember { mutableStateOf(false) }
-    val displayCode = remember(code, isExpanded) {
-        if (isCollapsible && !isExpanded) lines.take(10).joinToString("\n") else code
+    // Long tool output is clipped to its head and tail so one paragraph never
+    // lays out a megabyte of text. Copy, save and preview still use the full code.
+    val clipped = remember(code) { clipLongText(code) }
+    val displayCode = remember(code, isExpanded, clipped) {
+        if (isCollapsible && !isExpanded) {
+            lines.take(10).joinToString("\n")
+        } else if (clipped.clipped) {
+            clipped.head + "\n" + hiddenLinesMarker(clipped.hiddenLines, clipped.hiddenChars) + "\n" + clipped.tail.orEmpty()
+        } else {
+            code
+        }
     }
 
     Surface(

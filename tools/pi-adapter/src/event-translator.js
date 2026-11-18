@@ -9,10 +9,11 @@ export class EventTranslator extends EventEmitter {
     super();
     this.capacity = capacity;
     this.events = [];
+    this.sequence = 0;
   }
 
   record(type, data = {}) {
-    const event = { type, at: Date.now(), ...data };
+    const event = { type, at: Date.now(), seq: ++this.sequence, ...data };
     this.events.push(event);
     if (this.events.length > this.capacity) {
       this.events.splice(0, this.events.length - this.capacity);
@@ -82,7 +83,8 @@ export class EventTranslator extends EventEmitter {
     return () => piClient.off("event", handler);
   }
 
-  snapshot() {
-    return this.events.slice();
+  /** Events after `since`, or the full bounded snapshot when omitted. */
+  snapshot(since = 0) {
+    return this.events.filter((event) => event.seq > since);
   }
 }
