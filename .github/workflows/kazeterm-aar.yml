@@ -1,0 +1,152 @@
+name: Build KazeTerm native library (arm64-v8a)
+
+# Build-only workflow: checks out KazeTerm beside RaikaAI, builds libkazeterm.so and uploads
+# the outputs as a GitHub Actions artifact. It does NOT publish a Maven artifact or a Release.
+# KazeTerm has no AAR task yet; its assembleRelease task runs the CargoNdkTask that produces
+# the arm64-v8a native library, which is the reusable artifact RaikaAI consumes locally.
+# No push/PR triggers: runs only when dispatched explicitly.
+
+on:
+  workflow_dispatch:
+    inputs:
+      kazeterm_repository:
+        description: 'KazeTerm repository (full git URL or owner/repo)'
+        required: true
+        type: string
+        default: 'kouzen-neo/kazeterm'
+      kazeterm_ref:
+        description: 'KazeTerm branch, tag or commit to build'
+        required: true
+        type: string
+        default: 'master'
+      build_type:
+        description: 'Build type (release uses the android-release LTO profile, no test hooks)'
+        required: true
+        type: choice
+        default: release
+        options:
+          - release
+          - debug
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  NDK_VERSION: 29.0.14206865
+
+jobs:
+  build-kazeterm:
+    name: Build KazeTerm native library
+    # aapt2 for Linux is distributed for x86_64 only, matching KazeTerm's Android CI
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out RaikaAI
+        uses: actions/checkout@v4
+
+      - name: Check out KazeTerm
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.kazeterm_repository }}
+          ref: ${{ inputs.kazeterm_ref }}
+          path: kazeterm
+
+      - name: Install host build packages
+        run: sudo apt-get update && sudo apt-get install -y llvm musl-tools
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+          cache-dependency-path: |
+            kazeterm/android/**/*.gradle*
+            kazeterm/android/gradle/wrapper/gradle-wrapper.properties
+
+      - name: Install Android SDK platform 37 and NDK
+        run: |
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses > /dev/null || true
+          if ! "$SDKMANAGER" "platforms;android-37"; then
+            # Android 37 has not always been published; fall back to the android-36 shim
+            "$SDKMANAGER" "platforms;android-36"
+            cp -r "$ANDROID_HOME/platforms/android-36" "$ANDROID_HOME/platforms/android-37"
+          fi
+          "$SDKMANAGER" "ndk;$NDK_VERSION"
+          # cargo-ndk warns if the preset root points at another NDK; set both as KazeTerm CI does
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+
+      - name: Install Rust 1.90 and the Android target
+        working-directory: kazeterm
+        run: |
+          # rust-toolchain.toml pins 1.90.0 with rustfmt, clippy and rust-analyzer
+          rustup toolchain install
+          rustup target add aarch64-linux-android
+
+      - name: Install cargo-ndk
+        working-directory: kazeterm
+        run: cargo install cargo-ndk --locked
+
+      - name: Install Zig 0.17.0
+        env:
+          ZIG_VERSION: 0.17.0
+          # sha256 of zig-x86_64-linux-0.17.0.tar.xz, pinned by KazeTerm's Android workflow
+          ZIG_SHA256: 1cbe9df9f27e6b78d14ccbca43b6703a404ef79ef1c463de901d7f088d4e2026
+        run: |
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/zig.tar.xz" \
+            "https://ziglang.org/download/$ZIG_VERSION/zig-x86_64-linux-$ZIG_VERSION.tar.xz"
+          echo "$ZIG_SHA256  $RUNNER_TEMP/zig.tar.xz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/zig"
+          tar -xJf "$RUNNER_TEMP/zig.tar.xz" -C "$RUNNER_TEMP/zig" --strip-components 1
+          echo "$RUNNER_TEMP/zig" >> "$GITHUB_PATH"
+
+      - name: Fetch rootfs and libghostty-vt inputs
+        working-directory: kazeterm
+        run: |
+          scripts/fetch-rootfs
+          scripts/fetch-ghostty
+
+      - name: Build the arm64-v8a native library
+        # assembleRelease triggers buildRustRelease (cargo ndk -t arm64-v8a --platform 30
+        # --profile android-release -p kazeterm-android). KazeTerm builds no other ABI.
+        working-directory: kazeterm/android
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/kazeterm/target/android
+        run: |
+          if [ "${{ inputs.build_type }}" = "release" ]; then
+            ./gradlew assembleRelease --console=plain
+          else
+            ./gradlew assembleDebug --console=plain
+          fi
+
+      - name: Collect artifacts
+        env:
+          BUILD_TYPE: ${{ inputs.build_type }}
+        run: |
+          set -eu
+          case "$BUILD_TYPE" in
+            release) variant=release ;;
+            debug) variant=debug ;;
+          esac
+          mkdir -p kazeterm-artifact/jniLibs/arm64-v8a
+          so="kazeterm/android/app/build/generated/rust/$variant/jniLibs/arm64-v8a/libkazeterm.so"
+          test -f "$so"
+          cp "$so" kazeterm-artifact/jniLibs/arm64-v8a/libkazeterm.so
+          apk="kazeterm/android/app/build/outputs/apk/$variant/app-$variant.apk"
+          if [ -f "$apk" ]; then cp "$apk" kazeterm-artifact/; fi
+          {
+            echo "KazeTerm commit: $(git -C kazeterm rev-parse HEAD)"
+            echo "KazeTerm ref: ${{ inputs.kazeterm_ref }}"
+            echo "Build type: $BUILD_TYPE"
+            echo "Toolchain: JDK 17, SDK platform 37, NDK 29.0.14206865, Rust 1.90.0 (aarch64-linux-android), cargo-ndk, Zig 0.17.0"
+          } > kazeterm-artifact/build-info.txt
+
+      - name: Upload native library artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kazeterm-libkazeterm-${{ inputs.build_type }}-arm64-v8a
+          path: kazeterm-artifact/
+          if-no-files-found: error
+          retention-days: 14
