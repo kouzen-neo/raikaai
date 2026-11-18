@@ -33,6 +33,8 @@ proper OpenAI `message.tool_calls` array with generated `call_...` ids and
 |---|---|---|
 | `PI_BIN` | `pi` | Pi executable. May include leading args or be a full path; the fixed `--mode rpc --no-session` args are appended. |
 | `UPSTREAM_BASE_URL` | `http://127.0.0.1:8080/v1` | Base URL of RaikaAI's OpenAI-compatible `/v1` (the tool-less upstream). |
+| `ADAPTER_TOKEN` | empty | When set, every endpoint except `/health` requires `Authorization: Bearer <token>`. Empty disables auth for local development. |
+| `UPSTREAM_TOKEN` | empty | Bearer token for RaikaAI's `/v1`. The caller's adapter token is never relayed upstream. |
 | `PORT` | `8787` | HTTP listen port. |
 | `HOST` | `127.0.0.1` | HTTP listen address. |
 

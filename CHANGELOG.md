@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - **Multiple thinking phases no longer overwrite each other.** Each `<think>` block now renders as its own stable card instead of being merged into one, and expansion state stays put when a block completes. The thinking-only fallback no longer clears the streamed message before retrying, so earlier text and reasoning remain visible.
+- **Pi adapter token handling.** The adapter now requires its own bearer token and never relays it to RaikaAI's `/v1`; a separate `UPSTREAM_TOKEN` is used upstream. Release asset naming no longer breaks on branch names containing `/`.
 
 ## [0.1.5] - 2026-10-24
 

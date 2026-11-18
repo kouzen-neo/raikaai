@@ -7,7 +7,7 @@
 //   POST /v1/chat/completions    -> tool shim -> RaikaAI /v1 (JSON or SSE)
 
 import http from "node:http";
-import { randomUUID } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import { PiClient } from "./pi-client.js";
 import { EventTranslator } from "./event-translator.js";
 import {
@@ -98,17 +98,31 @@ async function collectUpstreamSse(response, onText) {
 
 export function createAdapter({
   upstreamBaseUrl = process.env.UPSTREAM_BASE_URL || "http://127.0.0.1:8080/v1",
+  upstreamToken = process.env.UPSTREAM_TOKEN || "",
+  token = process.env.ADAPTER_TOKEN || "",
   piClient = new PiClient(),
   translator = new EventTranslator(),
   logger = () => {},
 } = {}) {
   translator.attach(piClient);
 
+  function isAuthorized(request) {
+    if (!token) return true;
+    const header = request.headers.authorization || "";
+    const prefix = "Bearer ";
+    if (!header.startsWith(prefix)) return false;
+    const provided = Buffer.from(header.slice(prefix.length));
+    const expected = Buffer.from(token);
+    return provided.length === expected.length && timingSafeEqual(provided, expected);
+  }
+
   async function proxyChatCompletion(request, response, body) {
     const stream = Boolean(body.stream);
     const forwarded = injectToolSchemas(body);
     const headers = { "content-type": "application/json" };
-    if (request.headers.authorization) headers.authorization = request.headers.authorization;
+    // The caller's Bearer token authenticates against THIS adapter. Never relay
+    // it to the upstream LLM server, which has its own configured token.
+    if (upstreamToken) headers.authorization = `Bearer ${upstreamToken}`;
 
     let upstream;
     try {
@@ -168,6 +182,11 @@ export function createAdapter({
 
       if (request.method === "GET" && path === "/health") {
         sendJson(response, 200, { ok: true });
+        return;
+      }
+
+      if (!isAuthorized(request)) {
+        sendJson(response, 401, { error: { message: "Unauthorized" } });
         return;
       }
 

@@ -11,7 +11,9 @@ const TOOL_OBJECT = JSON.stringify({
 
 export function startFakeUpstream({ toolText = `Sure!\n${TOOL_OBJECT}` } = {}) {
   const requests = [];
+  const authorizations = [];
   const server = http.createServer((request, response) => {
+    authorizations.push(request.headers.authorization || null);
     let body = "";
     request.on("data", (chunk) => { body += chunk; });
     request.on("end", () => {
@@ -67,6 +69,7 @@ export function startFakeUpstream({ toolText = `Sure!\n${TOOL_OBJECT}` } = {}) {
       resolve({
         server,
         requests,
+        authorizations,
         url: `http://127.0.0.1:${server.address().port}/v1`,
         close: () => new Promise((done) => server.close(done)),
       });

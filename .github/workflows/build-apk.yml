@@ -60,7 +60,8 @@ jobs:
       - name: Prepare release assets
         run: |
           mkdir -p release-apks
-          TAG="${GITHUB_REF_NAME:-v0.1.1}"
+          RAW_TAG="${GITHUB_REF_NAME:-v0.1.1}"
+          TAG="${RAW_TAG//\//-}"
           cp app/build/outputs/apk/release/app-arm64-v8a-release.apk "release-apks/RaikaAI-${TAG}-arm64-v8a.apk"
           ls -lh release-apks/
           cd release-apks
