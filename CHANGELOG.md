@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### Fixed
+- **Multiple thinking phases no longer overwrite each other.** Each `<think>` block now renders as its own stable card instead of being merged into one, and expansion state stays put when a block completes. The thinking-only fallback no longer clears the streamed message before retrying, so earlier text and reasoning remain visible.
+
 ## [0.1.5] - 2026-10-24
 
 ### Added

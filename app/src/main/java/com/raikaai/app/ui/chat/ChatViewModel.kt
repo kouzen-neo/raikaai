@@ -1670,8 +1670,9 @@ class ChatViewModel(
     /**
      * Runs the pipeline with thinking as configured. Small on-device thinking
      * models sometimes end the turn inside the thinking channel, producing zero
-     * answer text — retry once with thinking disabled instead of showing a
-     * blank bubble. Local-only by design; the remote path has its own guard.
+     * answer text. Retry once with thinking disabled, keeping the first pass's
+     * thinking visible as its own block instead of wiping the message.
+     * Local-only by design; the remote path has its own guard.
      */
     private suspend fun streamWithThinkingFallback(ctx: GenerationCtx): LocalPipelineOutcome {
         var (effectiveSystem, history, ragSources) = runGenerationPipeline(ctx, ctx.s.enableThinking)
@@ -1680,10 +1681,6 @@ class ChatViewModel(
             stripThinking(messages.lastOrNull()?.content.orEmpty()).isBlank()
         ) {
             KLog.w("ChatVM", "Local pass produced thinking-only output; retrying once without thinking")
-            val idx = messages.lastIndex
-            if (idx >= 0 && messages[idx].role == ChatConstants.ROLE_ASSISTANT) {
-                messages[idx] = messages[idx].copy(content = "")
-            }
             val retry = runGenerationPipeline(ctx, false)
             effectiveSystem = retry.first
             history = retry.second

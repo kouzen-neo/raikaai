@@ -40,6 +40,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -98,12 +99,15 @@ fun MarkdownText(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        // Render Collapsible Thinking Block if present and enabled
-        if (enableThinking && parsedThinking.thinkingText != null) {
-            ThinkingCard(
-                thought = parsedThinking.thinkingText,
-                isComplete = parsedThinking.isComplete,
-            )
+        // Each thinking phase gets its own stable card so later phases never
+        // replace or collapse earlier ones.
+        parsedThinking.thinkingBlocks.forEach { block ->
+            key(block.id) {
+                ThinkingCard(
+                    thought = block.text,
+                    isComplete = block.isComplete,
+                )
+            }
         }
 
             blocks.forEach { block ->
@@ -192,8 +196,9 @@ private fun ThinkingCard(
     thought: String,
     isComplete: Boolean,
 ) {
-    // Collapsed by default when complete, expanded while generating
-    var expanded by remember(isComplete) { mutableStateOf(!isComplete) }
+    // Completion only changes the label and spinner; it must not reset the
+    // user's expansion choice or make the card collapse mid-stream.
+    var expanded by remember { mutableStateOf(true) }
 
     Surface(
         shape = RoundedCornerShape(12.dp),
@@ -434,53 +439,45 @@ private fun formatToolCallsForDisplay(text: String): String {
     return result.trim()
 }
 
-private data class ParsedThinking(
-    val thinkingText: String?,
-    val mainText: String,
+private data class ThinkingBlock(
+    val id: Int,
+    val text: String,
     val isComplete: Boolean,
 )
 
+private data class ParsedThinking(
+    val thinkingBlocks: List<ThinkingBlock>,
+    val mainText: String,
+)
+
 private fun extractThinking(raw: String, enableThinking: Boolean = true): ParsedThinking {
-    if (raw.isBlank()) return ParsedThinking(null, "", true)
+    if (raw.isBlank()) return ParsedThinking(emptyList(), "")
 
     val pattern = Pattern.compile("<(think|thought|thinking)(?:\\s+[^>]*)?>([\\s\\S]*?)(?:<\\/\\1>|$)", Pattern.CASE_INSENSITIVE)
     val matcher = pattern.matcher(raw)
 
-    val thoughts = mutableListOf<String>()
-    var allComplete = true
+    val blocks = mutableListOf<ThinkingBlock>()
     val mainSb = StringBuilder()
     var lastEnd = 0
+    var blockIndex = 0
     var foundAny = false
 
     while (matcher.find()) {
         foundAny = true
-        val start = matcher.start()
-        val end = matcher.end()
         val tag = matcher.group(1).orEmpty()
         val thoughtContent = matcher.group(2).orEmpty().trim()
-        val fullMatch = matcher.group(0).orEmpty()
-        val isTagClosed = fullMatch.contains("</$tag>", ignoreCase = true)
+        val isComplete = matcher.group(0).orEmpty().contains("</$tag>", ignoreCase = true)
 
-        if (!isTagClosed) {
-            allComplete = false
+        if (matcher.start() > lastEnd) {
+            mainSb.append(raw.substring(lastEnd, matcher.start()))
         }
-
-        if (start > lastEnd) {
-            mainSb.append(raw.substring(lastEnd, start))
+        if (enableThinking && thoughtContent.isNotBlank()) {
+            blocks.add(ThinkingBlock(blockIndex++, thoughtContent, isComplete))
         }
-
-        if (thoughtContent.isNotBlank()) {
-            thoughts.add(thoughtContent)
-        }
-
-        lastEnd = end
+        lastEnd = matcher.end()
     }
 
-    if (foundAny) {
-        if (lastEnd < raw.length) {
-            mainSb.append(raw.substring(lastEnd))
-        }
-    } else {
+    if (!foundAny) {
         val strayCloseIdx = listOf("</think>", "</thought>", "</thinking>")
             .map { raw.indexOf(it, ignoreCase = true) }
             .filter { it >= 0 }
@@ -491,22 +488,21 @@ private fun extractThinking(raw: String, enableThinking: Boolean = true): Parsed
             val after = raw.substring(strayCloseIdx)
                 .replace(Regex("</(?:think|thought|thinking)>", RegexOption.IGNORE_CASE), "")
                 .trim()
-            val thought = if (enableThinking && think.isNotBlank()) think else null
-            return ParsedThinking(thought, after, true)
+            val block = if (enableThinking && think.isNotBlank()) {
+                listOf(ThinkingBlock(0, think, true))
+            } else {
+                emptyList()
+            }
+            return ParsedThinking(block, after)
         }
-        return ParsedThinking(null, raw.trim(), true)
+        return ParsedThinking(emptyList(), raw.trim())
     }
 
+    if (lastEnd < raw.length) {
+        mainSb.append(raw.substring(lastEnd))
+    }
     val strayCloseRegex = Regex("</(?:think|thought|thinking)>", RegexOption.IGNORE_CASE)
-    val cleanedMain = mainSb.toString().replace(strayCloseRegex, "").trim()
-
-    val combinedThoughts = if (enableThinking && thoughts.isNotEmpty()) {
-        thoughts.joinToString("\n\n")
-    } else {
-        null
-    }
-
-    return ParsedThinking(combinedThoughts, cleanedMain, allComplete)
+    return ParsedThinking(blocks, mainSb.toString().replace(strayCloseRegex, "").trim())
 }
 
 @Composable
