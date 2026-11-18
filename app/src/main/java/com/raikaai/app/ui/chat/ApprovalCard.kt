@@ -19,7 +19,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilledButton
+import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -154,7 +154,7 @@ fun ApprovalCard(
                     ) {
                         Text("Decline")
                     }
-                    FilledButton(
+                    Button(
                         onClick = onAllowOnce,
                         enabled = !state.busy,
                         shape = RoundedCornerShape(10.dp),
