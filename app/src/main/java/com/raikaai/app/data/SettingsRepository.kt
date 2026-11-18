@@ -118,6 +118,15 @@ data class Settings(
     val containerYolo: Boolean = false,
     /** JSON array of normalized commands always auto-approved (ASK-policy). */
     val containerAlwaysAllowJson: String = "[]",
+    // Runtime boundary: on-device only, or KazeTerm guest hosting Pi.
+    /** One of the RuntimeMode names. Defaults to the container-free app. */
+    val runtimeMode: String = "ON_DEVICE",
+    /** Host of the Pi adapter running inside the KazeTerm guest. */
+    val piAdapterHost: String = "127.0.0.1",
+    /** Port of the Pi adapter running inside the KazeTerm guest. */
+    val piAdapterPort: Int = 8787,
+    /** Bearer token for the Pi adapter, read from encrypted preferences. */
+    val piAdapterToken: String = "",
 )
 
 /**
@@ -277,6 +286,9 @@ class SettingsRepository(
         val ALPINE_VERSION = stringPreferencesKey("alpine_version")
         val CONTAINER_YOLO = booleanPreferencesKey("container_yolo")
         val CONTAINER_ALWAYS_ALLOW = stringPreferencesKey("container_always_allow_json")
+        val RUNTIME_MODE = stringPreferencesKey("runtime_mode")
+        val PI_ADAPTER_HOST = stringPreferencesKey("pi_adapter_host")
+        val PI_ADAPTER_PORT = intPreferencesKey("pi_adapter_port")
 
         // Legacy DataStore keys for sensitive tokens. Tokens used to live here in
         // plaintext; they are migrated to EncryptedSharedPreferences on first read
@@ -293,10 +305,12 @@ class SettingsRepository(
         private const val SEC_HF_TOKEN = "huggingface_token"
         private const val SEC_SERVER_AUTH_TOKEN = "server_auth_token"
 
+        private const val SEC_PI_ADAPTER_TOKEN = "pi_adapter_token"
+
         /** Set in the plaintext fallback prefs once the fallback has been used (B17/S5). */
         private const val FALLBACK_USED_FLAG = "fallback_used"
 
-        private val SEC_TOKEN_KEYS = listOf(SEC_REMOTE_API_KEY, SEC_HF_TOKEN, SEC_SERVER_AUTH_TOKEN)
+        private val SEC_TOKEN_KEYS = listOf(SEC_REMOTE_API_KEY, SEC_HF_TOKEN, SEC_SERVER_AUTH_TOKEN, SEC_PI_ADAPTER_TOKEN)
     }
 
     /**
@@ -539,6 +553,10 @@ class SettingsRepository(
                     alpineVersion = prefs[Keys.ALPINE_VERSION] ?: "",
                     containerYolo = prefs[Keys.CONTAINER_YOLO] ?: false,
                     containerAlwaysAllowJson = prefs[Keys.CONTAINER_ALWAYS_ALLOW] ?: "[]",
+                    runtimeMode = prefs[Keys.RUNTIME_MODE] ?: "ON_DEVICE",
+                    piAdapterHost = prefs[Keys.PI_ADAPTER_HOST] ?: "127.0.0.1",
+                    piAdapterPort = (prefs[Keys.PI_ADAPTER_PORT] ?: 8787).coerceIn(1024, 65535),
+                    piAdapterToken = securePrefs().getString(SEC_PI_ADAPTER_TOKEN, "") ?: "",
                 )
             }
         }
@@ -770,6 +788,14 @@ class SettingsRepository(
     suspend fun setServerBindAll(value: Boolean) = edit { it[Keys.SERVER_BIND_ALL] = value }
 
     suspend fun setServerAuthToken(value: String) = putSecureToken(SEC_SERVER_AUTH_TOKEN, value)
+
+    suspend fun setRuntimeMode(value: String) = edit { it[Keys.RUNTIME_MODE] = value }
+
+    suspend fun setPiAdapterHost(value: String) = edit { it[Keys.PI_ADAPTER_HOST] = value }
+
+    suspend fun setPiAdapterPort(value: Int) = edit { it[Keys.PI_ADAPTER_PORT] = value.coerceIn(1024, 65535) }
+
+    suspend fun setPiAdapterToken(value: String) = putSecureToken(SEC_PI_ADAPTER_TOKEN, value)
 
     suspend fun setSystemPrompt(value: String) = edit { it[Keys.SYSTEM_PROMPT] = value }
 

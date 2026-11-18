@@ -224,6 +224,38 @@ class ChatViewModel(
 
     val settings = MutableStateFlow(Settings())
 
+    /**
+     * Runtime boundary selected by [Settings.runtimeMode]. ON_DEVICE keeps the
+     * existing Linux-free tools; KAZETERM_PI points at the Pi adapter running
+     * inside the guest. Selection alone does not reroute prompt/dispatch yet.
+     */
+    private var activeToolRuntime: com.raikaai.app.runtime.ToolRuntime =
+        com.raikaai.app.runtime.DirectRuntime()
+
+    /** Exposed for future UI and tests; never returns null. */
+    fun currentToolRuntime(): com.raikaai.app.runtime.ToolRuntime = activeToolRuntime
+
+    private fun rebuildToolRuntime(s: Settings) {
+        val mode = runCatching { com.raikaai.app.runtime.RuntimeMode.valueOf(s.runtimeMode) }
+            .getOrDefault(com.raikaai.app.runtime.RuntimeMode.ON_DEVICE)
+        activeToolRuntime.close()
+        activeToolRuntime = when (mode) {
+            com.raikaai.app.runtime.RuntimeMode.KAZETERM_PI ->
+                com.raikaai.app.runtime.ContainerRuntime(
+                    host = s.piAdapterHost,
+                    port = s.piAdapterPort,
+                    token = s.piAdapterToken,
+                )
+            else -> com.raikaai.app.runtime.DirectRuntime()
+        }
+    }
+
+    /** Dispatch one tool through the currently selected runtime. */
+    suspend fun callRuntimeTool(name: String, argumentsJson: String) =
+        activeToolRuntime.call(
+            com.raikaai.app.runtime.ToolRequest(name, argumentsJson),
+        ) { /* events are consumed by the runtime-specific UI when connected */ }
+
     /** Estimated cumulative remote API spend in USD (owned by ServerControls). */
     val messages = mutableStateListOf<ChatMessageEntry>()
     val isGenerating = mutableStateOf(false)
@@ -1080,6 +1112,7 @@ class ChatViewModel(
         viewModelScope.launch {
             settingsRepo.settingsFlow.collect { s ->
                 settings.value = s
+                rebuildToolRuntime(s)
                 serverControls.refreshSpend(s.remoteSpendMicros)
                 personaStore.loadCustomPersonasFromJson(s.customPersonasJson)
                 // Retry a persona restore that previously fell back to General
