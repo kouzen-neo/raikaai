@@ -1,0 +1,84 @@
+#!/bin/sh
+# Downloads and verifies the Alpine minirootfs used by RaikaAI's Linux
+# environment. RaikaAI pins Alpine 3.21.0 (the version its manifest and unit
+# tests use); a newer release would need those pins changed together.
+#
+# Usage: scripts/fetch-rootfs [output directory]
+# The output directory defaults to target/rootfs. The path of each optional
+# package is printed first, and the verified tarball's path is printed last,
+# so callers can take the last line as the artifact.
+#
+# No GPG is needed: the sha256 is pinned below and compared on every run.
+# A download is written to a .part file and renamed only once it matches.
+# Optional packages from the same branch's main repository may be listed with
+# their pinned sha256s below; they are not bundled by default, and a package
+# that is missing or does not match is skipped with a warning instead of
+# breaking the build.
+
+set -eu
+
+version=3.21.0
+branch=v3.21
+sha256=f31202c4070c4ef7de9e157e1bd01cb4da3a2150035d74ea5372c5e86f1efac1
+name=alpine-minirootfs-$version-aarch64.tar.gz
+url=https://dl-cdn.alpinelinux.org/alpine/$branch/releases/aarch64/$name
+
+# "<file.apk> <sha256>" per line. Keep the digests in sync with the branch
+# above: upstream replaces a package file whenever it is rebuilt.
+packages="
+"
+packages_url=https://dl-cdn.alpinelinux.org/alpine/$branch/main/aarch64
+
+root=$(cd "$(dirname "$0")/.." && pwd)
+out=${1:-$root/target/rootfs}
+mkdir -p "$out"
+
+# GNU and BSD sha256 tools take different arguments, but the first column of
+# their output is the digest in both cases.
+digest() {
+    if command -v sha256sum >/dev/null; then
+        sha256sum "$1"
+    else
+        shasum -a 256 "$1"
+    fi | cut -d' ' -f1
+}
+
+# An optional package: verified against its own digest, but never fatal.
+fetch_package() {
+    if [ -f "$out/$1" ] && [ "$(digest "$out/$1")" = "$2" ]; then
+        echo "$out/$1"
+        return 0
+    fi
+    if curl -fsSL --retry 3 -o "$out/$1.part" "$packages_url/$1"; then
+        if [ "$(digest "$out/$1.part")" = "$2" ]; then
+            mv "$out/$1.part" "$out/$1"
+            echo "$out/$1"
+            return 0
+        fi
+        echo "fetch-rootfs: sha256 mismatch for optional $1, skipping" >&2
+    else
+        echo "fetch-rootfs: cannot download optional $1, skipping" >&2
+    fi
+    rm -f "$out/$1.part"
+}
+while read -r package package_sha256; do
+    [ -z "$package" ] || fetch_package "$package" "$package_sha256"
+done <<EOF
+$packages
+EOF
+
+file=$out/$name
+if [ -f "$file" ] && [ "$(digest "$file")" = "$sha256" ]; then
+    echo "$file"
+    exit 0
+fi
+
+curl -fsSL --retry 3 -o "$file.part" "$url"
+got=$(digest "$file.part")
+if [ "$got" != "$sha256" ]; then
+    echo "fetch-rootfs: sha256 mismatch for $url: got $got, expected $sha256" >&2
+    rm -f "$file.part"
+    exit 1
+fi
+mv "$file.part" "$file"
+echo "$file"

@@ -65,7 +65,6 @@ import androidx.compose.ui.unit.dp
 import com.raikaai.app.data.SettingsRepository
 import com.raikaai.app.runtime.RuntimeMode
 import com.raikaai.app.ui.chat.ChatViewModel
-import com.raikaai.app.ui.component.ChipsRow
 import com.raikaai.app.ui.component.Material3SettingsGroup
 import com.raikaai.app.ui.component.Material3SettingsItem
 import com.raikaai.app.ui.component.SettingsTextField

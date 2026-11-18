@@ -60,6 +60,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -230,9 +231,6 @@ class ChatViewModel(
     private var activeToolRuntime: com.raikaai.app.runtime.ToolRuntime =
         com.raikaai.app.runtime.DirectRuntime()
 
-    /** Exposed for future UI and tests; never returns null. */
-    fun currentToolRuntime(): com.raikaai.app.runtime.ToolRuntime = activeToolRuntime
-
     private fun rebuildToolRuntime(s: Settings) {
         val mode = runCatching { com.raikaai.app.runtime.RuntimeMode.valueOf(s.runtimeMode) }
             .getOrDefault(com.raikaai.app.runtime.RuntimeMode.ON_DEVICE)
@@ -247,12 +245,6 @@ class ChatViewModel(
             else -> com.raikaai.app.runtime.DirectRuntime()
         }
     }
-
-    /** Dispatch one tool through the currently selected runtime. */
-    suspend fun callRuntimeTool(name: String, argumentsJson: String) =
-        activeToolRuntime.call(
-            com.raikaai.app.runtime.ToolRequest(name, argumentsJson),
-        ) { /* events are consumed by the runtime-specific UI when connected */ }
 
     // Pi agent runtime, exposed through /agent and the chat runtime panel.
     val runtimeToolState = mutableStateOf<com.raikaai.app.ui.chat.ToolUiState?>(null)
@@ -276,11 +268,11 @@ class ChatViewModel(
     }
 
     /** Run one turn through the Pi adapter when KAZETERM_PI is selected. */
-    suspend fun runAgentTurn(prompt: String) {
+    suspend fun runAgentTurn(prompt: String) = withContext(Dispatchers.IO) {
         val s = settings.value
         if (s.runtimeMode != com.raikaai.app.runtime.RuntimeMode.KAZETERM_PI.name) {
             errorMessage.value = "Select KAZETERM_PI in Settings → Runtime first."
-            return
+            return@withContext
         }
         val runtime = com.raikaai.app.runtime.PiAgentRuntime(
             baseUrl = "http://${s.piAdapterHost}:${s.piAdapterPort}",
@@ -312,17 +304,20 @@ class ChatViewModel(
                             )
                         }
                     is com.raikaai.app.runtime.RuntimeEvent.TurnEnd ->
-                        runtimeToolState.value = null
+                        runtimeToolState.value = runtimeToolState.value?.copy(
+                            status = com.raikaai.app.ui.chat.ToolStatus.SUCCEEDED,
+                        )
                     else -> Unit
                 }
             }
             appendLocalExchange(prompt, reply.ifBlank { streamed.toString() })
         } catch (error: Exception) {
             errorMessage.value = "Pi runtime: ${error.message ?: error.javaClass.simpleName}"
+            runtimeToolState.value = runtimeToolState.value?.copy(
+                status = com.raikaai.app.ui.chat.ToolStatus.FAILED,
+            )
         } finally {
             runtimeAbort = null
-            runtimeToolState.value = null
-            runtimeApprovalState.value = null
         }
     }
 
@@ -1174,6 +1169,13 @@ class ChatViewModel(
         // Token migrations run eagerly (outside flow collection) so
         // settings/mcp collectors never re-enter DataStore.
         settingsRepo.runMigrationsEagerly(viewModelScope)
+        viewModelScope.launch {
+            SettingsRepository.secureTokenChanges.collect {
+                val latest = settingsRepo.settingsFlow.first()
+                settings.value = latest
+                rebuildToolRuntime(latest)
+            }
+        }
         viewModelScope.launch {
             settingsRepo.settingsFlow.collect { s ->
                 settings.value = s

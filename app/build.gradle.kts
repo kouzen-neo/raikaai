@@ -3,6 +3,25 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+/** Repository root: `scripts/fetch-rootfs` writes its verified tarball under target/rootfs. */
+val repoRoot: Directory = rootProject.layout.projectDirectory
+
+/** Orders file names by the numbers in them, so that 3.10 comes after 3.9. */
+val byVersion: Comparator<File> = Comparator { a, b ->
+    val numbers = { f: File -> Regex("""\d+""").findAll(f.name).map { it.value.toLong() }.toList() }
+    val (x, y) = numbers(a) to numbers(b)
+    x.zip(y).map { (p, q) -> p.compareTo(q) }.firstOrNull { it != 0 } ?: x.size.compareTo(y.size)
+}
+
+/**
+ * The newest tarball downloaded and verified by `scripts/fetch-rootfs`, or null.
+ * Builds without target/rootfs (the ON_DEVICE default) stay valid: the app then
+ * falls back to downloading the pinned tarball at install time.
+ */
+val rootfsTarball: File? = repoRoot.dir("target/rootfs").asFile
+    .listFiles { f -> f.name.matches(Regex("""alpine-minirootfs-.*-aarch64\.tar\.gz""")) }
+    ?.maxWithOrNull(byVersion)
+
 android {
     namespace = "com.raikaai.app"
     // compileSdk 37: required by the Compose 1.12.0-beta01 / material3
@@ -183,4 +202,39 @@ dependencies {
     // Tests
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
+}
+
+/**
+ * Bundles the verified Alpine tarball as an asset, named rootfs.tgz on purpose:
+ * the .tar.gz suffix makes AAPT try to store the file in a way that breaks
+ * AssetManager.open(). When no tarball was fetched, the task still creates its
+ * output directory but emits no asset, so ON_DEVICE builds succeed unchanged.
+ */
+val rootfsAsset = tasks.register<RootfsAssetTask>("rootfsAsset") {
+    rootfsTarball?.let { tarball.set(it) }
+    outputDir.set(layout.buildDirectory.dir("generated/rootfs/assets"))
+}
+
+androidComponents {
+    onVariants { variant ->
+        variant.sources.assets?.addGeneratedSourceDirectory(rootfsAsset, RootfsAssetTask::outputDir)
+    }
+}
+
+abstract class RootfsAssetTask : DefaultTask() {
+    @get:InputFile
+    @get:Optional
+    abstract val tarball: RegularFileProperty
+
+    @get:OutputDirectory
+    abstract val outputDir: DirectoryProperty
+
+    @TaskAction
+    fun copy() {
+        val out = outputDir.get().asFile
+        out.deleteRecursively()
+        out.mkdirs()
+        // Optional by design: no target/rootfs means no bundled rootfs asset.
+        tarball.orNull?.asFile?.copyTo(File(out, "rootfs.tgz")) ?: return
+    }
 }

@@ -54,6 +54,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -114,13 +115,22 @@ fun EnvironmentScreen(
     val context = LocalContext.current
     val settings by viewModel.settings.collectAsState()
     val manager = remember { viewModel.containerManager }
-    val terminalBackend: TerminalBackend = remember { backend ?: ProotTerminalBackend(viewModel, manager) }
+    val runtimeMode = viewModel.settings.value.runtimeMode
+    val terminalBackend: TerminalBackend = remember(runtimeMode, backend) {
+        backend ?: if (runtimeMode == com.raikaai.app.runtime.RuntimeMode.KAZETERM_PI.name) {
+            KazeTermTerminalBackend()
+        } else {
+            ProotTerminalBackend(viewModel, manager)
+        }
+    }
     val installState by manager.installState.collectAsState()
     val servedPort by manager.servedPort.collectAsState()
     var tab by remember { mutableIntStateOf(0) }
     var filesTick by remember { mutableIntStateOf(0) }
     val outdated = remember(settings.alpineInstalled, installState) { manager.isOutdated() }
     val fsInstalled = remember(settings.alpineInstalled, installState) { manager.isInstalled() }
+    // Alpine stays the default; Debian is an explicit opt-in download.
+    var selectedDistro by remember { mutableStateOf(DistroChoice.ALPINE) }
     val scope = rememberCoroutineScope()
 
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -160,17 +170,40 @@ fun EnvironmentScreen(
             }
 
             if (!fsInstalled || outdated) {
+                val debianSelected = selectedDistro == DistroChoice.DEBIAN
                 NotInstalledCard(
                     installState = installState,
-                    onInstall = { manager.install() },
+                    selected = selectedDistro,
+                    onSelect = { choice ->
+                        manager.cancelInstall()
+                        selectedDistro = choice
+                    },
+                    onInstall = {
+                        if (selectedDistro == DistroChoice.DEBIAN) manager.installDebian() else manager.install()
+                    },
                     onCancel = { manager.cancelInstall() },
-                    title = if (outdated) "Environment update available" else "Linux Environment not installed",
-                    desc = if (outdated) {
+                    title = if (debianSelected) {
+                        "Debian 13 (download)"
+                    } else if (outdated) {
+                        "Environment update available"
+                    } else {
+                        "Linux Environment not installed"
+                    },
+                    desc = if (debianSelected) {
+                        "Downloads the Debian 13 rootfs (~50 MB), verifies its pinned sha256 before install, and keeps /workspace."
+                    } else if (outdated) {
                         "The on-device rootfs uses an old format. Press Update to reinstall it (downloads ~3 MB, /workspace is kept)."
                     } else {
-                        "Downloads the Alpine minirootfs (~3 MB). proot ships inside the app and can be removed anytime."
+                        "Uses the Alpine rootfs bundled in the app when available; otherwise downloads the pinned ~3 MB tarball."
                     },
-                    actionLabel = if (outdated) "Update Alpine" else "Install Alpine",
+                    actionLabel = if (debianSelected) {
+                        "Download Debian 13"
+                    } else if (outdated) {
+                        "Update Alpine"
+                    } else {
+                        "Install Alpine"
+                    },
+                    debianInstalled = remember(installState) { manager.isDebianInstalled() },
                 )
                 return@Column
             }
@@ -263,14 +296,23 @@ fun EnvironmentScreen(
     }
 }
 
+/** The rootfs choices offered before the environment is installed. */
+private enum class DistroChoice(val label: String) {
+    ALPINE("Alpine (bundled)"),
+    DEBIAN("Debian 13 (download)"),
+}
+
 @Composable
 private fun NotInstalledCard(
     installState: ContainerManager.InstallState,
+    selected: DistroChoice = DistroChoice.ALPINE,
+    onSelect: (DistroChoice) -> Unit = {},
     onInstall: () -> Unit,
     onCancel: () -> Unit,
     title: String = "Linux Environment not installed",
     desc: String = "Downloads the Alpine minirootfs (~3 MB). proot ships inside the app and can be removed anytime.",
     actionLabel: String = "Install Alpine",
+    debianInstalled: Boolean = false,
 ) {
     Card(
         shape = RoundedCornerShape(16.dp),
@@ -284,6 +326,15 @@ private fun NotInstalledCard(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                DistroChoice.entries.forEach { choice ->
+                    FilterChip(
+                        selected = selected == choice,
+                        onClick = { onSelect(choice) },
+                        label = { Text(choice.label) },
+                    )
+                }
+            }
             when (val st = installState) {
                 is ContainerManager.InstallState.Downloading -> {
                     Text("Downloading ${st.label}… ${(st.progress * 100).toInt()}%", style = MaterialTheme.typography.labelSmall)
@@ -307,6 +358,13 @@ private fun NotInstalledCard(
                         Text(actionLabel)
                     }
                 }
+            }
+            if (selected == DistroChoice.DEBIAN && debianInstalled) {
+                Text(
+                    "Debian 13 is unpacked and sha256-verified. Runtime selection follows the KazeTerm backend migration.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }

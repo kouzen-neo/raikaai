@@ -22,6 +22,7 @@ class PiAgentRuntime(
     private val token: String,
     private val connectTimeoutMs: Int = DEFAULT_CONNECT_TIMEOUT_MS,
     private val readTimeoutMs: Int = DEFAULT_READ_TIMEOUT_MS,
+
 ) : AgentRuntime {
 
     /** Last event sequence consumed from the adapter's bounded snapshot. */
@@ -171,7 +172,7 @@ class PiAgentRuntime(
 
     companion object {
         const val DEFAULT_CONNECT_TIMEOUT_MS: Int = 10_000
-        const val DEFAULT_READ_TIMEOUT_MS: Int = 30_000
+        const val DEFAULT_READ_TIMEOUT_MS: Int = 600_000
         private const val MAX_ERROR_PREVIEW_BYTES: Int = 2_048
     }
 }

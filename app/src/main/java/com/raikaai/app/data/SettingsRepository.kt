@@ -17,6 +17,7 @@ import com.raikaai.app.util.KLog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -300,6 +301,10 @@ class SettingsRepository(
 
     companion object {
         private const val TAG = "SettingsRepository"
+
+        /** Emits when any secure token changed, so other repository instances can refresh. */
+        private val _secureTokenChanges = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+        val secureTokenChanges: Flow<Unit> get() = _secureTokenChanges
         private const val SECURE_PREFS_NAME = "raikaai_secrets"
         private const val SEC_REMOTE_API_KEY = "remote_api_key"
         private const val SEC_HF_TOKEN = "huggingface_token"
@@ -575,6 +580,7 @@ class SettingsRepository(
         // Re-emit settingsFlow so collectors observe the new token value.
         // update{} is atomic; the old read-modify-write could lose increments (B30).
         tokenBump.update { it + 1 }
+        _secureTokenChanges.tryEmit(Unit)
     }
 
     suspend fun setCustomPersonasJson(value: String) = edit { it[Keys.CUSTOM_PERSONAS] = value }

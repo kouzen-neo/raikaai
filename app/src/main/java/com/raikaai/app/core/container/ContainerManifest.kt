@@ -18,6 +18,63 @@ const val ALPINE_ARCH = "aarch64"
 const val ALPINE_ROOTFS_URL =
     "https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/aarch64/alpine-minirootfs-3.21.0-aarch64.tar.gz"
 
+/**
+ * sha256 of [ALPINE_ROOTFS_URL] (3,851,686 bytes), checked against the actual
+ * upstream file. scripts/fetch-rootfs pins the same value; change both together
+ * when the Alpine release is bumped.
+ */
+const val ROOTFS_SHA256 = "f31202c4070c4ef7de9e157e1bd01cb4da3a2150035d74ea5372c5e86f1efac1"
+
+/**
+ * Asset produced by `scripts/fetch-rootfs` and the `rootfsAsset` Gradle task.
+ * The .tgz name avoids the AAPT gzip handling of .tar.gz assets.
+ */
+const val BUNDLED_ROOTFS_ASSET = "container/rootfs.tgz"
+
+/** Built-in Alpine package mirrors; the first one is the official source. */
+val ALPINE_MIRRORS = listOf(
+    "https://dl-cdn.alpinelinux.org/alpine",
+    "https://mirrors.tuna.tsinghua.edu.cn/alpine",
+    "https://mirrors.ustc.edu.cn/alpine",
+    "https://mirrors.aliyun.com/alpine",
+)
+
+/** A tarball served by one or more interchangeable sources. */
+data class RootfsDownload(
+    val urls: List<String>,
+    val sha256: String,
+    /** Exact byte length when known, 0 when the source does not pin one. */
+    val sizeBytes: Long,
+)
+
+/**
+ * Debian 13 (`debian:trixie` built by debuerreotype, the same build used by the
+ * official Docker image, pinned to one artifact commit). The digest and length
+ * are fixed: any source serving those exact bytes is equally trustworthy.
+ */
+object Debian13 {
+    const val LABEL = "Debian 13"
+    const val ROOTFS_DIR = "debian13"
+
+    val DOWNLOAD = RootfsDownload(
+        urls = listOf(
+            "https://raw.githubusercontent.com/debuerreotype/docker-debian-artifacts/" +
+                "e36653f9967231373aeba7cff2102fd004ac4f4a/trixie/oci/blobs/rootfs.tar.gz",
+        ),
+        sha256 = "dfb68c024d5cdf4872bb7f0be8d63874aa6d0b7a0050f1b06169573e34ea543a",
+        sizeBytes = 49_776_179L,
+    )
+
+    /** Debian mirrors are written as host names; package sources use https. */
+    val MIRRORS = listOf(
+        "deb.debian.org",
+        "mirrors.tuna.tsinghua.edu.cn",
+        "mirrors.ustc.edu.cn",
+        "mirrors.aliyun.com",
+    )
+    const val PROBE = "debian/dists/trixie/InRelease"
+}
+
 /** Bundled proot build provenance (see assets/container/ATTRIBUTION.md). */
 const val PROOT_VERSION = "5.1.107.96 (Termux NDK build)"
 
@@ -44,7 +101,7 @@ data class BundledProot(
 data class ContainerManifest(
     val alpineVersion: String = ALPINE_VERSION,
     val rootfsUrl: String = ALPINE_ROOTFS_URL,
-    val rootfsSha256: String = "", // pin when the release checksum is known
+    val rootfsSha256: String = ROOTFS_SHA256,
 )
 
 /** Resolves the bundled proot payload for an Android ABI. Null = unsupported. */

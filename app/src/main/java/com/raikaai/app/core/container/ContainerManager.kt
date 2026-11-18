@@ -7,6 +7,9 @@ import java.io.BufferedInputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.io.IOException
+import java.net.HttpURLConnection
+import java.net.URL
 import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 import java.util.zip.GZIPInputStream
@@ -16,6 +19,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -145,6 +149,8 @@ fi
         .build()
 
     val alpineDir: File get() = File(app.filesDir, "alpine")
+    /** Alternative rootfs, installed on demand from the pinned Debian 13 tarball. */
+    val debianDir: File get() = File(app.filesDir, Debian13.ROOTFS_DIR)
     val workspaceDir: File get() = File(app.filesDir, "workspace")
     /** Installer-extracted native libs (exec permission guaranteed). */
     val nativeLibDir: File get() = File(app.applicationInfo.nativeLibraryDir)
@@ -273,11 +279,24 @@ fi
 
                 _installState.value = InstallState.Downloading("alpine-minirootfs", 0f)
                 val tmpTar = File(app.cacheDir, "alpine-minirootfs.tar.gz")
-                downloadToFile(manifest.rootfsUrl, tmpTar, expectedSha256 = manifest.rootfsSha256.ifBlank { null }) { done, total ->
-                    _installState.value = InstallState.Downloading(
-                        "alpine-minirootfs",
-                        if (total > 0) done.toFloat() / total else 0f,
-                    )
+                if (hasBundledRootfs()) {
+                    // Offline path: scripts/fetch-rootfs verified this asset before the
+                    // Gradle task copied it into the APK. Re-check the pin anyway, so a
+                    // stale bundle can never be unpacked silently.
+                    copyBundledRootfs(tmpTar)
+                    if (manifest.rootfsSha256.isNotBlank() && !verifySha256(tmpTar, manifest.rootfsSha256)) {
+                        tmpTar.delete()
+                        throw IllegalStateException(
+                            "Bundled rootfs sha256 mismatch — rebuild with scripts/fetch-rootfs",
+                        )
+                    }
+                } else {
+                    downloadToFile(manifest.rootfsUrl, tmpTar, expectedSha256 = manifest.rootfsSha256.ifBlank { null }) { done, total ->
+                        _installState.value = InstallState.Downloading(
+                            "alpine-minirootfs",
+                            if (total > 0) done.toFloat() / total else 0f,
+                        )
+                    }
                 }
 
                 _installState.value = InstallState.Extracting("alpine-minirootfs")
@@ -320,6 +339,144 @@ fi
             }
         }
     }
+
+    /** True when the APK carries the offline rootfs produced by scripts/fetch-rootfs. */
+    private fun hasBundledRootfs(): Boolean = runCatching {
+        app.assets.open(BUNDLED_ROOTFS_ASSET).close()
+        true
+    }.getOrDefault(false)
+
+    /** Copies the bundled asset into [dest] for the existing unpack pipeline. */
+    private fun copyBundledRootfs(dest: File) {
+        dest.parentFile?.mkdirs()
+        app.assets.open(BUNDLED_ROOTFS_ASSET).use { input ->
+            FileOutputStream(dest).use { input.copyTo(it) }
+        }
+    }
+
+    /**
+     * Downloads the pinned Debian 13 tarball via HttpURLConnection, writing to a
+     * `.part` file and renaming it into place only after the pinned length and
+     * sha256 both match. [onProgress] receives bytes done and total; sources in
+     * [Debian13] all serve the same verified bytes, so a failed one is retried
+     * from the next. Cancellation is observed between reads.
+     */
+    suspend fun downloadDebian(dest: File, onProgress: (done: Long, total: Long) -> Unit) =
+        withContext(Dispatchers.IO) {
+            val pin = Debian13.DOWNLOAD
+            var lastError: IOException? = null
+            for (url in pin.urls) {
+                var conn: HttpURLConnection? = null
+                try {
+                    conn = URL(url).openConnection() as HttpURLConnection
+                    conn.connectTimeout = 30_000
+                    conn.readTimeout = 30_000
+                    conn.instanceFollowRedirects = true
+                    val code = conn.responseCode
+                    if (code !in 200..299) throw IOException("HTTP $code for $url")
+                    val total = if (pin.sizeBytes > 0) pin.sizeBytes else conn.contentLengthLong
+
+                    dest.parentFile?.mkdirs()
+                    val part = File(dest.parent, dest.name + ".part")
+                    val digest = MessageDigest.getInstance("SHA-256")
+                    var done = 0L
+                    var reported = 0L
+                    FileOutputStream(part).use { out ->
+                        conn.inputStream.use { input ->
+                            val buf = ByteArray(64 * 1024)
+                            while (true) {
+                                ensureActive()
+                                val n = input.read(buf)
+                                if (n < 0) break
+                                done += n
+                                if (pin.sizeBytes > 0 && done > pin.sizeBytes) {
+                                    throw IOException("Debian rootfs exceeded ${pin.sizeBytes} bytes: $url")
+                                }
+                                digest.update(buf, 0, n)
+                                out.write(buf, 0, n)
+                                // About two hundred progress updates at most.
+                                if (total <= 0 || done - reported >= total / 200 || done == total) {
+                                    reported = done
+                                    onProgress(done, total)
+                                }
+                            }
+                        }
+                    }
+                    val got = digest.digest().joinToString("") { "%02x".format(it) }
+                    if (done == 0L || (pin.sizeBytes > 0 && done != pin.sizeBytes) ||
+                        !got.equals(pin.sha256, ignoreCase = true)
+                    ) {
+                        part.delete()
+                        throw IOException("Debian rootfs mismatch for $url: $done bytes, sha256=$got")
+                    }
+                    if (dest.exists()) dest.delete()
+                    if (!part.renameTo(dest)) {
+                        part.copyTo(dest, overwrite = true)
+                        part.delete()
+                    }
+                    return@withContext
+                } catch (t: Throwable) {
+                    if (t is kotlinx.coroutines.CancellationException) throw t
+                    lastError = t as? IOException ?: IOException(t.message ?: t.javaClass.simpleName, t)
+                } finally {
+                    conn?.disconnect()
+                }
+            }
+            throw lastError ?: IOException("no Debian rootfs source available")
+        }
+
+    /**
+     * Downloads and unpacks Debian 13 into [debianDir] with the same unpack
+     * pipeline as Alpine. The PRoot command construction and bind mounts are
+     * deliberately untouched: the active runtime keeps using [alpineDir], and
+     * selecting this rootfs belongs to the KazeTerm backend migration.
+     */
+    fun installDebian() {
+        if (installJob?.isActive == true) return
+        installJob = scope.launch {
+            try {
+                workspaceDir.mkdirs()
+                val abi = android.os.Build.SUPPORTED_ABIS.firstOrNull() ?: "arm64-v8a"
+                val bundled = bundledProotForAbi(abi)
+                    ?: throw IllegalStateException("Unsupported ABI: $abi (need arm64-v8a or x86_64)")
+                _installState.value = InstallState.Downloading("proot engine", 0f)
+                verifyBundledLibs(bundled)
+                _installState.value = InstallState.Downloading("proot engine", 1f)
+
+                val tmpTar = File(app.cacheDir, "debian13-rootfs.tar.gz")
+                downloadDebian(tmpTar) { done, total ->
+                    _installState.value = InstallState.Downloading(
+                        Debian13.LABEL,
+                        if (total > 0) done.toFloat() / total else 0f,
+                    )
+                }
+                _installState.value = InstallState.Extracting(Debian13.LABEL)
+                val dir = debianDir
+                dir.deleteRecursively()
+                dir.mkdirs()
+                val entries = unpackTarGz(tmpTar, dir)
+                tmpTar.delete()
+                if (entries < 100 || !File(dir, "bin/sh").exists()) {
+                    throw IllegalStateException("Debian rootfs unpack suspicious ($entries entries)")
+                }
+                File(dir, "etc").mkdirs()
+                listOf("tmp", "root", "var/lib/apt/lists/partial").forEach { File(dir, it).mkdirs() }
+                File(dir, "etc/resolv.conf").writeText("nameserver 8.8.8.8\nnameserver 1.1.1.1\n")
+                File(dir, ".installed").writeText("${Debian13.LABEL}#$ROOTFS_SCHEMA")
+                _installState.value = InstallState.Ready
+                KLog.d(TAG, "Debian 13 installed ($entries entries) into ${dir.name}")
+            } catch (t: Throwable) {
+                if (t is kotlinx.coroutines.CancellationException) throw t
+                KLog.e(TAG, "Debian install failed", t)
+                _installState.value = InstallState.Error(t.message ?: t.javaClass.simpleName)
+            }
+        }
+    }
+
+    /** True when the Debian rootfs is unpacked with the current layout schema. */
+    fun isDebianInstalled(): Boolean = runCatching {
+        File(debianDir, ".installed").readText().trim().substringAfterLast("#", "").toIntOrNull()
+    }.getOrNull() == ROOTFS_SCHEMA
 
     fun cancelInstall() {
         installJob?.cancel()

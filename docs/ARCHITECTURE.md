@@ -17,12 +17,14 @@ app/src/main/java/com/raikaai/app/
 ├── localai/                            # HF resolver, catalog, downloader, SAF import
 ├── data/                               # ChatRepository (tree), SettingsRepository (DataStore +
 │                                       # EncryptedSharedPreferences), ChatConstants, SamplingDefaults, AppLimits
-├── skills/ / mcp/ / rag/ / reminder/ / attachments/ / web/
+├── runtime/                            # RuntimeMode, ToolRuntime, PiAgentRuntime
+├── core/tool/                          # ToolCallParser shared by agent turns
+├── mcp/ / rag/ / reminder/ / attachments/ / web/
 └── ui/
     ├── chat/                           # ChatScreen + ChatTopBar + ChatDialogsHost + ChatOverlayState,
     │                                   # ChatComponents (bubbles), ChatViewModel (orchestration),
     │                                   # PersonaStore, BenchmarkRunner, ServerControls, AttachmentPipeline
-    ├── characters/ / models/ / server/ / skills/ / mcp/ / logs/ / history/ / settings/ / sampler/
+    ├── characters/ / models/ / server/ / mcp/ / logs/ / history/ / settings/ / sampler/
     ├── component/                      # MarkdownText (thinking cards, code blocks), badges, sheets
     └── theme/                          # MaterialKolor dynamic theming + OLED black
 ```
@@ -47,6 +49,6 @@ app/src/main/java/com/raikaai/app/
 - English-only code & comments (functional non-English regex/stopwords excepted).
 - No behavior-change refactors without tests green: `compileDebugKotlin`,
   `testDebugUnitTest`, `assembleRelease -PabiFilter=arm64-v8a`.
-- Gson-parsed models must go through `normalize()` (see `PersonaPreset`, `Skill`,
+- Gson-parsed models must go through `normalize()` (see `PersonaPreset`,
   `McpServerConfig`, `Conversation`).
 - Disk/network I/O off the main thread; bitmaps downsampled off-composition.
