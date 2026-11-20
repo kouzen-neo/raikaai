@@ -85,6 +85,9 @@ Download the APK from **[Releases](https://github.com/kouzen-neo/raikaai/release
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Code layout and key flows |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Building, testing, signing, native parts |
 | [CHANGELOG.md](CHANGELOG.md) | What changed in each version |
+| [PRIVACY.md](PRIVACY.md) | What stays on the phone and what is sent where |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | How to build, test and send a pull request |
+| [SECURITY.md](SECURITY.md) | How to report a vulnerability privately |
 
 ## Build
 
@@ -96,6 +99,8 @@ Download the APK from **[Releases](https://github.com/kouzen-neo/raikaai/release
 Requirements and signing are in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 ## Privacy
+
+Details in [PRIVACY.md](PRIVACY.md).
 
 - With a local model, prompts, files and replies never leave the phone. No analytics, no tracking.
 - API keys and tokens are encrypted with the Android Keystore.
