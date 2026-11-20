@@ -47,5 +47,5 @@ see comments in the workflow.
 - `docs/` — user-facing docs (`AGENT.md`, `LINUX.md`, `API.md`, `ARCHITECTURE.md`, `DEVELOPMENT.md`).
 - `native/raikapty/` — Rust PTY helper source.
 - `supabase/migrations/` — database migrations for the roleplay catalog.
-- Root `*.md` working notes (`AGENTS.md`, `PLAN.md`, …) are git-ignored; only `README.md`,
-  `CHANGELOG.md` and `docs/` are published. All docs are in English.
+- `AGENTS.md` (also linked as `CLAUDE.md`) — rules for AI coding agents and contributors.
+- Other root `*.md` working notes (`PLAN.md`, …) are git-ignored. All docs are in English.

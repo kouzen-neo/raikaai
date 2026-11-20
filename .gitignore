@@ -4,7 +4,6 @@
 *.ap_
 
 # Working docs & plans (kept locally, not part of the public repo)
-AGENTS.md
 PLAN.md
 REFACTOR_PROMPT.md
 audit-report.md
