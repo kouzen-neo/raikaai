@@ -168,6 +168,19 @@ fun RoleplayScreen(
             }
             composable("profile") { RoleplayProfileScreen() }
             composable("chat") {
+                // The back stack survives leaving Characters (e.g. a normal chat,
+                // then Characters from the sidebar) but the selection does not,
+                // which left an empty "Character not found" page. Go back to the
+                // hub instead.
+                if (selectedCharacter == null && selectedConversationId == null) {
+                    LaunchedEffect(Unit) {
+                        navController.navigate(startTab) {
+                            popUpTo(navController.graph.id) { inclusive = true }
+                            launchSingleTop = true
+                        }
+                    }
+                    return@composable
+                }
                 RoleplayChatScreen(
                     character = selectedCharacter,
                     conversationId = selectedConversationId,

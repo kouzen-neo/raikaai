@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.5.0] - 2026-11-21
+
+### Fixed
+- Opening Characters from the sidebar after a normal chat showed an empty "Character not found" page. It now opens the Characters hub.
+
 ## [0.4.9] - 2026-11-21
 
 ### Added
