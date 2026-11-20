@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.1.32] - 2026-11-20
+
+### Fixed
+- "Send now" no longer ends with "Remote model returned an empty response" and a dropped message. It now works like an interrupt in coding agents: the running reply is stopped and fully unwound before the queued message is sent, what it wrote and ran so far is kept and marked "interrupted", and the model is told the previous reply was interrupted so it continues with full context.
+
 ## [0.1.31] - 2026-11-20
 
 ### Changed

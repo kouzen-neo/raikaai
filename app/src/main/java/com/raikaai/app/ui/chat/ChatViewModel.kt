@@ -128,6 +128,9 @@ internal fun isValidCompactionSummary(md: String): Boolean {
 /** Raika's own tools (see AgentConfig): no Linux environment needed. */
 private val AGENT_SELF_TOOLS = setOf("remember", "add_mcp_server")
 
+/** Stats suffix of a reply the user stopped. */
+internal const val INTERRUPTED_MARK = "interrupted"
+
 private const val SIDE_SYSTEM = "You answer quick side questions about an ongoing chat. Be brief and direct."
 
 val PERSONA_PRESETS =
@@ -250,6 +253,8 @@ class ChatViewModel(
         var conversation: Conversation? = null
         var nodes: MutableList<ChatMessageEntry> = mutableListOf()
         var genJob: Job? = null
+        /** The user stopped this reply; its tail must not raise errors. */
+        var interrupted = false
     }
 
     /** The chat on screen. */
@@ -1284,7 +1289,13 @@ class ChatViewModel(
             // (thinking-only, failed) are skipped.
             if (m.role != ChatConstants.ROLE_ASSISTANT) return@mapNotNull m
             val visible = stripThinking(m.content).trim()
-            if (visible.isEmpty()) null else m.copy(content = visible)
+            val wasInterrupted = m.stats?.contains(INTERRUPTED_MARK) == true
+            when {
+                visible.isEmpty() && wasInterrupted -> m.copy(content = "[Reply interrupted by the user before any output]")
+                visible.isEmpty() -> null
+                wasInterrupted -> m.copy(content = "$visible\n\n[Reply interrupted by the user]")
+                else -> m.copy(content = visible)
+            }
         }.flatMap {
             // Rendered tool cards in earlier replies are sent back the way the
             // agent loop produced them: the real tool call, then the result as
@@ -1981,6 +1992,7 @@ class ChatViewModel(
 
     fun stopGeneration() {
         val wasRunning = genJob != null || isGenerating.value
+        if (wasRunning) lane.interrupted = true
         genJob?.cancel()
         genJob = null
         // A stopped compare must never chain pass 2 or merge into a later run.
@@ -1994,6 +2006,13 @@ class ChatViewModel(
         isGenerating.value = false
         if (messages.isNotEmpty() && messages.last().role == ChatConstants.ROLE_ASSISTANT && messages.last().content.isBlank()) {
             messages.removeAt(messages.lastIndex)
+        } else if (wasRunning && messages.isNotEmpty() && messages.last().role == ChatConstants.ROLE_ASSISTANT) {
+            // Keep what was written and run so far, marked like a harness
+            // interrupt; the next turn continues from it.
+            val last = messages.last()
+            if (last.stats?.contains(INTERRUPTED_MARK) != true) {
+                messages[messages.lastIndex] = last.copy(stats = listOfNotNull(last.stats?.takeIf { it.isNotBlank() }, INTERRUPTED_MARK).joinToString(" · "))
+            }
         }
         persist()
     }
@@ -3869,7 +3888,10 @@ class ChatViewModel(
         viewModelScope.launch {
             androidx.compose.runtime.snapshotFlow { Triple(isGenerating.value, queuedMessages.size, currentConversationId) }
                 .collect { (generating, size, chatId) ->
-                    if (generating || size == 0) return@collect
+                    if (generating || size == 0 || sendingQueued) return@collect
+                    // Let the finished run unwind before the next turn starts.
+                    runCatching { genJob?.join() }
+                    if (isGenerating.value) return@collect
                     val next = queuedMessages.firstOrNull { it.chatId == chatId } ?: return@collect
                     queuedMessages.remove(next)
                     sendMessage(next.text)
@@ -3885,12 +3907,24 @@ class ChatViewModel(
     fun sendQueuedNow(id: Long) {
         val item = queuedMessages.firstOrNull { it.id == id } ?: return
         queuedMessages.remove(item)
-        queuedMessages.add(0, item)
+        val old = genJob
+        sendingQueued = true
         stopGeneration()
+        viewModelScope.launch {
+            // Interrupt like a harness: the stopped run must fully unwind
+            // (its tail can touch messages) before the next turn starts.
+            runCatching { old?.join() }
+            sendingQueued = false
+            sendMessage(item.text)
+        }
     }
+
+    /** True while Send now is handing over; the queue watcher waits. */
+    @Volatile private var sendingQueued = false
 
     fun sendMessage(userText: String) {
         thinkingOnlyRetried = false
+        if (!isGenerating.value) lane.interrupted = false
         if (isGenerating.value && userText.isNotBlank()) {
             val t = userText.trim()
             // Side questions answer at once; everything else waits its turn.
@@ -4327,7 +4361,10 @@ class ChatViewModel(
                                     }
                                 } else {
                                     messages.removeAt(idx)
-                                    errorMessage.value = "Remote model returned an empty response. Please try again."
+                                    // A reply the user stopped is not a provider failure.
+                                    if (!lane.interrupted && kotlinx.coroutines.currentCoroutineContext()[Job]?.isActive != false) {
+                                        errorMessage.value = "Remote model returned an empty response. Please try again."
+                                    }
                                 }
                             } else {
                                 val outputTokens = usageCompletionTokens ?: estimateTokens(current.content)
