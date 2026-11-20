@@ -530,8 +530,27 @@ fun ChatScreen(
                 }
                 // Token Context indicator (Subtle status with dynamic progress line)
                 if (hasMessages || input.text.isNotBlank()) {
-                    val totalContextTokens = viewModel.liveContextTokens.intValue
+                    // Messages plus every system prompt piece (persona, memory,
+                    // skills, tool catalogs), so the meter shows the real load.
+                    val promptParts = viewModel.contextParts.value
+                    androidx.compose.runtime.LaunchedEffect(hasMessages, settings.modelSource, settings.remoteModelId) {
+                        viewModel.refreshContextParts()
+                    }
+                    val totalContextTokens = viewModel.liveContextTokens.intValue + promptParts.sumOf { it.tokens }
                     val maxTokens = settings.contextWindowTokens
+                    var showContextSheet by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+                    if (showContextSheet) {
+                        val (msgTokens, summaryTokens) = remember(viewModel.liveContextTokens.intValue) { viewModel.contextMessageTokens() }
+                        ContextSheet(
+                            rows = contextRows(msgTokens, summaryTokens, promptParts),
+                            windowTokens = maxTokens,
+                            onCompact = if (hasMessages) ({
+                                showContextSheet = false
+                                viewModel.compactNow()
+                            }) else null,
+                            onDismiss = { showContextSheet = false },
+                        )
+                    }
                     val ratio = if (maxTokens > 0) (totalContextTokens.toFloat() / maxTokens.toFloat()) * 100f else 0f
                     val progressFraction = (ratio / 100f).coerceIn(0.01f, 1f)
 
@@ -546,6 +565,11 @@ fun ChatScreen(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable(onClickLabel = "Show context breakdown") {
+                                viewModel.refreshContextParts()
+                                showContextSheet = true
+                            }
                             .padding(horizontal = 8.dp, vertical = 3.dp),
                     ) {
                         Row(

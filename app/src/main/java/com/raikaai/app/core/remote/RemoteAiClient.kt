@@ -429,6 +429,13 @@ object RemoteAiClient {
     ): Flow<String> =
         flow {
             val url = RemoteProviders.endpoint(baseUrl, "chat/completions")
+            // Usage accounting: provider numbers when sent, estimates otherwise.
+            var usageIn = -1
+            var usageOut = -1
+            var emittedChars = 0
+            val estimatedIn =
+                messages.sumOf { RemoteUsage.estimateTokens(it.text) + it.imageDataUrls.size * IMAGE_TOKEN_ESTIMATE }
+            var responded = false
 
             val requestJson =
                 JSONObject().apply {
@@ -469,6 +476,7 @@ object RemoteAiClient {
                         }
                     currentCoroutineContext()[Job]?.let { if (!it.isActive) { resp.close(); throw kotlinx.coroutines.CancellationException("cancelled") } }
                     if (resp.isSuccessful) {
+                        responded = true
                         response = resp
                         break
                     }
@@ -555,6 +563,7 @@ object RemoteAiClient {
                                             emit("<think>")
                                             inThinking = true
                                         }
+                                        emittedChars += reasoning.length
                                         emit(reasoning)
                                     }
 
@@ -563,6 +572,7 @@ object RemoteAiClient {
                                             emit("</think>\n\n")
                                             inThinking = false
                                         }
+                                        emittedChars += content.length
                                         emit(content)
                                     }
                                 }
@@ -570,6 +580,8 @@ object RemoteAiClient {
                                 // token usage; prefer it over any estimate.
                                 val usage = chunkJson.optJSONObject("usage")
                                 val completionTokens = usage?.optInt("completion_tokens", -1) ?: -1
+                                usage?.optInt("prompt_tokens", -1)?.takeIf { it >= 0 }?.let { usageIn = it }
+                                if (completionTokens >= 0) usageOut = completionTokens
                                 if (completionTokens >= 0) {
                                     onUsageTokens?.invoke(completionTokens)
                                 }
@@ -591,8 +603,19 @@ object RemoteAiClient {
                 }
             } finally {
                 response.close()
+                if (responded) {
+                    RemoteUsage.record(
+                        model = model,
+                        inputTokens = if (usageIn >= 0) usageIn else estimatedIn,
+                        outputTokens = if (usageOut >= 0) usageOut else Math.round(emittedChars / 3.5).toInt(),
+                        estimated = usageIn < 0 || usageOut < 0,
+                    )
+                }
             }
         }.flowOn(Dispatchers.IO)
+
+    /** Rough token cost of one attached image, when the provider reports no usage. */
+    private const val IMAGE_TOKEN_ESTIMATE = 800
 }
 
 /**

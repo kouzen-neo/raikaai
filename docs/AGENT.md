@@ -24,6 +24,11 @@ On-device (LiteRT) models have small context windows, so they get a compact vers
 file is capped (a few hundred characters), the tool list is one line, at most 6 MCP tools
 are listed, and tool output is cut to 1500 characters. Remote models get the full files.
 
+Tap the context meter above the composer to see the breakdown: messages, summary, system
+prompt, memory files, skills, MCP and Linux tool catalogs, retrieved knowledge, and free space.
+**Models → Remote** shows token usage per model and a cost estimate (from the provider's
+prices or a price you enter).
+
 ## Tools
 
 | Tool | What it does |

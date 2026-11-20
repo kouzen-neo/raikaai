@@ -481,6 +481,7 @@ class ChatViewModel(
     var activeTerminalSessionId by androidx.compose.runtime.mutableStateOf(terminalSessions.first().id)
 
     init {
+        com.raikaai.app.core.remote.RemoteUsage.init(appContext)
         // The rootfs ships in the APK: set the environment up right away.
         containerManager.autoInstallIfBundled()
         // While a reply generates or a command runs, a foreground service keeps
@@ -1156,12 +1157,21 @@ class ChatViewModel(
             null
         }
 
-    private suspend fun withRagSystem(
-        base: String,
-        query: String,
-        s: Settings? = null,
-    ): Pair<String, List<String>?> {
-        val ctx = ragContext(query)
+    /** One labelled piece of what the model receives, in estimated tokens. */
+    data class ContextPart(val label: String, val tokens: Int)
+
+    private class StaticSystem(val text: String, val parts: List<ContextPart>)
+
+    /**
+     * Builds the system prompt without retrieval or web search, and measures
+     * each piece so the context meter can show where the tokens go.
+     */
+    private fun buildStaticSystem(base: String, s: Settings?): StaticSystem {
+        val parts = mutableListOf<ContextPart>()
+        fun part(label: String, text: String) {
+            val t = estimateTokens(text)
+            if (t > 0) parts += ContextPart(label, t)
+        }
         // Roleplay gets only the character prompt plus roleplay skills: code
         // rules, tool catalogs and coding skills break immersion and eat the
         // small on-device context window.
@@ -1172,9 +1182,11 @@ class ChatViewModel(
                 base.isBlank() -> CODE_OUTPUT_RULES.trimStart('\n')
                 else -> base + CODE_OUTPUT_RULES
             }
+        part(if (rp) "Character card" else "System prompt", system)
         val activeSkills = skillsManager.getActivePromptInstructions(roleplay = rp)
         if (activeSkills.isNotBlank()) {
             system = "$system$activeSkills"
+            part("Skills", activeSkills)
         }
         // Raika's own config (SOUL / AGENTS / MEMORY + capabilities) leads the
         // prompt. On-device models get the compact version: small context.
@@ -1191,24 +1203,63 @@ class ChatViewModel(
         // Roleplay: the character card leads and the short memory follows,
         // so immersion stays intact.
         if (agentBlock.isNotBlank()) {
+            part("Memory files", agentBlock)
             system = when {
                 system.isBlank() -> agentBlock
                 rp -> "$system\n\n$agentBlock"
                 else -> "$agentBlock\n\n$system"
             }
         }
-        if (!rp) {
-            s?.let { system += mcpToolsPromptBlock(it) }
-            s?.let { system += containerToolsPromptBlock(it) }
+        if (!rp && s != null) {
+            val mcp = mcpToolsPromptBlock(s)
+            system += mcp
+            part("MCP tools", mcp)
+            val linux = containerToolsPromptBlock(s)
+            system += linux
+            part("Linux tools", linux)
         }
         if (!rp && s != null && s.modelSource == ChatConstants.SOURCE_REMOTE && (s.remoteImageModelId.isNotBlank() || s.remoteModelId.isNotBlank())) {
-            system += "\n\n[IMAGE GENERATION TOOL]\n" +
+            val img = "\n\n[IMAGE GENERATION TOOL]\n" +
                 "You have access to an image generator tool. When the user asks to draw, generate, visualize, or modify an image " +
                 "(e.g. 'buat gambar...', 'jadikan kucing biru', 'ubah warna...', 'draw a...', 'create an image of...'), " +
                 "output EXACTLY one tool call in this format and NO OTHER text:\n" +
                 "<tool_call>{\"name\": \"generate_image\", \"arguments\": {\"prompt\": \"<detailed English prompt describing the complete visual scene>\"}}</tool_call>\n"
+            system += img
+            part("Image tool", img)
         }
-        ctx?.first?.let { system = "$system\n\n$it" }
+        return StaticSystem(system, parts)
+    }
+
+    /** Last measured system prompt pieces, per chat. */
+    val contextParts = mutableStateOf<List<ContextPart>>(emptyList())
+    private var contextPartsChatId: String? = null
+
+    /** Measures the system prompt for the context sheet when no reply has been built yet. */
+    fun refreshContextParts() {
+        if (contextPartsChatId == currentConversationId && contextParts.value.isNotEmpty()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            val s = settings.value
+            val parts = runCatching { buildStaticSystem(resolveSystemPrompt(s), s).parts }.getOrDefault(emptyList())
+            withContext(Dispatchers.Main) {
+                contextParts.value = parts
+                contextPartsChatId = currentConversationId
+            }
+        }
+    }
+
+    private suspend fun withRagSystem(
+        base: String,
+        query: String,
+        s: Settings? = null,
+    ): Pair<String, List<String>?> {
+        val ctx = ragContext(query)
+        val built = buildStaticSystem(base, s)
+        var system = built.text
+        val parts = built.parts.toMutableList()
+        ctx?.first?.let {
+            system = "$system\n\n$it"
+            parts += ContextPart("Knowledge", estimateTokens(it))
+        }
 
         val allSources = (ctx?.second ?: emptyList()).toMutableList()
         val isExplicitSearch = query.startsWith("/search", ignoreCase = true) || query.startsWith("/web", ignoreCase = true)
@@ -1224,6 +1275,7 @@ class ChatViewModel(
             val searchResult = runCatching { webSearch.search(cleanQuery.ifBlank { query }) }.getOrNull()
             if (searchResult != null) {
                 system = "$system${searchResult.promptContext}"
+                parts += ContextPart("Web results", estimateTokens(searchResult.promptContext))
                 searchResult.items.forEach { item ->
                     allSources.add("Web: ${item.title}")
                 }
@@ -1231,6 +1283,11 @@ class ChatViewModel(
         }
 
         val finalSources = if (allSources.isNotEmpty()) allSources else null
+        val chatId = currentConversationId
+        withContext(Dispatchers.Main) {
+            contextParts.value = parts
+            contextPartsChatId = chatId
+        }
         return system to finalSources
     }
 
@@ -1355,6 +1412,20 @@ class ChatViewModel(
         }
         return unfolded.sumOf { estimateTokens(it.content) } +
             (summary?.let { estimateTokens(it) } ?: 0)
+    }
+
+    /** (messages, summary) tokens the model sees, for the context sheet. */
+    fun contextMessageTokens(): Pair<Int, Int> {
+        val summary = conversation?.summary?.let { estimateTokens(it) } ?: 0
+        val unfolded = unfoldedMessages().filter {
+            it.role != ChatConstants.ROLE_COMPACTION && it.role != ChatConstants.ROLE_SYSTEM
+        }
+        return unfolded.sumOf { estimateTokens(it.content) } to summary
+    }
+
+    /** Folds older turns into the summary now (same as /compact). */
+    fun compactNow() {
+        if (!isGenerating.value) tryHandleCompactCommand("/compact")
     }
 
     fun updateContextTokens() {
@@ -4393,7 +4464,7 @@ class ChatViewModel(
                                 val badge = "%.1f tok/s · %d tokens · Remote$cutSuffix".format(tokSec, outputTokens)
                                 val variants = if (current.variants.orEmpty().isEmpty()) listOf(current.content) else current.variants
                                 messages[idx] = current.copy(stats = badge, variants = variants, sources = ragSources)
-                                recordRemoteCost(s.remoteModelId, promptTokensEstimate, outputTokens)
+                                // Usage is recorded per request in RemoteUsage.
                             }
                         }
                         persist()

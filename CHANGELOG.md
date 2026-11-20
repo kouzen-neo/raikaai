@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.1.34] - 2026-11-20
+
+### Added
+- Tap the context meter above the composer to see where the context goes: messages, summary, system prompt, memory files, skills, MCP tools, Linux tools, image tool, knowledge and web results, and the free space, each with tokens and a share of the window, plus a "Compact now" button.
+- Models → Remote: a usage card per model with tokens in and out and request count. Every remote request is counted (agent rounds, `/btw`, compaction too), using the provider's own numbers when it reports them and marking estimates with ~.
+
+### Changed
+- The context meter counts the system prompt and tool catalogs, not only the messages.
+- Cost is estimated from the provider's published prices (OpenRouter) or a price you enter per 1M tokens by tapping a model. Unpriced models show "Set price" instead of a misleading $0.
+
 ## [0.1.33] - 2026-11-20
 
 ### Fixed

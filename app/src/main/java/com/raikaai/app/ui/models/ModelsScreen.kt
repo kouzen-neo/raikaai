@@ -104,7 +104,6 @@ fun ModelsScreen(
 
     val remoteModels by viewModel.remoteModels
     val isFetchingRemoteModels by viewModel.isFetchingRemoteModels
-    val remoteSpendUsd by viewModel.remoteSpendUsd
     val pricingMap = remember(settings.remoteModelPricingJson) {
         parseRemoteModelPricing(settings.remoteModelPricingJson)
     }
@@ -618,55 +617,11 @@ fun ModelsScreen(
                     }
                 }
             } else {
-                // ── Estimated Remote Spend Card ──
+                // ── Remote usage (tokens per model, cost estimate) ──
                 item(key = "remote_spend_card") {
-                    Card(
-                        shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp).fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    "Estimated Remote Spend",
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.Bold,
-                                )
-                                Spacer(Modifier.height(2.dp))
-                                Text(
-                                    "Accumulated API usage cost",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                            Spacer(Modifier.width(12.dp))
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = MaterialTheme.colorScheme.primaryContainer,
-                            ) {
-                                Text(
-                                    text = "$%.4f".format(remoteSpendUsd),
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                                )
-                            }
-                        }
-                        if (remoteSpendUsd > 0) {
-                            Row(
-                                modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp).fillMaxWidth(),
-                                horizontalArrangement = Arrangement.End,
-                            ) {
-                                TextButton(onClick = { viewModel.resetRemoteSpend() }) {
-                                    Text("Reset")
-                                }
-                            }
-                        }
-                    }
+                    RemoteUsageCard(
+                        providerPricesPerToken = com.raikaai.app.data.parseRemoteModelPricing(settings.remoteModelPricingJson),
+                    )
                 }
 
                 // ── Remote Provider Setup Card ──
