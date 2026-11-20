@@ -8,9 +8,14 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.Send
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -88,7 +93,7 @@ fun RoleplayHomeScreen(
                 Spacer(Modifier.height(8.dp))
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     items(state.trending, key = { it.id }) { character ->
-                        CharacterCard(character, Modifier.width(155.dp), ::openCharacter)
+                        FeaturedCard(character, ::openCharacter)
                     }
                 }
                 Spacer(Modifier.height(12.dp))
@@ -156,6 +161,99 @@ fun RoleplayHomeScreen(
     }
 }
 
+/** Large Trending card: the character's photo with name, description and a "say hi" pill. */
+@Composable
+private fun FeaturedCard(
+    character: RoleplayCharacter,
+    onOpenChat: (RoleplayCharacter) -> Unit,
+) {
+    // Trending shows the original artwork: try the sharp versions in order and
+    // fall back to the thumbnail when one is missing.
+    val urls = remember(character.avatarUrl) { RoleplayRepository.highResUrls(character.avatarUrl) }
+    var attempt by remember(urls) { mutableIntStateOf(0) }
+    Box(
+        Modifier
+            .width(270.dp)
+            .aspectRatio(0.78f)
+            .clip(RoundedCornerShape(20.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .clickable { onOpenChat(character) },
+    ) {
+        AsyncImage(
+            model = ImageRequest.Builder(LocalContext.current)
+                .data(urls.getOrNull(attempt))
+                .crossfade(true)
+                .diskCachePolicy(CachePolicy.ENABLED)
+                .memoryCachePolicy(CachePolicy.ENABLED)
+                .build(),
+            contentDescription = character.name,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop,
+            onError = { if (attempt < urls.lastIndex) attempt++ },
+        )
+        // Scrim so white text stays readable on any artwork.
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        0.45f to Color.Transparent,
+                        1f to Color.Black.copy(alpha = 0.78f),
+                    ),
+                ),
+        )
+        Column(
+            Modifier
+                .align(Alignment.BottomStart)
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                character.name,
+                style = MaterialTheme.typography.titleLarge,
+                color = Color.White,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                character.description.orFallback(character.greeting.orEmpty()),
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.White.copy(alpha = 0.85f),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(4.dp))
+            Surface(
+                shape = RoundedCornerShape(50),
+                color = Color.White.copy(alpha = 0.18f),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(start = 14.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+                ) {
+                    Text(
+                        "Say hi to ${character.name}…",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primary) {
+                        Icon(
+                            Icons.AutoMirrored.Outlined.Send,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.padding(7.dp).size(16.dp),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun CharacterCard(
     character: RoleplayCharacter,
@@ -164,7 +262,7 @@ private fun CharacterCard(
 ) {
     Card(
         onClick = { onOpenChat(character) },
-        shape = RoundedCornerShape(10.dp),
+        shape = RoundedCornerShape(16.dp),
         modifier = modifier.fillMaxWidth(),
     ) {
         Column {

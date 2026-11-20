@@ -74,9 +74,14 @@ fun RoleplayCreateScreen(
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Text(
-            text = "Create character",
+            text = "Publish a character",
             style = MaterialTheme.typography.headlineSmall,
             modifier = Modifier.padding(top = 20.dp, bottom = 4.dp),
+        )
+        Text(
+            text = "Shared with everyone in the Community catalog after a quick review. For characters that stay on your phone, use Local in Mine.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
         CreateInput("Name", name, { name = it })

@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.8] - 2026-11-21
+
+### Changed
+- Characters tabs have matching icons: Publish uses an upload icon and Local a phone icon.
+
+## [0.4.7] - 2026-11-21
+
+### Changed
+- Characters labels say what happens: the bottom "Create" is now "Publish" (shared with the Community after a review), and Mine's "Create & Import" tab is "Local", where personas stay on this phone. The Local card explains it is never shared.
+
+## [0.4.6] - 2026-11-21
+
+### Fixed
+- Models that write tool calls in their own native markup instead of the app's `<tool_call>` format showed it as raw text while nothing ran (for example DeepSeek's `<｜DSML｜invoke …>`, so a `git clone` never started). Remote replies are now translated to normal tool calls for the popular families: DeepSeek (V3 and V3.2+), Qwen3-Coder and Llama `<function=…>`, Llama 3.x `<|python_tag|>` and bare JSON replies, Mistral `[TOOL_CALLS]`, GLM `<arg_key>`, Kimi K2, gpt-oss and Claude-style `<invoke>`. Normal replies, code and the app's own format are untouched.
+
+## [0.4.5] - 2026-11-20
+
+### Added
+- Chat style (Settings → Chat Behavior): Auto, Classic or Bubbles. Bubbles show the character's replies in rounded bubbles next to their photo (the app logo for Raika), your messages in a tinted bubble, and a Stop pill beside the working indicator. Auto uses bubbles in roleplay and keeps the flat layout for the agent, where tool cards, code and tables need the width.
+- Characters → Discover: Trending cards are larger, with the full photo, name, description and a "Say hi" pill that opens the chat.
+- Trending cards load the original artwork instead of the thumbnail: the sample or original file from the same post, falling back to the thumbnail when one is missing.
+
+### Changed
+- Character cards in Discover use rounded corners that match the rest of the app.
+
 ## [0.4.4] - 2026-11-20
 
 ### Added

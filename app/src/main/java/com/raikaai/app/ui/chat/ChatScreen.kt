@@ -1389,6 +1389,7 @@ fun ChatScreen(
                         overlays.previewImagePath = path
                     },
                     bottomPadding = innerPadding.calculateBottomPadding(),
+                    bubbles = settings.chatStyle == 2 || (settings.chatStyle == 0 && activePersona.id.startsWith("roleplay_")),
                 )
                 }
             }

@@ -28,6 +28,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Chat
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.PhoneAndroid
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.ContentCopy
@@ -204,9 +205,9 @@ fun CharactersScreen(
                     onClick = { selectedTab = 1 },
                     text = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Outlined.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Outlined.PhoneAndroid, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(6.dp))
-                            Text("Create & Import", fontWeight = FontWeight.SemiBold)
+                            Text("Local", fontWeight = FontWeight.SemiBold)
                         }
                     },
                 )
@@ -321,12 +322,12 @@ fun CharactersScreen(
                                 ) {
                                     Column {
                                         Text(
-                                            "Create Custom Persona",
+                                            "Create a local persona",
                                             style = MaterialTheme.typography.titleMedium,
                                             fontWeight = FontWeight.Bold,
                                         )
                                         Text(
-                                            "Define custom identity, greeting, and system prompts",
+                                            "Saved only on this phone. Never shared. Use Publish in the bottom bar to share a character.",
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         )
@@ -336,7 +337,7 @@ fun CharactersScreen(
                                         color = MaterialTheme.colorScheme.surfaceContainerHigh,
                                     ) {
                                         Text(
-                                            "New",
+                                            "Local",
                                             style = MaterialTheme.typography.labelSmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             fontWeight = FontWeight.Bold,

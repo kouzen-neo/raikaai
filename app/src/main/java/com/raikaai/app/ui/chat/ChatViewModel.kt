@@ -5696,6 +5696,8 @@ class ChatViewModel(
 
     fun setToolVerbosity(v: Int) = launchSetting { settingsRepo.setToolVerbosity(v) }
 
+    fun setChatStyle(v: Int) = launchSetting { settingsRepo.setChatStyle(v) }
+
 
     private fun launchSetting(block: suspend () -> Unit) {
         viewModelScope.launch(laneContext()) { block() }

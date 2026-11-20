@@ -42,6 +42,10 @@ prices or a price you enter).
 | `web_search`, `generate_image` | When enabled in Agent → Plugins. |
 | MCP tools | Any tool from a connected MCP server. |
 
+Models that write tool calls in their own native format (DeepSeek, Qwen, Llama, Mistral, GLM, Kimi,
+gpt-oss, Claude-style) are translated to the app's `<tool_call>` form as the reply arrives
+(`core/remote/NativeToolCalls.kt`), so open-weight models work too.
+
 The agent loop runs tool after tool until the task is done. Tool calls show up as cards in
 the chat; **Settings → Terminal → Tool details** sets how much they show (Quiet, Normal,
 Full).

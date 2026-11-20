@@ -38,6 +38,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -342,6 +343,8 @@ internal fun MessageList(
     onPreviewImage: (String) -> Unit = {},
     /** Room for the composer, which floats over the list. */
     bottomPadding: androidx.compose.ui.unit.Dp = 0.dp,
+    /** Chat bubbles with the character's photo instead of flat replies. */
+    bubbles: Boolean = false,
 ) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -377,7 +380,11 @@ internal fun MessageList(
             // also between agent steps when no new text is arriving.
             if (isGenerating) {
                 item(key = "working_indicator", contentType = "working") {
-                    WorkingIndicator(viewModel.messages.lastOrNull()?.content.orEmpty())
+                    WorkingIndicator(
+                        lastContent = viewModel.messages.lastOrNull()?.content.orEmpty(),
+                        bubbles = bubbles,
+                        onStop = { viewModel.stopGeneration() },
+                    )
                 }
             }
             items(
@@ -421,6 +428,7 @@ internal fun MessageList(
                     onRegenerate = { viewModel.regenerateLastResponse() },
                     onPreviewHtml = onPreviewHtml,
                     onPreviewImage = onPreviewImage,
+                    bubbles = bubbles,
                 )
             }
         }
@@ -482,6 +490,7 @@ internal fun MessageBubble(
     onRegenerate: () -> Unit,
     onPreviewHtml: (String) -> Unit = {},
     onPreviewImage: (String) -> Unit = {},
+    bubbles: Boolean = false,
 ) {
     if (message.role == ChatConstants.ROLE_COMPACTION) {
         Column(
@@ -666,8 +675,8 @@ internal fun MessageBubble(
 
                 if (userDisplayText.isNotBlank() && (!isDefaultSummary || attachmentFiles.isEmpty())) {
                     Surface(
-                        shape = RoundedCornerShape(16.dp),
-                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        shape = if (bubbles) RoundedCornerShape(20.dp, 6.dp, 20.dp, 20.dp) else RoundedCornerShape(16.dp),
+                        color = if (bubbles) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
                         modifier =
                             Modifier
                                 .wrapContentWidth()
@@ -680,7 +689,7 @@ internal fun MessageBubble(
                         Text(
                             text = userDisplayText,
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
+                            color = if (bubbles) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
                         )
                     }
@@ -688,6 +697,7 @@ internal fun MessageBubble(
             }
             // Edit via long-press on the bubble or card
         } else {
+          AssistantFrame(bubbles = bubbles, persona = activePersona) {
             // Harness-style: the search step is shown BEFORE the answer, and
             // inline [n] citations in the answer open the matching source.
             val webCitations = remember(message.sources) {
@@ -705,13 +715,26 @@ internal fun MessageBubble(
             androidx.compose.runtime.CompositionLocalProvider(
                 com.raikaai.app.ui.component.LocalCitationUrls provides citationUrls,
             ) {
-                MarkdownText(
-                    // Hide "[ran `cmd`: exit 0]" lines a model wrote itself: no command ran.
-                    markdown = message.content.replace(FAKE_RAN_LINE, "").ifBlank { "…" },
-                    enableThinking = enableThinking,
-                    onPreviewHtml = onPreviewHtml,
-                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
-                )
+                val reply: @Composable (Modifier) -> Unit = { mod ->
+                    MarkdownText(
+                        // Hide "[ran `cmd`: exit 0]" lines a model wrote itself: no command ran.
+                        markdown = message.content.replace(FAKE_RAN_LINE, "").ifBlank { "…" },
+                        enableThinking = enableThinking,
+                        onPreviewHtml = onPreviewHtml,
+                        modifier = mod,
+                    )
+                }
+                if (bubbles) {
+                    Surface(
+                        shape = RoundedCornerShape(6.dp, 20.dp, 20.dp, 20.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        modifier = Modifier.padding(vertical = 2.dp),
+                    ) {
+                        reply(Modifier.padding(horizontal = 14.dp, vertical = 10.dp))
+                    }
+                } else {
+                    reply(Modifier.padding(horizontal = 4.dp, vertical = 4.dp))
+                }
             }
 
             // Local Document RAG citation chips (if non-web)
@@ -953,6 +976,7 @@ internal fun MessageBubble(
                 }
             }
             }
+          }
         }
 
         if (branchInfo != null) {
@@ -1038,6 +1062,52 @@ internal fun MessageBubble(
                 }
             },
         )
+    }
+}
+
+/**
+ * Lays an assistant reply out flat (classic) or next to the character's photo
+ * (bubbles). The reply itself is the same in both.
+ */
+@Composable
+private fun AssistantFrame(
+    bubbles: Boolean,
+    persona: PersonaPreset,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    if (!bubbles) {
+        Column(Modifier.fillMaxWidth(), content = content)
+        return
+    }
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        ChatAvatar(persona, 30.dp, Modifier.padding(top = 2.dp))
+        Column(Modifier.weight(1f), content = content)
+    }
+}
+
+/** Round photo of the character, the app logo for Raika, or the persona icon. */
+@Composable
+internal fun ChatAvatar(persona: PersonaPreset, size: androidx.compose.ui.unit.Dp, modifier: Modifier = Modifier) {
+    Box(
+        modifier
+            .size(size)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+        contentAlignment = Alignment.Center,
+    ) {
+        val shown = PersonaAvatar(persona.avatarUri, size, contentDescription = persona.name)
+        if (!shown) {
+            if (persona.id == "general") {
+                com.raikaai.app.ui.component.RaikaLogo(size, shape = CircleShape)
+            } else {
+                Icon(
+                    getIconVector(persona.iconType),
+                    contentDescription = persona.name,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(size * 0.55f),
+                )
+            }
+        }
     }
 }
 
@@ -1426,7 +1496,7 @@ private fun EditMessageSheet(
 
 /** Spinner, what Raika is doing, and how long it has been going. */
 @Composable
-private fun WorkingIndicator(lastContent: String) {
+private fun WorkingIndicator(lastContent: String, bubbles: Boolean = false, onStop: () -> Unit = {}) {
     var seconds by remember { mutableIntStateOf(0) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -1458,5 +1528,23 @@ private fun WorkingIndicator(lastContent: String) {
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        if (bubbles) {
+            Spacer(Modifier.width(10.dp))
+            Surface(
+                onClick = onStop,
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                ) {
+                    Icon(Icons.Outlined.Close, contentDescription = null, modifier = Modifier.size(14.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Stop", style = MaterialTheme.typography.labelMedium)
+                }
+            }
+        }
     }
 }

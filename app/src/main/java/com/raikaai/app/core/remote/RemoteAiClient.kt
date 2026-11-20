@@ -436,6 +436,8 @@ object RemoteAiClient {
             val estimatedIn =
                 messages.sumOf { RemoteUsage.estimateTokens(it.text) + it.imageDataUrls.size * IMAGE_TOKEN_ESTIMATE }
             var responded = false
+            // Native tool-call markup (DeepSeek DSML) becomes <tool_call> blocks.
+            val nativeFilter = NativeToolCalls.Filter()
 
             val requestJson =
                 JSONObject().apply {
@@ -573,7 +575,8 @@ object RemoteAiClient {
                                             inThinking = false
                                         }
                                         emittedChars += content.length
-                                        emit(content)
+                                        val out = nativeFilter.push(content)
+                                        if (out.isNotEmpty()) emit(out)
                                     }
                                 }
                                 // Providers often send a final chunk carrying
@@ -589,6 +592,14 @@ object RemoteAiClient {
                                 KLog.d("RemoteAiClient", "Skipping malformed SSE chunk: ${e.message}")
                             }
                         }
+                    }
+                    val nativeTail = nativeFilter.finish()
+                    if (nativeTail.isNotEmpty()) {
+                        if (inThinking) {
+                            emit("</think>\n\n")
+                            inThinking = false
+                        }
+                        emit(nativeTail)
                     }
                     if (inThinking) {
                         emit("</think>\n\n")

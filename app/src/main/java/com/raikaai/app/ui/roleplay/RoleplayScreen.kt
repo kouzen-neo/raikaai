@@ -8,7 +8,7 @@ import androidx.compose.material.icons.outlined.AccountCircle
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Face
 import androidx.compose.material.icons.outlined.Explore
-import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.CloudUpload
 import androidx.compose.material.icons.outlined.ChatBubble
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Menu
@@ -50,7 +50,7 @@ fun RoleplayScreen(
     val tabs = listOf(
         "Discover" to Icons.Outlined.Explore,
         "Mine" to Icons.Outlined.Face,
-        "Create" to Icons.Outlined.Add,
+        "Publish" to Icons.Outlined.CloudUpload,
     )
     val tabRoutes = listOf("home", "mine", "create")
     val showTopBar = route in tabRoutes || route == "profile"

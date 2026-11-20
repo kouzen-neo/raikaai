@@ -122,6 +122,8 @@ data class Settings(
     val containerFullAccess: Boolean = false,
     /** Tool cards in chat: 0 quiet, 1 normal (tap to open), 2 full (open). */
     val toolVerbosity: Int = 1,
+    /** Chat layout: 0 auto (bubbles in roleplay), 1 classic (flat replies), 2 bubbles. */
+    val chatStyle: Int = 0,
     /** Terminal runs commands on a real PTY (full-screen apps work); off = lighter pipe mode. */
     /** JSON array of normalized commands always auto-approved (ASK-policy). */
     val containerAlwaysAllowJson: String = "[]",
@@ -285,6 +287,7 @@ class SettingsRepository(
         val ALPINE_VERSION = stringPreferencesKey("alpine_version")
         val CONTAINER_YOLO = booleanPreferencesKey("container_yolo")
         val TOOL_VERBOSITY = intPreferencesKey("tool_verbosity")
+        val CHAT_STYLE = intPreferencesKey("chat_style")
         val CONTAINER_FULL_ACCESS = booleanPreferencesKey("container_full_access")
         val CONTAINER_ALWAYS_ALLOW = stringPreferencesKey("container_always_allow_json")
 
@@ -551,6 +554,7 @@ class SettingsRepository(
                     containerYolo = prefs[Keys.CONTAINER_YOLO] ?: false,
                     containerFullAccess = prefs[Keys.CONTAINER_FULL_ACCESS] ?: false,
                     toolVerbosity = (prefs[Keys.TOOL_VERBOSITY] ?: 1).coerceIn(0, 2),
+                    chatStyle = (prefs[Keys.CHAT_STYLE] ?: 0).coerceIn(0, 2),
                     containerAlwaysAllowJson = prefs[Keys.CONTAINER_ALWAYS_ALLOW] ?: "[]",
                 )
             }
@@ -839,6 +843,8 @@ class SettingsRepository(
         it[Keys.CONTAINER_YOLO] = level >= 1
         it[Keys.CONTAINER_FULL_ACCESS] = level >= 2
     }
+
+    suspend fun setChatStyle(value: Int) = edit { it[Keys.CHAT_STYLE] = value.coerceIn(0, 2) }
 
     suspend fun setToolVerbosity(value: Int) = edit { it[Keys.TOOL_VERBOSITY] = value.coerceIn(0, 2) }
 

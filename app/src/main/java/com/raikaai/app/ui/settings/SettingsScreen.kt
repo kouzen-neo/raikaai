@@ -28,6 +28,7 @@ import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Keyboard
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.RestartAlt
+import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.Speed
 import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material.icons.outlined.Security
@@ -195,6 +196,27 @@ fun SettingsScreen(
                     title = "Chat Behavior",
                     items =
                         listOf(
+                            createM3Item(
+                                icon = Icons.Outlined.ChatBubbleOutline,
+                                title = "Chat style",
+                                description = when (settings.chatStyle) {
+                                    1 -> "Classic: flat replies, best for the agent and code"
+                                    2 -> "Bubbles: replies in bubbles with the character's photo"
+                                    else -> "Auto: bubbles in roleplay, classic everywhere else"
+                                },
+                                bottomContent = {
+                                    androidx.compose.material3.SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                                        listOf("Auto", "Classic", "Bubbles").forEachIndexed { i, label ->
+                                            SegmentedButton(
+                                                selected = settings.chatStyle == i,
+                                                onClick = { viewModel.setChatStyle(i) },
+                                                shape = androidx.compose.material3.SegmentedButtonDefaults.itemShape(i, 3),
+                                                icon = {},
+                                            ) { Text(label, style = MaterialTheme.typography.labelMedium) }
+                                        }
+                                    }
+                                },
+                            ),
                             createM3Item(
                                 icon = Icons.Outlined.Speed,
                                 title = "Show Tokens Per Second",

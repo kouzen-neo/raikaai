@@ -25,6 +25,32 @@ object RoleplayRepository {
         return raw.replace(safebooruRegex, "safebooru.org/thumbnails/$1/thumbnail_$2.jpg")
     }
 
+    /**
+     * Sharp versions of a Safebooru avatar, best first: the sample (about 850 px,
+     * light) when the post has one, then the original file (its extension is not
+     * stored, so each is tried), and the thumbnail last. Other hosts return the
+     * URL unchanged. Callers move to the next entry when one fails to load.
+     */
+    private val anySafebooruRegex = Regex(
+        """safebooru\.org/(?:images|samples|thumbnails)/(\d+)/(?:sample_|thumbnail_)?([a-f0-9]+)\.(?:jpg|png|jpeg|webp)""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    fun highResUrls(url: String?): List<String> {
+        val raw = url.orEmpty().trim()
+        if (raw.isBlank()) return emptyList()
+        val m = anySafebooruRegex.find(raw) ?: return listOf(raw)
+        val dir = m.groupValues[1]
+        val hash = m.groupValues[2]
+        return listOf(
+            "https://safebooru.org/samples/$dir/sample_$hash.jpg",
+            "https://safebooru.org/images/$dir/$hash.jpg",
+            "https://safebooru.org/images/$dir/$hash.png",
+            "https://safebooru.org/images/$dir/$hash.jpeg",
+            "https://safebooru.org/thumbnails/$dir/thumbnail_$hash.jpg",
+        )
+    }
+
     fun parseCharacters(json: String): List<RoleplayCharacter> = runCatching {
         JsonParser.parseString(json).asJsonArray.mapNotNull { value ->
             val o = value.asJsonObject
