@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.1.33] - 2026-11-20
+
+### Fixed
+- "Send now" no longer makes the message disappear for a few seconds: it stays in the queue as "Sending…" until it is in the chat, and the handover waits at most 1.5 seconds.
+- Stopping a remote reply aborts the request at once, even while it is still connecting or waiting for the first token.
+
 ## [0.1.32] - 2026-11-20
 
 ### Fixed

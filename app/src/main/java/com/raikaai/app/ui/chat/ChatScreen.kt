@@ -611,9 +611,15 @@ fun ChatScreen(
                             Icon(Icons.Outlined.Schedule, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                             Spacer(Modifier.width(8.dp))
                             Text(q.text, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                            TextButton(onClick = { viewModel.sendQueuedNow(q.id) }) { Text("Send now", style = MaterialTheme.typography.labelMedium) }
-                            IconButton(onClick = { viewModel.removeQueued(q.id) }, modifier = Modifier.size(32.dp)) {
-                                Icon(Icons.Outlined.Close, contentDescription = "Remove from queue", modifier = Modifier.size(16.dp))
+                            if (q.sending) {
+                                androidx.compose.material3.CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(14.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text("Sending…", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(end = 12.dp, top = 12.dp, bottom = 12.dp))
+                            } else {
+                                TextButton(onClick = { viewModel.sendQueuedNow(q.id) }) { Text("Send now", style = MaterialTheme.typography.labelMedium) }
+                                IconButton(onClick = { viewModel.removeQueued(q.id) }, modifier = Modifier.size(32.dp)) {
+                                    Icon(Icons.Outlined.Close, contentDescription = "Remove from queue", modifier = Modifier.size(16.dp))
+                                }
                             }
                         }
                     }

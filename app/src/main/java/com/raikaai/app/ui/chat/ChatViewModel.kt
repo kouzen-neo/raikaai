@@ -3875,7 +3875,7 @@ class ChatViewModel(
     private var thinkingOnlyRetried = false
 
     /** A message typed while a reply was still being written. */
-    data class QueuedMessage(val id: Long, val chatId: String?, val text: String)
+    data class QueuedMessage(val id: Long, val chatId: String?, val text: String, val sending: Boolean = false)
 
     val queuedMessages = androidx.compose.runtime.mutableStateListOf<QueuedMessage>()
     private var queueSeq = 0L
@@ -3892,7 +3892,7 @@ class ChatViewModel(
                     // Let the finished run unwind before the next turn starts.
                     runCatching { genJob?.join() }
                     if (isGenerating.value) return@collect
-                    val next = queuedMessages.firstOrNull { it.chatId == chatId } ?: return@collect
+                    val next = queuedMessages.firstOrNull { it.chatId == chatId && !it.sending } ?: return@collect
                     queuedMessages.remove(next)
                     sendMessage(next.text)
                 }
@@ -3905,15 +3905,20 @@ class ChatViewModel(
 
     /** Stops the running reply; the queued message then goes out first. */
     fun sendQueuedNow(id: Long) {
-        val item = queuedMessages.firstOrNull { it.id == id } ?: return
-        queuedMessages.remove(item)
+        val i = queuedMessages.indexOfFirst { it.id == id }
+        if (i < 0) return
+        val item = queuedMessages[i]
+        // Stays visible as "Sending…" until it is in the chat.
+        queuedMessages[i] = item.copy(sending = true)
         val old = genJob
         sendingQueued = true
         stopGeneration()
         viewModelScope.launch {
-            // Interrupt like a harness: the stopped run must fully unwind
-            // (its tail can touch messages) before the next turn starts.
-            runCatching { old?.join() }
+            // Interrupt like a harness: let the stopped run unwind (its tail
+            // can touch messages) before the next turn starts, but never make
+            // the user wait more than a moment.
+            runCatching { kotlinx.coroutines.withTimeoutOrNull(1500) { old?.join() } }
+            queuedMessages.removeAll { it.id == id }
             sendingQueued = false
             sendMessage(item.text)
         }
@@ -4360,7 +4365,7 @@ class ChatViewModel(
                                         }
                                     }
                                 } else {
-                                    messages.removeAt(idx)
+                                    if (idx < messages.size && messages[idx].id == current.id) messages.removeAt(idx)
                                     // A reply the user stopped is not a provider failure.
                                     if (!lane.interrupted && kotlinx.coroutines.currentCoroutineContext()[Job]?.isActive != false) {
                                         errorMessage.value = "Remote model returned an empty response. Please try again."

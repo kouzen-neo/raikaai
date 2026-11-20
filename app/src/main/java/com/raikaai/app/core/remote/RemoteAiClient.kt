@@ -457,7 +457,17 @@ object RemoteAiClient {
             while (attempts < maxRetries) {
                 attempts++
                 try {
-                    val resp = client.newCall(reqBuilder.build()).execute()
+                    // Cancelling the coroutine also aborts a request that is
+                    // still connecting or waiting for the first byte.
+                    val call = client.newCall(reqBuilder.build())
+                    val cancelHook = currentCoroutineContext()[Job]?.invokeOnCompletion { cause -> if (cause != null) call.cancel() }
+                    val resp =
+                        try {
+                            call.execute()
+                        } finally {
+                            cancelHook?.dispose()
+                        }
+                    currentCoroutineContext()[Job]?.let { if (!it.isActive) { resp.close(); throw kotlinx.coroutines.CancellationException("cancelled") } }
                     if (resp.isSuccessful) {
                         response = resp
                         break
