@@ -30,7 +30,8 @@ Rust is only needed if you change the PTY helper in `native/raikapty` (see its `
 1. Branch from `main`.
 2. Keep the change focused. English for code, comments, UI text and docs.
 3. Add or update unit tests for logic you touch (`app/src/test`).
-4. Make sure `compileDebugKotlin` and `testDebugUnitTest` pass.
+4. Make sure `compileDebugKotlin` and `testDebugUnitTest` pass. CI runs both on
+   every pull request; run them locally first so the check is green.
 5. Update `README.md` / `docs/` when behaviour changes, and add a line under an
    `## [Unreleased]` heading in `CHANGELOG.md`.
 6. Test on a real phone when you change UI, the terminal, or the agent loop.
