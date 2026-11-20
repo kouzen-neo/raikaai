@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [0.1.34] - 2026-11-20
+## [0.4.4] - 2026-11-20
 
 ### Added
 - Tap the context meter above the composer to see where the context goes: messages, summary, system prompt, memory files, skills, MCP tools, Linux tools, image tool, knowledge and web results, and the free space, each with tokens and a share of the window, plus a "Compact now" button.
@@ -17,18 +17,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The context meter counts the system prompt and tool catalogs, not only the messages.
 - Cost is estimated from the provider's published prices (OpenRouter) or a price you enter per 1M tokens by tapping a model. Unpriced models show "Set price" instead of a misleading $0.
 
-## [0.1.33] - 2026-11-20
+## [0.4.3] - 2026-11-20
 
 ### Fixed
 - "Send now" no longer makes the message disappear for a few seconds: it stays in the queue as "Sending…" until it is in the chat, and the handover waits at most 1.5 seconds.
 - Stopping a remote reply aborts the request at once, even while it is still connecting or waiting for the first token.
 
-## [0.1.32] - 2026-11-20
+## [0.4.2] - 2026-11-20
 
 ### Fixed
 - "Send now" no longer ends with "Remote model returned an empty response" and a dropped message. It now works like an interrupt in coding agents: the running reply is stopped and fully unwound before the queued message is sent, what it wrote and ran so far is kept and marked "interrupted", and the model is told the previous reply was interrupted so it continues with full context.
 
-## [0.1.31] - 2026-11-20
+## [0.4.1] - 2026-11-20
 
 ### Changed
 - Full access no longer asks before MCP tool calls; Ask and Auto still do. The MCP prompt has an "Always" button that trusts that tool from then on.
@@ -37,7 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Access prompts (Linux command, MCP tool, phone storage) no longer close and deny when you tap outside them or press back; choose Allow, Always or Deny.
 
-## [0.1.30] - 2026-11-20
+## [0.4.0] - 2026-11-20
 
 ### Changed
 - Community characters are reviewed before they appear: publishing goes through `submit_character` (rate-limited to 5 per minute and 30 per hour, input validated) and new characters stay hidden until approved. The publish warning says so, and errors such as the rate limit are shown.
@@ -52,7 +52,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `SECURITY.md` (private vulnerability reporting), `CONTRIBUTING.md`, `PRIVACY.md`, issue forms and a pull request template.
 - Acknowledgments list the projects actually used; `.gitattributes` counts only Kotlin and Rust in GitHub's language stats.
 
-## [0.1.29] - 2026-11-20
+## [0.3.9] - 2026-11-20
 
 ### Changed
 - MCP tab: one card per server with an icon (Linux command or URL), a status line (Connected · N tools, Starting in Linux…, Not connected + Try again), the command shown in monospace, a "Show N tools" list with test buttons, and Reconnect/Edit/Remove in a ⋮ menu. The list no longer touches the tabs.
@@ -60,7 +60,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - MCP tools were lost after restarting the app until "Discover tools" was tapped: enabled servers now connect on app start and when the MCP tab opens.
 
-## [0.1.28] - 2026-11-20
+## [0.3.8] - 2026-11-20
 
 ### Added
 - Working indicator under the last message while Raika is busy: spinner, what it is doing (Thinking, Running command, Using a tool, Writing) and elapsed seconds, also between agent steps.
@@ -68,7 +68,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - A dark band behind the composer (around the server pill) covered messages when scrolling; the list now scrolls behind the floating composer.
 
-## [0.1.27] - 2026-11-20
+## [0.3.7] - 2026-11-20
 
 ### Added
 - Settings → Terminal → Phone storage in Linux: mounts your phone storage at /sdcard so Raika can work in phone folders (or /workspace). A dialog explains the "All files access" permission before Android asks for it.
@@ -78,12 +78,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Settings rows with a three-way choice put the buttons under the text, full width (the title no longer wraps one letter per line).
 - On-device (LiteRT): a much shorter Linux tool prompt and tool results capped at 1500 characters, so the small context is not flooded.
 
-## [0.1.26] - 2026-11-20
+## [0.3.6] - 2026-11-20
 
 ### Changed
 - Edit message is a bottom sheet: a large focused text box, a note that sending makes a new branch, and two equal actions (New chat, Send).
 
-## [0.1.25] - 2026-11-20
+## [0.3.5] - 2026-11-20
 
 ### Added
 - Message queue: text sent while a reply is being written waits above the composer and goes out when the reply ends; "Send now" stops the reply and sends it first. `/btw` still answers at once.
@@ -95,7 +95,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Context window detection reads `context_length`-style fields from the provider's model list and falls back to known model families (Gemini, Claude, GPT, DeepSeek, Grok, Mistral, Llama, Qwen) instead of warning.
 - Picking a slash command only fills the composer; it no longer sends immediately.
 
-## [0.1.24] - 2026-11-20
+## [0.3.4] - 2026-11-20
 
 ### Added
 - `/btw <question>`: a quick side question answered in a card above the composer; it is not saved to the chat or sent to the model later. On-device (LiteRT) gets a short context and waits for a running reply.
@@ -112,7 +112,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - MCP tab: no global switch; servers show where they run and whether Raika installed them; add dialog supports a Linux command or a URL.
 - Characters hub: Discover · Mine · Create. Roleplay chats are in the sidebar's Recent list; your profile is behind the header button.
 
-## [0.1.23] - 2026-11-20
+## [0.3.3] - 2026-11-20
 
 ### Changed
 - Characters → Mine: no empty gap under the header; search and filters show only when there are more than 5 characters.
@@ -121,7 +121,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Character editor: one Avatar row (photo or icon), shorter labels, and roleplay details and sampler folded under "Roleplay details & sampler…".
 - Chat top bar: the character switcher uses the same icon as Characters in the sidebar.
 
-## [0.1.22] - 2026-11-20
+## [0.3.2] - 2026-11-20
 
 ### Added
 - Agent hub: Plugins, Skills, MCP and Memory in one sidebar item ("Agent"); the separate MCP entry is gone.
@@ -139,7 +139,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Bundled Alpine rootfs is stored as .bin so the APK packager keeps it compressed and the checksum matches.
 - Supabase: categories can no longer be created publicly, functions use a fixed search_path, slugs are consistent, and search/trending/category lists have indexes (`supabase/migrations/20261120123500_roleplay_cleanup.sql`).
 
-## [0.1.21] - 2026-11-20
+## [0.3.1] - 2026-11-20
 
 ### Added
 - **Alpine ships with the app**: the Alpine 3.21 minirootfs (3.8 MB, checked against the official SHA-256) is bundled in the APK, so the Linux environment installs offline on first launch without an Install tap. Reset and reinstall use the bundled copy too; other ABIs still download it.
@@ -148,12 +148,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **One look across all screens**: every drawer screen (Models, Parameters, Skills & Plugins, MCP, Local API, All chats, Settings, Logs, About, Characters, Roleplay) uses the same header (menu button, title, one-line subtitle, actions on the right) at the same position. Roleplay no longer uses a separate app bar.
 - **Outlined icons everywhere**: filled icons were replaced with their outlined versions; filled ones remain only for status badges, the primary send/stop/play actions and the pin marker.
 
-## [0.1.20] - 2026-11-20
+## [0.3.0] - 2026-11-20
 
 ### Fixed
 - **Replies keep generating when you leave the chat**: Opening another screen (for example to turn a plugin on or off) or switching to another chat no longer stops the reply. Each reply runs in its own chat's lane: it keeps streaming, runs its tools and is saved to the chat it belongs to, and opening that chat again shows it live. Stop, clearing the chat or deleting it still ends the reply.
 
-## [0.1.19] - 2026-11-20
+## [0.2.9] - 2026-11-20
 
 ### Added
 - **Touch as a mouse in full-screen apps (PTY mode)**: for programs that enable mouse reporting (opencode, htop, vim with `mouse=a`), a tap clicks (tabs, buttons, dialogs), a swipe scrolls with the wheel, and a long press then drag selects. SGR and legacy encodings are supported.
@@ -161,24 +161,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Paste** button in the terminal top bar while a program runs, since the keyboard's clipboard is hidden in the key-capture field. Uses bracketed paste when the program supports it, so multi-line text is not run line by line.
 - **Reset Linux environment** (Settings → Terminal): stops running commands and servers, deletes the rootfs and reinstalls a fresh Alpine. /workspace is kept unless you tick "Also delete my files in /workspace".
 
-## [0.1.18] - 2026-11-20
+## [0.2.8] - 2026-11-20
 
 ### Fixed
 - **Terminal stuck after a program exits (PTY mode)**: Programs that leave helpers behind (opencode's background server) kept proot, and so the session, alive after the command ended, and typed keys went nowhere. The command wrapper now marks when it is done and the leftover processes are stopped, so the prompt comes back.
 - **Black frame around full-screen apps**: The terminal's margin stayed pure black while programs paint their own background. The margin now takes the program's edge color and the grid is centered.
 
-## [0.1.17] - 2026-11-20
+## [0.2.7] - 2026-11-20
 
 ### Fixed
 - **Replies and tool loops stalling in the background**: Android freezes background apps and cuts their network (even resolving `localhost` failed: "Unable to resolve host"), so switching apps mid-reply slowed generation to a crawl and broke tool rounds. While a reply generates or a terminal command runs, a foreground service with a quiet "RaikaAI · Writing a reply…" notification and a partial wake lock keeps the app running; it stops as soon as the work is done.
 
-## [0.1.16] - 2026-11-20
+## [0.2.6] - 2026-11-20
 
 ### Fixed
 - **Faded text in full-screen apps after the keyboard opens**: The terminal canvas reused cached text layouts that kept the color they were first drawn with, so text a program faded during a resize (opencode's footer) stayed almost invisible. Colors are now applied at draw time.
 - **Missing `/etc/machine-id` in the Linux environment**: The Alpine rootfs had none; each install now gets its own random machine id (read by tools such as dbus and telemetry libraries).
 
-## [0.1.15] - 2026-11-20
+## [0.2.5] - 2026-11-20
 
 ### Added
 - **PTY mode for the terminal** (Settings → Terminal, or the terminal ⋮ menu): commands run on a real pseudo-terminal, so full-screen and interactive programs work (opencode, vim, htop, prompts that ask for input). Keys go straight to the running program, including ESC, TAB, arrows and the sticky CTRL/ALT/SHIFT keys; the size follows the screen and pinch zoom (programs get SIGWINCH). Off by default: the lighter pipe mode stays available.
@@ -189,23 +189,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Capability queries (DCS/APC strings) are no longer printed as text in the terminal.
 
-## [0.1.14] - 2026-11-20
+## [0.2.4] - 2026-11-20
 
 ### Changed
 - **Dev-server bar**: The "server running" bar above the composer now matches the tool cards (neutral surface, thin outline, status dot, monospace URL) and can be folded with × into a small `:port` pill so it no longer covers the chat. Tapping the pill unfolds it; a server on a new URL unfolds it automatically.
 
-## [0.1.13] - 2026-11-20
+## [0.2.3] - 2026-11-20
 
 ### Fixed
 - **Empty replies after edit/regenerate (Remote)**: Earlier replies were sent back to the provider with their `<think>` reasoning. Once a reply that was only a thinking block was in the history, the model answered with thinking alone, so edits, regenerations and new messages all came back empty. History now carries only the visible text of earlier replies and skips replies left blank.
 - **History for the reply being generated**: The in-progress reply is passed through untouched, so splitting tool results or merging messages can no longer make the history drop the wrong message.
 
-## [0.1.12] - 2026-11-20
+## [0.2.2] - 2026-11-20
 
 ### Fixed
 - **Fake "[ran …]" lines**: 0.1.10 sent earlier tool results back to the model as `[ran `cmd`: exit 0]` notes; models copied that line as text and then invented the output without running anything. History now carries the real `<tool_call>` followed by a `[CONTAINER TOOL RESULT]` message with the actual (truncated) output, and leftover fake lines are removed from history and hidden in the chat.
 
-## [0.1.11] - 2026-11-20
+## [0.2.1] - 2026-11-20
 
 ### Added
 - **Remote provider presets**: OpenAI, Anthropic, Google Gemini, OpenRouter, Groq, DeepSeek, Mistral, xAI and Ollama (LAN), plus "OpenAI-compatible" for any other server. Base URLs are filled in, each provider keeps its own API key, and "Get a key" opens the provider's key page. Existing setups are detected from their saved URL.
@@ -221,7 +221,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Gemini and other versioned base URLs**: URLs such as `/v1beta/openai` no longer get an extra `/v1` appended.
 - Hosted providers are no longer probed with Ollama's `/api/show` (which also sent the API key there).
 
-## [0.1.10] - 2026-11-20
+## [0.2.0] - 2026-11-20
 
 ### Added
 - **Terminal screen emulation**: The Linux terminal interprets carriage returns, cursor moves, erase sequences and 16/256/truecolor SGR colors, so progress bars, `clear` and tools like fastfetch (logo with info beside it) render like a real terminal, in color.

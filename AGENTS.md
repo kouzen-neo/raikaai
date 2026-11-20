@@ -33,7 +33,8 @@ helper lives in `native/raikapty`. Start with:
    Output: `app/build/outputs/apk/release/app-arm64-v8a-release.apk`.
 5. **Every build that goes to a device bumps the version**: `versionCode` +1 and the patch of
    `versionName` in `app/build.gradle.kts`, plus a `CHANGELOG.md` entry (Keep a Changelog style:
-   Added / Changed / Fixed, written for users).
+   Added / Changed / Fixed, written for users). The patch number runs 0–9: after `x.y.9` comes
+   `x.(y+1).0` (0.1.9 → 0.2.0), never `x.y.10`.
 6. Install on a real arm64 phone to verify. Emulators and Waydroid are x86_64 and cannot run the
    bundled arm64 rootfs; use them only for UI screenshots.
 
