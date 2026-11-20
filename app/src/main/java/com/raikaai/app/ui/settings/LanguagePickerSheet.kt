@@ -49,7 +49,7 @@ fun LanguagePickerSheet(
         Column(Modifier.padding(horizontal = 20.dp)) {
             Text("Translate to", style = MaterialTheme.typography.titleLarge)
             Text(
-                "The translate button on replies and greetings uses your current model. Only what you see changes; the chat stays in its original language.",
+                "The translate button on replies and greetings uses the engine chosen in Settings. Only what you see changes; the chat stays in its original language.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 4.dp, bottom = 12.dp),

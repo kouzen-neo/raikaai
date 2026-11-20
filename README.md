@@ -54,7 +54,8 @@ Everything works offline with a local model. Nothing is sent anywhere unless you
 - `/btw` asks a side question without adding it to the chat. `/compact` frees context.
 - Edit any message to branch the conversation; switch branches with the arrows.
 - Attach photos, files and documents (RAG with citations), dictate by voice, read replies aloud.
-- Translate any reply or greeting into your language with the model you are using (Bahasa Indonesia by default; change it in Settings).
+- Translate any reply or greeting into your language (Bahasa Indonesia by default). Fast: an on-device translator, about a second per reply. Model: your chat model, for a more natural tone.
+- Roleplay mode turns on when you pick a character: only the character card and your profile are sent, so replies start faster. Switch it off in Settings to give characters the agent tools.
 
 **Linux**
 - Alpine installs offline from the APK. `/workspace` is your project folder; turn on phone storage to work in `/sdcard` too.

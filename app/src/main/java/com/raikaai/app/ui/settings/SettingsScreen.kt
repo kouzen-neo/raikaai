@@ -24,6 +24,8 @@ import androidx.compose.material.icons.outlined.SystemUpdate
 import androidx.compose.material.icons.outlined.Timer
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Translate
+import androidx.compose.material.icons.outlined.Bolt
+import androidx.compose.material.icons.outlined.TheaterComedy
 import androidx.compose.material.icons.outlined.DeleteSweep
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Menu
@@ -131,7 +133,10 @@ fun SettingsScreen(
     remember {
         com.raikaai.app.core.translate.TranslatePrefs.init(settingsContext)
         com.raikaai.app.core.remote.RemoteTimeouts.init(settingsContext)
+        com.raikaai.app.core.roleplay.RoleplayPrefs.init(settingsContext)
     }
+    val translateEngine by com.raikaai.app.core.translate.TranslatePrefs.engine.collectAsState()
+    val roleplayModeOn by com.raikaai.app.core.roleplay.RoleplayPrefs.enabled.collectAsState()
     val translateTarget by com.raikaai.app.core.translate.TranslatePrefs.target.collectAsState()
     val autoTranslateGreeting by com.raikaai.app.core.translate.TranslatePrefs.autoGreeting.collectAsState()
     val replyTimeout by com.raikaai.app.core.remote.RemoteTimeouts.seconds.collectAsState()
@@ -210,6 +215,21 @@ fun SettingsScreen(
                     items =
                         listOf(
                             createM3Item(
+                                icon = Icons.Outlined.TheaterComedy,
+                                title = "Roleplay mode",
+                                description = if (roleplayModeOn) {
+                                    "On: when a character is selected, only the character card and your profile are sent. Faster replies; no code, tools or web."
+                                } else {
+                                    "Off: characters can also use the agent tools (code, terminal, web). Longer prompts, slower replies."
+                                },
+                                trailingContent = {
+                                    Switch(
+                                        checked = roleplayModeOn,
+                                        onCheckedChange = { com.raikaai.app.core.roleplay.RoleplayPrefs.set(it) },
+                                    )
+                                },
+                            ),
+                            createM3Item(
                                 icon = Icons.Outlined.ChatBubbleOutline,
                                 title = "Chat style",
                                 description = when (settings.chatStyle) {
@@ -237,6 +257,30 @@ fun SettingsScreen(
                                     "\nUsed by the translate button on replies and greetings",
                                 onClick = { showLanguageSheet = true },
                                 trailingContent = { Icon(Icons.Outlined.ChevronRight, contentDescription = null) },
+                            ),
+                            createM3Item(
+                                icon = Icons.Outlined.Bolt,
+                                title = "Translate engine",
+                                description = if (translateEngine == com.raikaai.app.core.translate.TranslatePrefs.ENGINE_FAST) {
+                                    "Fast: on-device translator, under a second. Downloads a ~30 MB pack per language once. Falls back to the model for languages it lacks."
+                                } else {
+                                    "Model: your current chat model. More natural for roleplay, but slower."
+                                },
+                                bottomContent = {
+                                    androidx.compose.material3.SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                                        listOf(
+                                            com.raikaai.app.core.translate.TranslatePrefs.ENGINE_FAST to "Fast",
+                                            com.raikaai.app.core.translate.TranslatePrefs.ENGINE_MODEL to "Model",
+                                        ).forEachIndexed { i, (value, label) ->
+                                            SegmentedButton(
+                                                selected = translateEngine == value,
+                                                onClick = { com.raikaai.app.core.translate.TranslatePrefs.setEngine(value) },
+                                                shape = androidx.compose.material3.SegmentedButtonDefaults.itemShape(i, 2),
+                                                icon = {},
+                                            ) { Text(label, style = MaterialTheme.typography.labelMedium) }
+                                        }
+                                    }
+                                },
                             ),
                             createM3Item(
                                 icon = Icons.Outlined.AutoAwesome,

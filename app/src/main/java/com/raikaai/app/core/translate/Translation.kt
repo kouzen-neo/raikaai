@@ -24,12 +24,24 @@ object TranslatePrefs {
     private val _autoGreeting = MutableStateFlow(false)
     val autoGreeting: StateFlow<Boolean> = _autoGreeting.asStateFlow()
 
+    /** "fast" = on-device ML Kit, "model" = the current chat model. */
+    const val ENGINE_FAST = "fast"
+    const val ENGINE_MODEL = "model"
+    private val _engine = MutableStateFlow(ENGINE_FAST)
+    val engine: StateFlow<String> = _engine.asStateFlow()
+
+    fun setEngine(value: String) {
+        _engine.value = value
+        prefs?.edit()?.putString("engine", value)?.apply()
+    }
+
     fun init(context: Context) {
         if (prefs != null) return
         val p = context.applicationContext.getSharedPreferences("translate", Context.MODE_PRIVATE)
         prefs = p
         _target.value = p.getString("target", DEFAULT_TAG) ?: DEFAULT_TAG
         _autoGreeting.value = p.getBoolean("auto_greeting", false)
+        _engine.value = p.getString("engine", ENGINE_FAST) ?: ENGINE_FAST
     }
 
     fun setTarget(tag: String) {
@@ -80,7 +92,7 @@ object TranslatePrefs {
 object TranslatePrompt {
     const val SYSTEM =
         "You are a translator for a chat app. Translate the user's text faithfully and output ONLY the translation, " +
-            "with no notes, quotes around it, or explanations."
+            "with no notes, quotes around it, or explanations. Do not think or reason first; answer directly."
 
     fun build(text: String, languageName: String): String =
         buildString {
@@ -94,6 +106,12 @@ object TranslatePrompt {
             appendLine("Text:")
             append(text.trim())
         }
+
+    /** Output budget sized to the text: about 2x its tokens, never huge. */
+    fun maxTokensFor(text: String, local: Boolean): Int {
+        val est = text.length / 3 + 64
+        return (est * 2).coerceIn(128, if (local) 768 else 1536)
+    }
 
     /** Removes wrappers some models add despite the instructions. */
     fun clean(output: String): String {

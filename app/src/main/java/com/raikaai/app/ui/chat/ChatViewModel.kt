@@ -484,6 +484,7 @@ class ChatViewModel(
         com.raikaai.app.core.remote.RemoteUsage.init(appContext)
         com.raikaai.app.core.remote.RemoteTimeouts.init(appContext)
         com.raikaai.app.core.translate.TranslatePrefs.init(appContext)
+        com.raikaai.app.core.roleplay.RoleplayPrefs.init(appContext)
         // The rootfs ships in the APK: set the environment up right away.
         containerManager.autoInstallIfBundled()
         // While a reply generates or a command runs, a foreground service keeps
@@ -1162,6 +1163,15 @@ class ChatViewModel(
     /** One labelled piece of what the model receives, in estimated tokens. */
     data class ContextPart(val label: String, val tokens: Int)
 
+    /** Roleplay mode: a character is active and the lean prompt is switched on. */
+    private fun leanRoleplay(): Boolean =
+        com.raikaai.app.core.roleplay.RoleplayPrefs.enabled.value &&
+            (roleplayMode || com.raikaai.app.core.roleplay.RoleplayPrompt.isCharacter(activePersona.value.id))
+
+    /** Tool calls are never run in Roleplay mode, whatever the model writes. */
+    private fun parseCallUnlessLean(text: String): com.raikaai.app.skills.ToolCallParser.GenericToolCall? =
+        if (leanRoleplay()) null else com.raikaai.app.skills.ToolCallParser.parseGenericCall(text)
+
     private class StaticSystem(val text: String, val parts: List<ContextPart>)
 
     /**
@@ -1178,6 +1188,11 @@ class ChatViewModel(
         // rules, tool catalogs and coding skills break immersion and eat the
         // small on-device context window.
         val rp = roleplayMode
+        if (leanRoleplay()) {
+            val lean = com.raikaai.app.core.roleplay.RoleplayPrompt.build(base)
+            part("Character card", lean)
+            return StaticSystem(lean, parts)
+        }
         var system =
             when {
                 rp -> base
@@ -1212,7 +1227,7 @@ class ChatViewModel(
                 else -> "$agentBlock\n\n$system"
             }
         }
-        if (!rp && s != null) {
+        if ((!rp || !com.raikaai.app.core.roleplay.RoleplayPrefs.enabled.value) && s != null) {
             val mcp = mcpToolsPromptBlock(s)
             system += mcp
             part("MCP tools", mcp)
@@ -1254,7 +1269,8 @@ class ChatViewModel(
         query: String,
         s: Settings? = null,
     ): Pair<String, List<String>?> {
-        val ctx = ragContext(query)
+        val lean = leanRoleplay()
+        val ctx = if (lean) null else ragContext(query)
         val built = buildStaticSystem(base, s)
         var system = built.text
         val parts = built.parts.toMutableList()
@@ -1272,7 +1288,7 @@ class ChatViewModel(
 
         val shouldSearch = settings.value.enableWebSearch || isWebSkillActive || isExplicitSearch || hasSearchKeyword
 
-        if (shouldSearch && query.isNotBlank()) {
+        if (!lean && shouldSearch && query.isNotBlank()) {
             val cleanQuery = query.removePrefix("/search").removePrefix("/Search").removePrefix("/web").removePrefix("/Web").trim()
             val searchResult = runCatching { webSearch.search(cleanQuery.ifBlank { query }) }.getOrNull()
             if (searchResult != null) {
@@ -2272,9 +2288,9 @@ class ChatViewModel(
         onMetricsUpdate: (LiteRtEngineManager.InferenceMetrics) -> Unit,
     ): List<String>? {
         val lastContent = messages.lastOrNull { it.role == ChatConstants.ROLE_ASSISTANT }?.content.orEmpty()
-        val toolCall = com.raikaai.app.skills.ToolCallParser.parse(lastContent)
+        val toolCall = if (leanRoleplay()) null else com.raikaai.app.skills.ToolCallParser.parse(lastContent)
         if (toolCall == null) {
-            val genericCall = com.raikaai.app.skills.ToolCallParser.parseGenericCall(lastContent)
+            val genericCall = parseCallUnlessLean(lastContent)
             if (genericCall != null) {
                 if (genericCall.name.equals("generate_image", ignoreCase = true)) {
                     val imgPrompt = genericCall.arguments.get("prompt")?.asString?.ifBlank { null }
@@ -3068,7 +3084,7 @@ class ChatViewModel(
             // Continue only when this follow-up asked for another sandbox tool.
             val content = messages.getOrNull(idx)?.takeIf { it.role == ChatConstants.ROLE_ASSISTANT }?.content ?: break
             val roundText = content.substring(roundStart.coerceIn(0, content.length))
-            val next = com.raikaai.app.skills.ToolCallParser.parseGenericCall(roundText) ?: break
+            val next = parseCallUnlessLean(roundText) ?: break
             if (!isAgentToolCall(next.name)) break
             if (rounds >= MAX_LOCAL_TOOL_ROUNDS) {
                 messages[idx] = messages[idx].copy(
@@ -3591,7 +3607,13 @@ class ChatViewModel(
         val loading: Boolean = true,
         val error: String? = null,
         val shown: Boolean = true,
+        val note: String? = null,
     )
+
+    /** Recent model translations, so re-opening a message is instant. */
+    private val modelTranslationCache = object : LinkedHashMap<String, String>(32, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, String>?) = size > 100
+    }
 
     /** Translations by message id (in memory; cheap to redo). */
     val translations = androidx.compose.runtime.mutableStateMapOf<String, MessageTranslation>()
@@ -3611,31 +3633,55 @@ class ChatViewModel(
             if (!existing.loading) translations[id] = existing.copy(shown = !existing.shown)
             return
         }
+        val tag = com.raikaai.app.core.translate.TranslatePrefs.resolvedTag()
+        val fast = com.raikaai.app.core.translate.TranslatePrefs.engine.value == com.raikaai.app.core.translate.TranslatePrefs.ENGINE_FAST &&
+            com.raikaai.app.core.translate.FastTranslator.supports(tag)
         val s = effectiveSettings()
         val local = s.modelSource != ChatConstants.SOURCE_REMOTE
-        if (local && isGenerating.value) {
+        val cacheKey = "$language\u0000$source"
+        if (!fast) synchronized(modelTranslationCache) { modelTranslationCache[cacheKey] }?.let {
+            translations[id] = MessageTranslation(source, language, text = it, loading = false)
+            return
+        }
+        if (!fast && local && isGenerating.value) {
             translations[id] = MessageTranslation(source, language, loading = false, error = "Wait until the reply finishes")
             return
         }
         translations[id] = MessageTranslation(source, language)
         viewModelScope.launch {
-            val window = if (local) s.contextWindowTokens else s.effectiveRemoteContextWindow(s.remoteModelId)
-            val result = runCatching {
-                val out = generateCompactedSummary(
-                    s,
-                    com.raikaai.app.core.translate.TranslatePrompt.build(source, language),
-                    window,
-                    com.raikaai.app.core.translate.TranslatePrompt.SYSTEM,
-                    maxTokens = if (local) 768 else 2048,
-                )
-                com.raikaai.app.core.translate.TranslatePrompt.clean(stripThinking(out))
+            fun update(block: (MessageTranslation) -> MessageTranslation) {
+                val cur = translations[id] ?: return
+                if (cur.source == source) translations[id] = block(cur)
             }
-            val current = translations[id] ?: return@launch
-            if (current.source != source) return@launch
-            translations[id] = result.fold(
-                onSuccess = { t -> if (t.isBlank()) current.copy(loading = false, error = "No translation returned") else current.copy(text = t, loading = false) },
-                onFailure = { e -> current.copy(loading = false, error = e.message ?: e.javaClass.simpleName) },
-            )
+            val result = runCatching {
+                if (fast) {
+                    com.raikaai.app.core.translate.FastTranslator.translate(source, tag) { note -> update { it.copy(note = note) } }
+                } else {
+                    val window = if (local) s.contextWindowTokens else s.effectiveRemoteContextWindow(s.remoteModelId)
+                    val streamed = StringBuilder()
+                    val out = generateCompactedSummary(
+                        s,
+                        com.raikaai.app.core.translate.TranslatePrompt.build(source, language),
+                        window,
+                        com.raikaai.app.core.translate.TranslatePrompt.SYSTEM,
+                        maxTokens = com.raikaai.app.core.translate.TranslatePrompt.maxTokensFor(source, local),
+                        onDelta = { d ->
+                            streamed.append(d)
+                            val partial = stripThinking(streamed.toString()).trim()
+                            if (partial.isNotEmpty()) update { it.copy(text = partial) }
+                        },
+                    )
+                    com.raikaai.app.core.translate.TranslatePrompt.clean(stripThinking(out)).also { t ->
+                        if (t.isNotBlank()) synchronized(modelTranslationCache) { modelTranslationCache[cacheKey] = t }
+                    }
+                }
+            }
+            update { current ->
+                result.fold(
+                    onSuccess = { t -> if (t.isBlank()) current.copy(loading = false, note = null, error = "No translation returned") else current.copy(text = t, loading = false, note = null) },
+                    onFailure = { e -> current.copy(loading = false, note = null, error = e.message ?: e.javaClass.simpleName) },
+                )
+            }
         }
     }
 
@@ -3707,6 +3753,7 @@ class ChatViewModel(
         windowTokens: Int,
         system: String = "You maintain a rolling memory summary of an ongoing conversation. Output ONLY the summary text concisely.",
         maxTokens: Int = SamplingDefaults.SUMMARY_MAX_TOKENS,
+        onDelta: ((String) -> Unit)? = null,
     ): String {
         if (s.modelSource == ChatConstants.SOURCE_REMOTE) {
             val cleanUrl = s.remoteBaseUrl.trim()
@@ -3729,6 +3776,7 @@ class ChatViewModel(
                 maxTokens = maxTokens,
             ).collect { delta ->
                 sb.append(delta)
+                onDelta?.invoke(delta)
             }
             return sb.toString()
         } else {
@@ -3745,7 +3793,13 @@ class ChatViewModel(
                     maxTokens = maxTokens,
                     contextWindow = maxOf(1024, windowTokens),
                 )
-            return engine.generateResponse(prompt, params)
+            if (onDelta == null) return engine.generateResponse(prompt, params)
+            val sb = StringBuilder()
+            engine.streamResponse(prompt = prompt, params = params).collect { d ->
+                sb.append(d)
+                onDelta(d)
+            }
+            return sb.toString()
         }
     }
 
@@ -4233,7 +4287,7 @@ class ChatViewModel(
                         // Check if model called generate_image tool
                         if (messages.isNotEmpty() && messages.last().role == ChatConstants.ROLE_ASSISTANT) {
                             val lastIdx = messages.lastIndex
-                            val genericCall = com.raikaai.app.skills.ToolCallParser.parseGenericCall(messages[lastIdx].content)
+                            val genericCall = parseCallUnlessLean(messages[lastIdx].content)
                             if (genericCall != null && genericCall.name.equals("generate_image", ignoreCase = true)) {
                                 val imgPrompt = when {
                                     genericCall.arguments.has("prompt") -> genericCall.arguments.get("prompt").asString
@@ -4541,7 +4595,7 @@ class ChatViewModel(
                         // Check if model called generate_image tool
                         if (messages.isNotEmpty() && messages.last().role == ChatConstants.ROLE_ASSISTANT) {
                             val lastIdx = messages.lastIndex
-                            val genericCall = com.raikaai.app.skills.ToolCallParser.parseGenericCall(messages[lastIdx].content)
+                            val genericCall = parseCallUnlessLean(messages[lastIdx].content)
                             if (genericCall != null && genericCall.name.equals("generate_image", ignoreCase = true)) {
                                 val imgPrompt = when {
                                     genericCall.arguments.has("prompt") -> genericCall.arguments.get("prompt").asString
@@ -4589,7 +4643,7 @@ class ChatViewModel(
         val idx = messages.lastIndex
         if (idx < 0 || messages[idx].role != ChatConstants.ROLE_ASSISTANT) return
         if (currentConversationId != targetChatId) return
-        val firstCall = com.raikaai.app.skills.ToolCallParser.parseGenericCall(messages[idx].content) ?: return
+        val firstCall = parseCallUnlessLean(messages[idx].content) ?: return
         if (!isAgentToolCall(firstCall.name)) return
         if (isContainerToolCall(firstCall.name) && !containerReady(s)) {
             errorMessage.value = "Terminal not ready. Install it from Terminal in the sidebar (or /env install), then retry."
@@ -4619,7 +4673,7 @@ class ChatViewModel(
         // input, so the model chains ls -> cat -> run -> verify by itself.
         while (rounds < MAX_CONTAINER_ROUNDS) {
             if (currentConversationId != targetChatId) return
-            val call = com.raikaai.app.skills.ToolCallParser.parseGenericCall(messages[idx].content) ?: break
+            val call = parseCallUnlessLean(messages[idx].content) ?: break
             if (!isAgentToolCall(call.name)) break
             rounds++
             KLog.d("ChatVM", "Remote container round $rounds/$MAX_CONTAINER_ROUNDS: ${call.name}")
@@ -4667,7 +4721,7 @@ class ChatViewModel(
             }
 
             // If there's another tool call already present in this message, execute it in the next round
-            val nextQueuedCall = com.raikaai.app.skills.ToolCallParser.parseGenericCall(messages[idx].content)
+            val nextQueuedCall = parseCallUnlessLean(messages[idx].content)
             if (nextQueuedCall != null && isAgentToolCall(nextQueuedCall.name)) {
                 continue
             }
@@ -4712,7 +4766,7 @@ class ChatViewModel(
         if (rounds >= MAX_CONTAINER_ROUNDS && currentConversationId == targetChatId &&
             messages[idx].role == ChatConstants.ROLE_ASSISTANT
         ) {
-            val more = com.raikaai.app.skills.ToolCallParser.parseGenericCall(messages[idx].content)
+            val more = parseCallUnlessLean(messages[idx].content)
             if (more != null && isAgentToolCall(more.name)) {
                 messages[idx] = messages[idx].copy(
                     content = messages[idx].content +

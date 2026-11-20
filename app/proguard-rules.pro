@@ -36,3 +36,10 @@
 
 -keepattributes Signature
 -keepattributes *Annotation*
+
+# ML Kit (fast translate): registrars are created by reflection.
+-keep class com.google.mlkit.** { *; }
+-keep class com.google.android.gms.internal.mlkit_** { *; }
+-keep class * implements com.google.firebase.components.ComponentRegistrar { <init>(); }
+-keep class * implements com.google.mlkit.common.sdkinternal.**  { <init>(); }
+-dontwarn com.google.mlkit.**

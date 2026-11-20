@@ -39,8 +39,8 @@ android {
         applicationId = "com.raikaai.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 42
-        versionName = "0.5.0"
+        versionCode = 43
+        versionName = "0.5.1"
     }
 
     splits {
@@ -180,6 +180,9 @@ dependencies {
     // JSON + HTTP client (model downloads from HuggingFace)
     implementation("com.google.code.gson:gson:2.11.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    // Fast on-device translation (one ~30 MB pack per language, downloaded on first use).
+    implementation("com.google.mlkit:translate:17.0.3")
+    implementation("com.google.mlkit:language-id:17.0.6")
 
     // Embedded OpenAI-compatible HTTP server
     implementation("io.ktor:ktor-server-core:3.5.2")

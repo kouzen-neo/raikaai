@@ -746,7 +746,7 @@ internal fun MessageBubble(
             if (translation != null) {
                 Text(
                     text = when {
-                        translation.loading -> "Translating to ${translation.language}…"
+                        translation.loading -> translation.note ?: "Translating to ${translation.language}…"
                         translation.error != null -> "Couldn't translate: ${translation.error}"
                         translation.shown -> "Translated to ${translation.language} · tap the translate button for the original"
                         else -> "Original · tap the translate button for ${translation.language}"

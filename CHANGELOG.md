@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.5.1] - 2026-11-21
+
+### Added
+- Roleplay mode (Settings → Chat Behavior, on by default). It turns on by itself when you pick a character: only the character card and your profile are sent, with no skills, memory files, knowledge, web results or tool lists. Tool calls in replies are never run. Replies start faster, especially on on-device models. The character knows it can't run code or tools here and tells you to switch Roleplay mode off in Settings if you ask; switching it off gives characters the agent tools again.
+- Translate engine (Settings → Chat Behavior). **Fast** (default) uses an on-device translator: a reply is translated in about a second after a one-time ~30 MB download per language, and *actions*, "dialogue", {{user}} and code stay as they are. **Model** uses your chat model as before, for a more natural tone.
+
+### Changed
+- Model translations now appear word by word as they are written, skip the model's thinking, use an output limit sized to the message, and are remembered so opening one again is instant.
+- Languages the Fast engine doesn't cover are translated with the model automatically.
+
 ## [0.5.0] - 2026-11-21
 
 ### Fixed
