@@ -88,7 +88,60 @@ class ReminderParserTest {
         assertEquals(millis(2026, 10, 2, 12, 0), noon?.triggerAtMillis)
 
         val midnight = ReminderParser.parse("remind me tomorrow at 12am to sleep", now)
-        assertEquals(millis(2026, 10, 3, 0, 0), midnight?.triggerAtMillis)
+        assertEquals(millis(2026, 10, 2, 0, 0), midnight?.triggerAtMillis)
+    }
+
+    @Test
+    fun testAbsoluteTodayEnglishAmPm() {
+        val now = millis(2026, 10, 1, 10, 0)
+
+        val afternoon = ReminderParser.parse("remind me at 3pm to drink water", now)
+        assertEquals(millis(2026, 10, 1, 15, 0), afternoon?.triggerAtMillis)
+        assertEquals("drink water", afternoon?.note)
+
+        val withMinutes = ReminderParser.parse("remind me at 3:30pm to stretch", now)
+        assertEquals(millis(2026, 10, 1, 15, 30), withMinutes?.triggerAtMillis)
+
+        // Noon and midnight are not swapped around.
+        assertEquals(
+            millis(2026, 10, 1, 12, 0),
+            ReminderParser.parse("remind me at 12pm to lunch", now)?.triggerAtMillis,
+        )
+        assertEquals(
+            millis(2026, 10, 2, 0, 30),
+            ReminderParser.parse("remind me at 12:30am to sleep", now)?.triggerAtMillis,
+        )
+    }
+
+    @Test
+    fun testAbsoluteTodayEnglish24Hour() {
+        val now = millis(2026, 10, 1, 10, 0)
+        assertEquals(
+            millis(2026, 10, 1, 15, 30),
+            ReminderParser.parse("remind me at 15:30 to meeting", now)?.triggerAtMillis,
+        )
+        // Same rollover rule as the Indonesian form: a time already past means tomorrow.
+        assertEquals(
+            millis(2026, 10, 2, 9, 0),
+            ReminderParser.parse("remind me at 09:00 to standup", now)?.triggerAtMillis,
+        )
+    }
+
+    @Test
+    fun testPastTimeRollsToTomorrowInEnglish() {
+        val now = millis(2026, 10, 1, 16, 0)
+        assertEquals(
+            millis(2026, 10, 2, 15, 30),
+            ReminderParser.parse("remind me at 3:30pm to call mom", now)?.triggerAtMillis,
+        )
+    }
+
+    @Test
+    fun testInvalidEnglishTimeReturnsNull() {
+        val now = millis(2026, 10, 1, 10, 0)
+        assertNull(ReminderParser.parse("remind me at 13pm to call mom", now))
+        assertNull(ReminderParser.parse("remind me at 3:75pm to call mom", now))
+        assertNull(ReminderParser.parse("remind me at 25:00 to call mom", now))
     }
 
     @Test

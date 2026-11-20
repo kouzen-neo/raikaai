@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+
+## [Unreleased]
+
+### Added
+- Reminders in English for a time today: "remind me at 3pm to drink water" and "remind me at 15:30 to meeting". A time that has already passed today rolls over to tomorrow, like the Indonesian form.
+
+### Fixed
+- "remind me tomorrow at 12am to …" now schedules tomorrow at midnight instead of skipping a day.
+
 ## [0.5.1] - 2026-11-21
 
 ### Added
@@ -60,6 +69,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Character cards in Discover use rounded corners that match the rest of the app.
+
 
 ## [0.4.4] - 2026-11-20
 
