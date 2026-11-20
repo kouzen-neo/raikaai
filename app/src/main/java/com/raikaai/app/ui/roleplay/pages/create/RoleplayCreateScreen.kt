@@ -134,8 +134,9 @@ fun RoleplayCreateScreen(
                                 color = MaterialTheme.colorScheme.onErrorContainer,
                             )
                             Text(
-                                "It goes to the Community category, where everyone using RaikaAI can see and chat with it. " +
-                                    "It can't be edited or deleted from the app. Don't include personal information.",
+                                "After a quick review it appears in the Community category, where everyone using RaikaAI " +
+                                    "can see and chat with it. You can use it yourself right away. It can't be edited or " +
+                                    "deleted from the app. Don't include personal information.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onErrorContainer,
                             )
@@ -187,7 +188,7 @@ fun RoleplayCreateScreen(
                                 showPreview = false
                                 onPublished()
                             } else {
-                                publishError = "Unable to publish character"
+                                publishError = RoleplayRepository.lastPublishError ?: "Unable to publish character"
                             }
                             isPublishing = false
                         }

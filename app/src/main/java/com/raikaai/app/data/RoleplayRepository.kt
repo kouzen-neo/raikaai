@@ -109,28 +109,43 @@ object RoleplayRepository {
         avatarUrl: String,
     ): RoleplayCharacter? = withContext(Dispatchers.IO) {
         runCatching {
-            val slug = name.trim().lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-')
+            // Submissions go through submit_character(): it rate-limits and
+            // stores the character hidden until the owner approves it.
             val payload = gson.toJson(
                 mapOf(
-                    "name" to name.trim(),
-                    "slug" to slug,
-                    "description" to description.trim(),
-                    "greeting" to greeting.trim(),
-                    "system_prompt" to systemPrompt.trim(),
-                    "avatar_url" to avatarUrl.trim().ifBlank { null },
+                    "p_name" to name.trim(),
+                    "p_description" to description.trim(),
+                    "p_greeting" to greeting.trim(),
+                    "p_system_prompt" to systemPrompt.trim(),
+                    "p_avatar_url" to avatarUrl.trim().ifBlank { null },
                 ),
             )
             val request = Request.Builder()
-                .url("${RolePlayConstants.BASE_URL}characters")
+                .url("${RolePlayConstants.BASE_URL}rpc/submit_character")
                 .post(payload.toRequestBody("application/json".toMediaType()))
                 .header("apikey", RolePlayConstants.PUBLIC_KEY)
-                .header("Prefer", "return=representation")
                 .build()
             client.newCall(request).execute().use { response ->
                 val body = response.body?.string().orEmpty()
-                if (!response.isSuccessful) error("HTTP ${response.code}: $body")
-                parseCharacters(body).firstOrNull()
+                if (!response.isSuccessful) {
+                    val msg = runCatching { com.google.gson.JsonParser.parseString(body).asJsonObject.get("message")?.asString }.getOrNull()
+                    error(msg ?: "HTTP ${response.code}")
+                }
+                val o = com.google.gson.JsonParser.parseString(body).asJsonObject
+                RoleplayCharacter(
+                    id = o.get("id").asInt,
+                    name = name.trim(),
+                    slug = o.get("slug").asString,
+                    description = description.trim(),
+                    greeting = greeting.trim(),
+                    systemPrompt = systemPrompt.trim(),
+                    avatarUrl = avatarUrl.trim().ifBlank { null },
+                    categoryId = o.get("category_id").asInt,
+                )
             }
-        }.getOrNull()
+        }.onFailure { lastPublishError = it.message }.getOrNull()
     }
+
+    /** Why the last publish failed (rate limit, validation), for the UI. */
+    @Volatile var lastPublishError: String? = null
 }

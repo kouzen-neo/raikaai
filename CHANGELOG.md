@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.1.30] - 2026-11-20
+
+### Changed
+- Community characters are reviewed before they appear: publishing goes through `submit_character` (rate-limited to 5 per minute and 30 per hour, input validated) and new characters stay hidden until approved. The publish warning says so, and errors such as the rate limit are shown.
+
+### Fixed
+- Agent → Memory text no longer sits under the navigation bar.
+
 ## [0.1.29] - 2026-11-20
 
 ### Changed

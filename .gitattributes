@@ -1,0 +1,27 @@
+# Normalize line endings for text files.
+* text=auto eol=lf
+
+# Binaries.
+*.so binary
+*.bin binary
+*.jar binary
+*.png binary
+*.webp binary
+*.ttf binary
+
+# GitHub language stats: count only the app (Kotlin) and the PTY helper (Rust).
+*.kts linguist-vendored
+*.sh linguist-vendored
+*.sql linguist-vendored
+*.xml linguist-vendored
+*.pro linguist-vendored
+*.yml linguist-vendored
+*.toml linguist-vendored
+gradlew linguist-vendored
+gradlew.bat linguist-vendored
+gradle/** linguist-vendored
+supabase/** linguist-vendored
+app/src/main/assets/** linguist-vendored
+app/src/main/jniLibs/** linguist-vendored
+*.md linguist-documentation
+docs/** linguist-documentation

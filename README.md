@@ -17,7 +17,7 @@
 
 RaikaAI is three things in one app:
 
-1. **A chat app** for on-device models (Gemma, Qwen, Llama, SmolLM via Google LiteRT-LM, GPU accelerated) and for cloud providers (OpenAI, Anthropic, Gemini, OpenRouter, Groq, DeepSeek, Mistral, xAI, Ollama, or any OpenAI-compatible endpoint).
+1. **A chat app** for on-device models (Gemma 4, Gemma 3, Qwen and more via Google LiteRT-LM, GPU accelerated) and for cloud providers (OpenAI, Anthropic, Gemini, OpenRouter, Groq, DeepSeek, Mistral, xAI, Ollama, or any OpenAI-compatible endpoint).
 2. **An agent** called Raika, with its own personality, standing instructions and long-term memory, which can use tools: a Linux shell, file editing, web search and MCP servers.
 3. **A Linux environment** (Alpine, no root) bundled in the APK, with a real terminal that runs full-screen programs like `opencode`, `vim` and `htop`.
 
@@ -73,7 +73,7 @@ Everything works offline with a local model. Nothing is sent anywhere unless you
 Download the APK from **[Releases](https://github.com/kouzen-neo/raikaai/releases/latest)**.
 
 - Android 8.0+ on a 64-bit (arm64) phone. 32-bit phones are not supported (LiteRT-LM has no 32-bit build).
-- For on-device chat, download a model in **Models → Local** (Gemma 3n E2B is a good start on 8 GB phones). For cloud chat, pick a provider in **Models → Remote** and paste an API key.
+- For on-device chat, download a model in **Models → Local** (Gemma 4 E2B IT is the recommended start; Gemma 3 1B IT fits smaller phones). For cloud chat, pick a provider in **Models → Remote** and paste an API key.
 
 ## Documentation
 
