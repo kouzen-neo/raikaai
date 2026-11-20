@@ -7,7 +7,6 @@ ARM64 device / emulator (API 26+).
 ./gradlew testDebugUnitTest            # unit tests
 ./gradlew assembleDebug                 # → app/build/outputs/apk/debug/app-debug.apk
 ./gradlew assembleRelease -PabiFilter=arm64-v8a   # → app/build/outputs/apk/release/app-arm64-v8a-release.apk
-adb install -r app/build/outputs/apk/release/app-arm64-v8a-release.apk
 ```
 
 Without `-PabiFilter`, the build produces all ABIs + universal APK.
@@ -45,8 +44,8 @@ see comments in the workflow.
 ## Project layout
 
 - `app/` — the Android application module.
-- `docs/` — user-facing docs (`ARCHITECTURE.md`, `API.md`, `DEVELOPMENT.md`).
+- `docs/` — user-facing docs (`AGENT.md`, `LINUX.md`, `API.md`, `ARCHITECTURE.md`, `DEVELOPMENT.md`).
 - `native/raikapty/` — Rust PTY helper source.
 - `supabase/migrations/` — database migrations for the roleplay catalog.
-- Root `*.md` working notes (`AGENTS.md`, `PLAN.md`, …) are intentionally
-  git-ignored; only `README.md` + `docs/` ship publicly.
+- Root `*.md` working notes (`AGENTS.md`, `PLAN.md`, …) are git-ignored; only `README.md`,
+  `CHANGELOG.md` and `docs/` are published. All docs are in English.

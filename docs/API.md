@@ -1,6 +1,6 @@
 # Embedded OpenAI-Compatible API
 
-When the local server is running (Server tab → toggle), RaikaAI hosts an
+When the local server is running (sidebar → Local API → toggle), RaikaAI hosts an
 OpenAI-compatible HTTP endpoint on your Wi-Fi network for VS Code Continue,
 OpenWebUI, SillyTavern, and other third-party apps. Base URL:
 `http://<phone-lan-ip>:<port>/v1`.
