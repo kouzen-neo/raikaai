@@ -356,7 +356,10 @@ fun ChatDialogsHost(
                 ?.find { it.name == mcpApprovalReq.toolName }
                 ?.signature ?: mcpApprovalReq.toolName
         AlertDialog(
-            onDismissRequest = { viewModel.respondMcpApproval(false) },
+            // Access prompts only close through a button: a stray tap
+            // outside must not silently deny the request.
+            onDismissRequest = {},
+            properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = false),
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
@@ -407,7 +410,10 @@ fun ChatDialogsHost(
                 }
             },
             confirmButton = {
-                TextButton(onClick = { viewModel.respondMcpApproval(true) }) { Text(stringResource(R.string.chat_mcp_allow)) }
+                Row {
+                    TextButton(onClick = { viewModel.approveMcpAlways() }) { Text("Always") }
+                    TextButton(onClick = { viewModel.respondMcpApproval(true) }) { Text(stringResource(R.string.chat_mcp_allow)) }
+                }
             },
             dismissButton = {
                 TextButton(onClick = { viewModel.respondMcpApproval(false) }) { Text(stringResource(R.string.chat_mcp_deny)) }
@@ -418,7 +424,8 @@ fun ChatDialogsHost(
     val containerApprovalReq = viewModel.pendingContainerApproval.value
     if (containerApprovalReq != null) {
         AlertDialog(
-            onDismissRequest = { viewModel.respondContainerApproval(false) },
+            onDismissRequest = {},
+            properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = false),
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(

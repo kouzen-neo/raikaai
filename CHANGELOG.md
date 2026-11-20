@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.1.31] - 2026-11-20
+
+### Changed
+- Full access no longer asks before MCP tool calls; Ask and Auto still do. The MCP prompt has an "Always" button that trusts that tool from then on.
+- Raika is told real MCP package names (Python servers such as the official fetch run with `uvx`) and gets a hint when an npm package does not exist.
+
+### Fixed
+- Access prompts (Linux command, MCP tool, phone storage) no longer close and deny when you tap outside them or press back; choose Allow, Always or Deny.
+
 ## [0.1.30] - 2026-11-20
 
 ### Changed

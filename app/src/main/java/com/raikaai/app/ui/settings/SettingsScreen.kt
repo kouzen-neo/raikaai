@@ -83,7 +83,8 @@ fun SettingsScreen(
     var showStorageDialog by remember { mutableStateOf(false) }
     if (showStorageDialog) {
         AlertDialog(
-            onDismissRequest = { showStorageDialog = false },
+            onDismissRequest = {},
+            properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = false),
             icon = { Icon(Icons.Outlined.FolderOpen, contentDescription = null) },
             title = { Text("Allow access to phone storage?") },
             text = {
@@ -274,7 +275,7 @@ fun SettingsScreen(
                                 icon = Icons.Outlined.Security,
                                 title = "Permission",
                                 description = when {
-                                    settings.containerFullAccess -> "Full access: nothing is blocked; destructive commands still ask once"
+                                    settings.containerFullAccess -> "Full access: commands and MCP tools run without asking; destructive commands still ask once"
                                     settings.containerYolo -> "Auto: commands run without asking; destructive ones are blocked"
                                     else -> "Ask: Raika asks before each Linux command"
                                 },

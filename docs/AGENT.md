@@ -51,7 +51,8 @@ MCP servers come in two kinds:
 - **URL** (Streamable HTTP): a remote endpoint, with an optional bearer token stored encrypted.
 
 Add them in **Agent → MCP** with **+**, or ask Raika ("install the context7 MCP"). Enabled
-servers connect when the app starts. Every MCP tool call asks for approval.
+servers connect when the app starts. MCP tool calls ask for approval (Allow, Always for that
+tool, or Deny) unless the permission level is Full access.
 
 ## Permissions
 
@@ -61,9 +62,10 @@ Set in **Settings → Terminal → Permission** or with `/permission`.
 |---|---|
 | **Ask** | Raika asks before every command that changes something. |
 | **Auto** | Commands run without asking; destructive ones are blocked. |
-| **Full access** | Nothing is blocked; destructive commands still ask once. |
+| **Full access** | Commands and MCP tools run without asking; destructive commands still ask once. |
 
-`/permission allow <command>` always allows one specific command.
+`/permission allow <command>` always allows one specific command. Approval prompts only close
+through their buttons; tapping outside or pressing back does not deny them.
 
 ## Slash commands
 

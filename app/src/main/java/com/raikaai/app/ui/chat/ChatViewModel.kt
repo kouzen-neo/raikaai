@@ -2360,7 +2360,8 @@ class ChatViewModel(
         }
         out += "Memory: save a lasting fact or preference about the user with ${call("remember", "{\"text\": \"Prefers TypeScript\"}")}. It is stored in MEMORY.md and shown to you in every chat."
         out += "MCP: install an MCP server yourself. Stdio servers run in the Linux workspace: install the runtime first if needed (`apk add nodejs npm` or `apk add python3 uv`), then " +
-            "${call("add_mcp_server", "{\"name\": \"context7\", \"command\": \"npx -y @upstash/context7-mcp\"}")}. Remote servers: {\"name\", \"url\"}. The user approves, then the tools are yours."
+            "${call("add_mcp_server", "{\"name\": \"context7\", \"command\": \"npx -y @upstash/context7-mcp\"}")}. Remote servers: {\"name\", \"url\"}. The user approves, then the tools are yours. " +
+            "Use real package names: Node servers via `npx -y <npm package>`; Python servers (the official fetch, git, time) via `apk add uv` then `uvx mcp-server-fetch`. An npm 404 means the package name is wrong."
         out += "Your home in Linux is /root/.raika: SOUL.md, AGENTS.md, MEMORY.md and chats/ (past chats as Markdown). You can read and edit these files with your Linux tools."
         if (s.mcpEnabled) {
             val servers = mcpManager.servers.value.filter { it.enabled }
@@ -2543,7 +2544,9 @@ class ChatViewModel(
                     },
                     onFailure = { e ->
                         ContainerDispatch(
-                            "[MCP ERROR]\n$name was saved but discovery failed: ${e.message}. Tell the user; they can check it in Agent → MCP.",
+                            "[MCP ERROR]\n$name was saved but discovery failed: ${e.message}." +
+                                (if (e.message.orEmpty().contains("404")) " The npm package does not exist: check the name, or use the Python version (`apk add uv`, then `uvx <package>`), and call add_mcp_server again with the same name." else "") +
+                                " Tell the user; they can check it in Agent → MCP.",
                             card("mcp", "Add $name (discovery failed)", ok = false), 1,
                         )
                     },
@@ -5242,7 +5245,20 @@ class ChatViewModel(
         d?.complete(false)
     }
 
+    private val mcpAlwaysPrefs get() = app.getSharedPreferences("mcp_always_allow", android.content.Context.MODE_PRIVATE)
+
+    private fun mcpAlwaysKey(req: com.raikaai.app.mcp.McpCallRequest) = req.serverName + "::" + req.toolName
+
+    /** Allows this MCP tool from now on (per server and tool name). */
+    fun approveMcpAlways() {
+        pendingMcpApproval.value?.let { mcpAlwaysPrefs.edit().putBoolean(mcpAlwaysKey(it), true).apply() }
+        respondMcpApproval(true)
+    }
+
     private suspend fun requestMcpApproval(req: com.raikaai.app.mcp.McpCallRequest): Boolean {
+        // Full access trusts every MCP call; "Always" remembers single tools.
+        if (settings.value.containerFullAccess) return true
+        if (mcpAlwaysPrefs.getBoolean(mcpAlwaysKey(req), false)) return true
         // Deny a stale request before arming a new one.
         mcpApproval?.complete(false)
         val d = CompletableDeferred<Boolean>()
