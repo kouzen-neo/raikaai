@@ -29,7 +29,7 @@ Everything works offline with a local model. Nothing is sent anywhere unless you
     <td align="center" width="25%"><img src="docs/screenshots/chat.webp" width="200" alt="Chat with Raika"><br/><sub><b>Chat with Raika</b></sub></td>
     <td align="center" width="25%"><img src="docs/screenshots/agent.webp" width="200" alt="Agent memory"><br/><sub><b>Agent memory</b></sub></td>
     <td align="center" width="25%"><img src="docs/screenshots/terminal.webp" width="200" alt="Real terminal"><br/><sub><b>Real terminal</b></sub></td>
-    <td align="center" width="25%"><img src="docs/screenshots/characters.webp" width="200" alt="Characters"><br/><sub><b>Characters</b></sub></td>
+    <td align="center" width="25%"><img src="docs/screenshots/characters-trending.webp" width="200" alt="Characters"><br/><sub><b>Characters</b></sub></td>
   </tr>
   <tr>
     <td align="center" width="25%"><img src="docs/screenshots/models.webp" width="200" alt="Cloud providers"><br/><sub><b>Cloud providers</b></sub></td>
