@@ -103,7 +103,18 @@ Requirements and signing are in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 ## Acknowledgments
 
-[Google AI Edge LiteRT-LM](https://ai.google.dev/edge/litert) · [PRoot](https://proot-me.github.io/) · [Alpine Linux](https://alpinelinux.org/) · [Termux](https://termux.dev/) · [Ktor](https://ktor.io/) · [Jetpack Compose](https://developer.android.com/compose) · [MaterialKolor](https://github.com/jordond/MaterialKolor) · [OkHttp](https://square.github.io/okhttp/) · [Gson](https://github.com/google/gson)
+RaikaAI stands on these open-source projects:
+
+| Area | Projects |
+|---|---|
+| On-device AI | [LiteRT-LM](https://github.com/google-ai-edge/LiteRT-LM) (Google AI Edge) |
+| Linux environment | [Alpine Linux](https://alpinelinux.org/) minirootfs · [PRoot](https://github.com/termux/proot) with Termux's Android patches, plus [talloc](https://talloc.samba.org/) and [libandroid-shmem](https://github.com/termux/libandroid-shmem), built by the [Termux packages](https://github.com/termux/termux-packages) project |
+| Terminal | Our PTY helper is written in Rust with the [`libc`](https://github.com/rust-lang/libc) crate |
+| App | [Jetpack Compose](https://developer.android.com/compose) & AndroidX · [Kotlin Coroutines](https://github.com/Kotlin/kotlinx.coroutines) · [MaterialKolor](https://github.com/jordond/MaterialKolor) · [Coil](https://coil-kt.github.io/coil/) |
+| Networking & data | [Ktor](https://ktor.io/) (local API server) · [OkHttp](https://square.github.io/okhttp/) · [Gson](https://github.com/google/gson) |
+| Protocols | [Model Context Protocol](https://modelcontextprotocol.io/) · OpenAI-compatible Chat Completions API |
+
+Licenses of the bundled native parts are listed in [`ATTRIBUTION.md`](app/src/main/assets/container/ATTRIBUTION.md).
 
 ## License
 
