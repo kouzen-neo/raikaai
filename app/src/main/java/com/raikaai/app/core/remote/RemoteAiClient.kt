@@ -371,7 +371,7 @@ object RemoteAiClient {
                         .url(url)
                         .post(payload.toRequestBody(JSON_MEDIA_TYPE))
                 RemoteProviders.authHeaders(baseUrl, apiKey).forEach { (k, v) -> reqBuilder.addHeader(k, v) }
-                client.newCall(reqBuilder.build()).execute().use { resp ->
+                RemoteTimeouts.client().newCall(reqBuilder.build()).execute().use { resp ->
                     if (!resp.isSuccessful) {
                         val errBody = resp.body?.string().orEmpty().take(300)
                         return@withContext Result.failure(
@@ -468,7 +468,7 @@ object RemoteAiClient {
                 try {
                     // Cancelling the coroutine also aborts a request that is
                     // still connecting or waiting for the first byte.
-                    val call = client.newCall(reqBuilder.build())
+                    val call = RemoteTimeouts.client().newCall(reqBuilder.build())
                     val cancelHook = currentCoroutineContext()[Job]?.invokeOnCompletion { cause -> if (cause != null) call.cancel() }
                     val resp =
                         try {

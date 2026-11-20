@@ -54,6 +54,7 @@ Everything works offline with a local model. Nothing is sent anywhere unless you
 - `/btw` asks a side question without adding it to the chat. `/compact` frees context.
 - Edit any message to branch the conversation; switch branches with the arrows.
 - Attach photos, files and documents (RAG with citations), dictate by voice, read replies aloud.
+- Translate any reply or greeting into your language with the model you are using (Bahasa Indonesia by default; change it in Settings).
 
 **Linux**
 - Alpine installs offline from the APK. `/workspace` is your project folder; turn on phone storage to work in `/sdcard` too.
@@ -62,7 +63,7 @@ Everything works offline with a local model. Nothing is sent anywhere unless you
 - Dev servers run in the background with a one-tap preview link.
 
 **Characters**
-- Browse an online catalog of roleplay characters, keep your own, or create and publish one to the Community category.
+- Browse an online catalog of roleplay characters, keep your own, or create and publish one to the Community category. A character you made on the phone can be published later from its card.
 - Roleplay chats keep the character in charge; Raika's tools stay out of the scene.
 
 **Server**
@@ -70,7 +71,7 @@ Everything works offline with a local model. Nothing is sent anywhere unless you
 
 ## Install
 
-Download the APK from **[Releases](https://github.com/kouzen-neo/raikaai/releases/latest)**.
+Download the APK from **[Releases](https://github.com/kouzen-neo/raikaai/releases/latest)**. After that, **Settings → App updates** finds, downloads and installs new versions for you.
 
 - Android 8.0+ on a 64-bit (arm64) phone. 32-bit phones are not supported (LiteRT-LM has no 32-bit build).
 - For on-device chat, download a model in **Models → Local** (Gemma 4 E2B IT is the recommended start; Gemma 3 1B IT fits smaller phones). For cloud chat, pick a provider in **Models → Remote** and paste an API key.

@@ -56,6 +56,20 @@ fun RoleplayCreateScreen(
     var publishError by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
 
+    // Opened from a local character's upload icon: copy its text over. Local
+    // photos live only on this phone, so the image must be picked again.
+    var fromLocal by rememberSaveable { mutableStateOf(false) }
+    val pending = viewModel?.pendingPublish?.value
+    LaunchedEffect(pending) {
+        val p = pending ?: return@LaunchedEffect
+        name = p.name
+        description = publishDescriptionFor(p)
+        greeting = p.greeting
+        imageUrl = ""
+        fromLocal = true
+        viewModel.pendingPublish.value = null
+    }
+
     LaunchedEffect(selectedImageUrl) {
         if (selectedImageUrl.isNotBlank()) imageUrl = selectedImageUrl
     }
@@ -84,16 +98,26 @@ fun RoleplayCreateScreen(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
+        if (fromLocal) {
+            Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
+                Text(
+                    "Copied from your local character. Its photo stays on your phone, so pick a public image with Search image below. Check the text before publishing.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    modifier = Modifier.padding(12.dp),
+                )
+            }
+        }
         CreateInput("Name", name, { name = it })
         CreateInput("Description", description, { description = it }, multiline = true)
         CreateInput("Greeting", greeting, { greeting = it }, multiline = true)
-        CreateInput("Image url", imageUrl, { imageUrl = it })
+        CreateInput("Image URL", imageUrl, { imageUrl = it })
 
         OutlinedButton(
             onClick = onSearchImage,
             modifier = Modifier.align(androidx.compose.ui.Alignment.End),
         ) {
-            Text("Search image?")
+            Text(if (imageUrl.isBlank()) "Search image" else "Change image")
         }
 
         Spacer(Modifier.height(8.dp))
@@ -237,4 +261,15 @@ private fun CreateInput(
             maxLines = if (multiline) 6 else 1,
         )
     }
+}
+
+/**
+ * Description for publishing a local character: its description, personality
+ * and scenario, or its prompt when those are empty. Capped to the server's
+ * 5000-character limit.
+ */
+internal fun publishDescriptionFor(p: PersonaPreset): String {
+    val parts = listOf(p.description, p.personality, p.scenario).map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+    val text = if (parts.isNotEmpty()) parts.joinToString("\n\n") else p.systemPrompt.trim()
+    return text.take(4800)
 }

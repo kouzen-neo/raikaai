@@ -155,14 +155,16 @@ class RoleplayHomeViewModel(application: Application) : AndroidViewModel(applica
 
     private fun loadCategory(categoryId: Int, reset: Boolean, forceRefresh: Boolean = false) =
         viewModelScope.launch {
-            if (reset && !forceRefresh && pages.containsKey(categoryId)) {
-                state.value = state.value.copy(
-                    characters = pages[categoryId].orEmpty(),
-                    hasMore = pages[categoryId].orEmpty().size >= 50
-                )
+            val cached = pages[categoryId]
+            if (reset && !forceRefresh && !cached.isNullOrEmpty()) {
+                // Stale-while-revalidate: show the cached page at once, then
+                // refresh it in the background so edits made in the catalog
+                // (new avatars, descriptions, removed characters) still arrive.
+                state.value = state.value.copy(characters = cached, hasMore = cached.size >= 50)
+                revalidate(categoryId, cached.size)
                 return@launch
             }
-            val hasCached = pages[categoryId]?.isNotEmpty() == true
+            val hasCached = !cached.isNullOrEmpty()
             state.value = state.value.copy(
                 loading = reset && !hasCached,
                 loadingMore = !reset,
@@ -187,4 +189,43 @@ class RoleplayHomeViewModel(application: Application) : AndroidViewModel(applica
             }
             state.value = state.value.copy(loading = false, loadingMore = false)
         }
+
+    /**
+     * Refetches as many rows as the cache holds (so scrolled-in pages are kept)
+     * and merges them into the cached list without a spinner. Failures are
+     * silent: the cached list stays on screen.
+     */
+    private suspend fun revalidate(categoryId: Int, cachedSize: Int) {
+        val limit = cachedSize.coerceIn(50, MAX_REVALIDATE)
+        val fresh = runCatching { RoleplayRepository.loadCharacters(categoryId, 0, limit) }.getOrNull() ?: return
+        val current = pages[categoryId].orEmpty()
+        // Discover is shuffled on every fetch; keep the order the user is
+        // looking at. Other categories are sorted by name, so take the new order.
+        val merged = if (categoryId == 9999) mergeKeepingOrder(current, fresh) else fresh
+        if (merged == current) return
+        pages[categoryId] = merged.toMutableList()
+        offsets[categoryId] = merged.size
+        if (state.value.selectedCategoryId == categoryId) {
+            state.value = state.value.copy(characters = merged, hasMore = fresh.size >= limit)
+        }
+        persistCache()
+    }
+
+    companion object {
+        private const val MAX_REVALIDATE = 200
+
+        /**
+         * Fresh data in the cached order: entries still present are replaced by
+         * their fresh version, missing ones are dropped, new ones go at the end.
+         */
+        internal fun mergeKeepingOrder(
+            cached: List<RoleplayCharacter>,
+            fresh: List<RoleplayCharacter>,
+        ): List<RoleplayCharacter> {
+            val byId = fresh.associateBy { it.id }
+            val kept = cached.mapNotNull { byId[it.id] }
+            val keptIds = kept.mapTo(HashSet()) { it.id }
+            return kept + fresh.filter { it.id !in keptIds }
+        }
+    }
 }

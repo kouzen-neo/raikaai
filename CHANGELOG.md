@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.9] - 2026-11-21
+
+### Added
+- Translate button on character replies and greetings. It translates with the model you are using (remote or on-device), keeps *actions*, dialogue and names intact, and a second tap shows the original. Only the display changes; the chat stays in its original language. Pick the language in Settings → Chat Behavior → Translate to (Bahasa Indonesia by default, any language or your phone's language), and optionally translate greetings automatically.
+- App updates in Settings: checks GitHub for a new version, downloads it with progress (resumes after a dropped connection), checks it against the release checksum and opens the installer. Chats, characters and Linux files are kept.
+- Publish a local character: the upload icon on a Local character card opens Publish with its name, description and greeting filled in. Pick a public image with Search image, since the local photo stays on your phone.
+- Settings → Remote models → Reply timeout (2, 5, 10 or 30 minutes, default 5). Long replies from slow providers or proxies are no longer cut off after 2 minutes.
+
+### Changed
+- Characters open from the saved list right away and refresh in the background, so new and updated characters appear without clearing data (thanks Ilyas).
+- Local form labels are clearer: "Save Persona" is now "Save to this phone", "System Instructions" is "Character prompt", and the edit form uses the same names.
+- Community characters were rewritten: each has an accurate description, a consistent prompt (who they are, personality, speech, relationship with you) and an English greeting that fits them. Several that showed the wrong character were fixed.
+- New Community submissions get the same reply-length rules as the catalog (thanks Ilyas).
+
 ## [0.4.8] - 2026-11-21
 
 ### Changed

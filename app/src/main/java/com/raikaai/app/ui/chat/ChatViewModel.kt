@@ -482,6 +482,8 @@ class ChatViewModel(
 
     init {
         com.raikaai.app.core.remote.RemoteUsage.init(appContext)
+        com.raikaai.app.core.remote.RemoteTimeouts.init(appContext)
+        com.raikaai.app.core.translate.TranslatePrefs.init(appContext)
         // The rootfs ships in the APK: set the environment up right away.
         containerManager.autoInstallIfBundled()
         // While a reply generates or a command runs, a foreground service keeps
@@ -1944,12 +1946,14 @@ class ChatViewModel(
         refreshPinState()
         personaStore.applyPersona(p)
         if (roleplayGreeting.isNotBlank()) {
-            messages.add(
+            val greetingEntry =
                 ChatMessageEntry(
                     role = ChatConstants.ROLE_ASSISTANT,
                     content = roleplayGreeting,
-                ),
-            )
+                )
+            messages.add(greetingEntry)
+            // Optional: show the greeting in the user's language right away.
+            if (com.raikaai.app.core.translate.TranslatePrefs.autoGreeting.value) toggleTranslation(greetingEntry)
         }
         updateContextTokens()
         // No immediate save: the session is written lazily on the first real
@@ -3575,6 +3579,69 @@ class ChatViewModel(
         persist()
     }
 
+    /**
+     * A message translated for display only: the chat history and what the
+     * model sees stay in the original language. [source] is the text that was
+     * translated, so an edited or regenerated message is translated again.
+     */
+    data class MessageTranslation(
+        val source: String,
+        val language: String,
+        val text: String = "",
+        val loading: Boolean = true,
+        val error: String? = null,
+        val shown: Boolean = true,
+    )
+
+    /** Translations by message id (in memory; cheap to redo). */
+    val translations = androidx.compose.runtime.mutableStateMapOf<String, MessageTranslation>()
+
+    /**
+     * Translate button: first tap translates with the active model into the
+     * language from Settings; later taps switch between translation and
+     * original. A failed attempt is retried on the next tap.
+     */
+    fun toggleTranslation(message: ChatMessageEntry) {
+        val id = message.id ?: return
+        val source = stripThinking(message.content).trim()
+        if (source.isBlank()) return
+        val language = com.raikaai.app.core.translate.TranslatePrefs.englishName()
+        val existing = translations[id]
+        if (existing != null && existing.source == source && existing.language == language && existing.error == null) {
+            if (!existing.loading) translations[id] = existing.copy(shown = !existing.shown)
+            return
+        }
+        val s = effectiveSettings()
+        val local = s.modelSource != ChatConstants.SOURCE_REMOTE
+        if (local && isGenerating.value) {
+            translations[id] = MessageTranslation(source, language, loading = false, error = "Wait until the reply finishes")
+            return
+        }
+        translations[id] = MessageTranslation(source, language)
+        viewModelScope.launch {
+            val window = if (local) s.contextWindowTokens else s.effectiveRemoteContextWindow(s.remoteModelId)
+            val result = runCatching {
+                val out = generateCompactedSummary(
+                    s,
+                    com.raikaai.app.core.translate.TranslatePrompt.build(source, language),
+                    window,
+                    com.raikaai.app.core.translate.TranslatePrompt.SYSTEM,
+                    maxTokens = if (local) 768 else 2048,
+                )
+                com.raikaai.app.core.translate.TranslatePrompt.clean(stripThinking(out))
+            }
+            val current = translations[id] ?: return@launch
+            if (current.source != source) return@launch
+            translations[id] = result.fold(
+                onSuccess = { t -> if (t.isBlank()) current.copy(loading = false, error = "No translation returned") else current.copy(text = t, loading = false) },
+                onFailure = { e -> current.copy(loading = false, error = e.message ?: e.javaClass.simpleName) },
+            )
+        }
+    }
+
+    /** A local character waiting to be opened in the Publish form. */
+    val pendingPublish = mutableStateOf<PersonaPreset?>(null)
+
     /** A /btw side question: answered aside, never added to the chat. */
     data class SideAnswer(val question: String, val answer: String = "", val loading: Boolean = true)
 
@@ -3639,6 +3706,7 @@ class ChatViewModel(
         prompt: String,
         windowTokens: Int,
         system: String = "You maintain a rolling memory summary of an ongoing conversation. Output ONLY the summary text concisely.",
+        maxTokens: Int = SamplingDefaults.SUMMARY_MAX_TOKENS,
     ): String {
         if (s.modelSource == ChatConstants.SOURCE_REMOTE) {
             val cleanUrl = s.remoteBaseUrl.trim()
@@ -3658,7 +3726,7 @@ class ChatViewModel(
                 messages = remoteMessages,
                 temperature = SamplingDefaults.LOCAL_TEMPERATURE,
                 topP = SamplingDefaults.TOP_P,
-                maxTokens = SamplingDefaults.SUMMARY_MAX_TOKENS,
+                maxTokens = maxTokens,
             ).collect { delta ->
                 sb.append(delta)
             }
@@ -3674,7 +3742,7 @@ class ChatViewModel(
                     temperature = SamplingDefaults.LOCAL_TEMPERATURE,
                     topK = SamplingDefaults.TOP_K,
                     topP = SamplingDefaults.TOP_P,
-                    maxTokens = SamplingDefaults.SUMMARY_MAX_TOKENS,
+                    maxTokens = maxTokens,
                     contextWindow = maxOf(1024, windowTokens),
                 )
             return engine.generateResponse(prompt, params)

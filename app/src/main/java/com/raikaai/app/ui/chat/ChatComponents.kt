@@ -78,6 +78,7 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.Translate
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Refresh
@@ -429,6 +430,8 @@ internal fun MessageList(
                     onPreviewHtml = onPreviewHtml,
                     onPreviewImage = onPreviewImage,
                     bubbles = bubbles,
+                    translation = msg.id?.let { viewModel.translations[it] },
+                    onTranslate = { viewModel.toggleTranslation(msg) },
                 )
             }
         }
@@ -491,6 +494,8 @@ internal fun MessageBubble(
     onPreviewHtml: (String) -> Unit = {},
     onPreviewImage: (String) -> Unit = {},
     bubbles: Boolean = false,
+    translation: ChatViewModel.MessageTranslation? = null,
+    onTranslate: (() -> Unit)? = null,
 ) {
     if (message.role == ChatConstants.ROLE_COMPACTION) {
         Column(
@@ -718,7 +723,8 @@ internal fun MessageBubble(
                 val reply: @Composable (Modifier) -> Unit = { mod ->
                     MarkdownText(
                         // Hide "[ran `cmd`: exit 0]" lines a model wrote itself: no command ran.
-                        markdown = message.content.replace(FAKE_RAN_LINE, "").ifBlank { "…" },
+                        markdown = translation?.takeIf { it.shown && it.text.isNotBlank() }?.text
+                            ?: message.content.replace(FAKE_RAN_LINE, "").ifBlank { "…" },
                         enableThinking = enableThinking,
                         onPreviewHtml = onPreviewHtml,
                         modifier = mod,
@@ -735,6 +741,20 @@ internal fun MessageBubble(
                 } else {
                     reply(Modifier.padding(horizontal = 4.dp, vertical = 4.dp))
                 }
+            }
+
+            if (translation != null) {
+                Text(
+                    text = when {
+                        translation.loading -> "Translating to ${translation.language}…"
+                        translation.error != null -> "Couldn't translate: ${translation.error}"
+                        translation.shown -> "Translated to ${translation.language} · tap the translate button for the original"
+                        else -> "Original · tap the translate button for ${translation.language}"
+                    },
+                    fontSize = 11.sp,
+                    color = if (translation.error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                )
             }
 
             // Local Document RAG citation chips (if non-web)
@@ -814,7 +834,7 @@ internal fun MessageBubble(
 
             // Footer Row: Telemetry Stats + Swipes Pagination + Quick Actions.
             // Hidden for greeting messages (no stats, single variant, not regenerable).
-            if (!message.stats.isNullOrBlank() || message.variants.size > 1 || (isLastMessage && !isGenerating)) {
+            if (!message.stats.isNullOrBlank() || message.variants.size > 1 || (isLastMessage && !isGenerating) || (messageIndex == 0 && onTranslate != null)) {
             Row(
                 modifier =
                     Modifier
@@ -902,6 +922,18 @@ internal fun MessageBubble(
                             modifier = Modifier.size(16.dp),
                             tint = if (copied) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                    }
+
+                    // Translate (display only) into the language from Settings
+                    if (onTranslate != null) {
+                        IconButton(onClick = onTranslate, enabled = translation?.loading != true, modifier = Modifier.size(32.dp)) {
+                            Icon(
+                                Icons.Outlined.Translate,
+                                contentDescription = "Translate",
+                                modifier = Modifier.size(16.dp),
+                                tint = if (translation?.shown == true && translation.text.isNotBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
 
                     // Read Aloud / TTS Action

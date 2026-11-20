@@ -34,6 +34,7 @@ import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.CloudUpload
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.FileUpload
 import androidx.compose.material.icons.outlined.Menu
@@ -102,6 +103,7 @@ fun CharactersScreen(
     onOpenDrawer: () -> Unit = {},
     onStartChatWithCharacter: (PersonaPreset) -> Unit = {},
     showHeader: Boolean = true,
+    onPublishCharacter: ((PersonaPreset) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
@@ -196,7 +198,7 @@ fun CharactersScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Outlined.Psychology, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(6.dp))
-                            Text("Personas (${allPersonas.size})", fontWeight = FontWeight.SemiBold)
+                            Text("Characters (${allPersonas.size})", fontWeight = FontWeight.SemiBold)
                         }
                     },
                 )
@@ -235,7 +237,7 @@ fun CharactersScreen(
                                 OutlinedTextField(
                                     value = searchQuery,
                                     onValueChange = { searchQuery = it },
-                                    placeholder = { Text("Search personas or system prompts…") },
+                                    placeholder = { Text("Search characters…") },
                                     leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) },
                                     shape = RoundedCornerShape(12.dp),
                                     singleLine = true,
@@ -289,6 +291,7 @@ fun CharactersScreen(
                             },
                             onEdit = { editingPersona = persona },
                             onDelete = { viewModel.deleteCustomPersona(persona.id) },
+                            onPublish = if (isCustom && onPublishCharacter != null) ({ onPublishCharacter(persona) }) else null,
                             onExportJson = {
                                 val json = viewModel.exportPersonaJson(persona)
                                 clipboard.setText(AnnotatedString(json))
@@ -322,12 +325,12 @@ fun CharactersScreen(
                                 ) {
                                     Column {
                                         Text(
-                                            "Create a local persona",
+                                            "Create a character on this phone",
                                             style = MaterialTheme.typography.titleMedium,
                                             fontWeight = FontWeight.Bold,
                                         )
                                         Text(
-                                            "Saved only on this phone. Never shared. Use Publish in the bottom bar to share a character.",
+                                            "Stays on this phone and is never shared. To share it later, tap the upload icon on its card.",
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         )
@@ -349,8 +352,8 @@ fun CharactersScreen(
                                 OutlinedTextField(
                                     value = newName,
                                     onValueChange = { newName = it },
-                                    label = { Text("Persona Name") },
-                                    placeholder = { Text("e.g. Science Tutor, Python Expert") },
+                                    label = { Text("Name") },
+                                    placeholder = { Text("e.g. Furina, Science Tutor") },
                                     shape = RoundedCornerShape(12.dp),
                                     singleLine = true,
                                     modifier = Modifier.fillMaxWidth(),
@@ -359,7 +362,7 @@ fun CharactersScreen(
                                 OutlinedTextField(
                                     value = newGreeting,
                                     onValueChange = { newGreeting = it },
-                                    label = { Text("Greeting Message") },
+                                    label = { Text("Greeting (first message)") },
                                     placeholder = { Text("e.g. Hello! How can I assist you with code today?") },
                                     shape = RoundedCornerShape(12.dp),
                                     minLines = 2,
@@ -370,8 +373,8 @@ fun CharactersScreen(
                                 OutlinedTextField(
                                     value = newPrompt,
                                     onValueChange = { newPrompt = it },
-                                    label = { Text("System Instructions") },
-                                    placeholder = { Text("You are an expert AI assistant specialized in...") },
+                                    label = { Text("Character prompt") },
+                                    placeholder = { Text("Who they are, how they talk and act. e.g. You are Furina, the former Hydro Archon...") },
                                     shape = RoundedCornerShape(12.dp),
                                     minLines = 3,
                                     maxLines = 6,
@@ -496,7 +499,7 @@ fun CharactersScreen(
                                 ) {
                                     Icon(Icons.Outlined.Add, contentDescription = null, modifier = Modifier.size(16.dp))
                                     Spacer(Modifier.width(6.dp))
-                                    Text("Save Persona")
+                                    Text("Save to this phone")
                                 }
                             }
                         }
@@ -529,7 +532,7 @@ fun CharactersScreen(
                                 OutlinedTextField(
                                     value = importJsonText,
                                     onValueChange = { importJsonText = it },
-                                    label = { Text("Paste Character JSON") },
+                                    label = { Text("Paste character JSON (Character Card v2)") },
                                     placeholder = { Text("{\n  \"name\": \"...\",\n  \"system_prompt\": \"...\"\n}") },
                                     shape = RoundedCornerShape(12.dp),
                                     minLines = 3,
@@ -554,7 +557,7 @@ fun CharactersScreen(
                                 ) {
                                     Icon(Icons.Outlined.FileUpload, contentDescription = null, modifier = Modifier.size(16.dp))
                                     Spacer(Modifier.width(6.dp))
-                                    Text("Import Character JSON")
+                                    Text("Import character")
                                 }
                             }
                         }
@@ -648,6 +651,7 @@ private fun CharacterCardItem(
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     onExportJson: () -> Unit,
+    onPublish: (() -> Unit)? = null,
 ) {
     val vectorIcon = remember(persona.iconType) { getIconVector(persona.iconType) }
 
@@ -741,7 +745,7 @@ private fun CharacterCardItem(
                         Text(
                             when {
                                 persona.id == "general" -> "Built-in · personality in SOUL.md"
-                                isCustom -> "Custom character"
+                                isCustom -> "On this phone"
                                 else -> "Built-in"
                             },
                             style = MaterialTheme.typography.bodySmall,
@@ -757,6 +761,14 @@ private fun CharacterCardItem(
                         Icon(
                             Icons.Outlined.ContentCopy,
                             contentDescription = "Copy JSON",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(16.dp),
+                        )
+                    }
+                    if (onPublish != null) IconButton(onClick = onPublish, modifier = Modifier.size(32.dp)) {
+                        Icon(
+                            Icons.Outlined.CloudUpload,
+                            contentDescription = "Publish to Community",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(16.dp),
                         )
@@ -935,7 +947,7 @@ private fun CharacterEditorDialog(
                     OutlinedTextField(
                         value = name,
                         onValueChange = { name = it },
-                        label = { Text("Character Name") },
+                        label = { Text("Name") },
                         singleLine = true,
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.fillMaxWidth(),
@@ -1025,7 +1037,7 @@ private fun CharacterEditorDialog(
                     OutlinedTextField(
                         value = greeting,
                         onValueChange = { greeting = it },
-                        label = { Text("Greeting (optional)") },
+                        label = { Text("Greeting (first message, optional)") },
                         placeholder = { Text("e.g. Hello! How can I assist you today?") },
                         minLines = 2,
                         maxLines = 4,
@@ -1038,7 +1050,7 @@ private fun CharacterEditorDialog(
                     OutlinedTextField(
                         value = prompt,
                         onValueChange = { prompt = it },
-                        label = { Text("Instructions") },
+                        label = { Text("Character prompt") },
                         placeholder = { Text("Describe the character's personality, style, and rules...") },
                         minLines = 4,
                         maxLines = 8,

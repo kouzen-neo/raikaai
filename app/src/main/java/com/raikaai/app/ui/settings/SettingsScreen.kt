@@ -20,6 +20,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ChevronRight
+import androidx.compose.material.icons.outlined.SystemUpdate
+import androidx.compose.material.icons.outlined.Timer
+import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.Translate
 import androidx.compose.material.icons.outlined.DeleteSweep
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Menu
@@ -122,6 +126,15 @@ fun SettingsScreen(
     val scope = rememberCoroutineScope()
 
     var showClearHistoryDialog by remember { mutableStateOf(false) }
+    var showLanguageSheet by remember { mutableStateOf(false) }
+    val settingsContext = androidx.compose.ui.platform.LocalContext.current
+    remember {
+        com.raikaai.app.core.translate.TranslatePrefs.init(settingsContext)
+        com.raikaai.app.core.remote.RemoteTimeouts.init(settingsContext)
+    }
+    val translateTarget by com.raikaai.app.core.translate.TranslatePrefs.target.collectAsState()
+    val autoTranslateGreeting by com.raikaai.app.core.translate.TranslatePrefs.autoGreeting.collectAsState()
+    val replyTimeout by com.raikaai.app.core.remote.RemoteTimeouts.seconds.collectAsState()
 
     var showResetEnvDialog by remember { mutableStateOf(false) }
 
@@ -218,6 +231,25 @@ fun SettingsScreen(
                                 },
                             ),
                             createM3Item(
+                                icon = Icons.Outlined.Translate,
+                                title = "Translate to",
+                                description = com.raikaai.app.core.translate.TranslatePrefs.label(translateTarget) +
+                                    "\nUsed by the translate button on replies and greetings",
+                                onClick = { showLanguageSheet = true },
+                                trailingContent = { Icon(Icons.Outlined.ChevronRight, contentDescription = null) },
+                            ),
+                            createM3Item(
+                                icon = Icons.Outlined.AutoAwesome,
+                                title = "Translate greetings automatically",
+                                description = "A character's first message appears translated (tap the button for the original)",
+                                trailingContent = {
+                                    Switch(
+                                        checked = autoTranslateGreeting,
+                                        onCheckedChange = { com.raikaai.app.core.translate.TranslatePrefs.setAutoGreeting(it) },
+                                    )
+                                },
+                            ),
+                            createM3Item(
                                 icon = Icons.Outlined.Speed,
                                 title = "Show Tokens Per Second",
                                 description = "Displays real-time generation speed below AI messages",
@@ -266,6 +298,33 @@ fun SettingsScreen(
             }
 
             // ── Terminal ──
+            item(key = "remote_group") {
+                Material3SettingsGroup(
+                    title = "Remote models",
+                    items =
+                        listOf(
+                            createM3Item(
+                                icon = Icons.Outlined.Timer,
+                                title = "Reply timeout",
+                                description = "How long to wait for a provider before giving up. Raise it if long replies get cut off (some proxies ask for 5 to 10 minutes, especially for Claude).",
+                                bottomContent = {
+                                    val opts = com.raikaai.app.core.remote.RemoteTimeouts.OPTIONS
+                                    androidx.compose.material3.SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                                        opts.forEachIndexed { i, sec ->
+                                            SegmentedButton(
+                                                selected = replyTimeout == sec,
+                                                onClick = { com.raikaai.app.core.remote.RemoteTimeouts.set(sec) },
+                                                shape = androidx.compose.material3.SegmentedButtonDefaults.itemShape(i, opts.size),
+                                                icon = {},
+                                            ) { Text(com.raikaai.app.core.remote.RemoteTimeouts.label(sec), style = MaterialTheme.typography.labelMedium) }
+                                        }
+                                    }
+                                },
+                            ),
+                        ),
+                )
+            }
+
             item(key = "terminal_group") {
                 Material3SettingsGroup(
                     title = "Terminal",
@@ -408,6 +467,10 @@ fun SettingsScreen(
             }
 
             // ── 4. About RaikaAI Card ──
+            item(key = "update_group") {
+                AppUpdateCard()
+            }
+
             item(key = "about_card") {
                 Card(
                     shape = RoundedCornerShape(16.dp),
@@ -517,6 +580,17 @@ fun SettingsScreen(
         )
     }
 
+    if (showLanguageSheet) {
+        LanguagePickerSheet(
+            selectedTag = translateTarget,
+            onSelect = {
+                com.raikaai.app.core.translate.TranslatePrefs.setTarget(it)
+                showLanguageSheet = false
+            },
+            onDismiss = { showLanguageSheet = false },
+        )
+    }
+
     if (showClearHistoryDialog) {
         AlertDialog(
             onDismissRequest = { showClearHistoryDialog = false },
@@ -541,5 +615,70 @@ fun SettingsScreen(
                 }
             },
         )
+    }
+}
+
+@Composable
+private fun AppUpdateCard() {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val state by com.raikaai.app.core.update.UpdateManager.state.collectAsState()
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        if (state is com.raikaai.app.core.update.UpdateManager.State.Idle) com.raikaai.app.core.update.UpdateManager.check()
+    }
+    val um = com.raikaai.app.core.update.UpdateManager
+    fun mb(b: Long) = String.format(java.util.Locale.ROOT, "%.1f MB", b / 1048576f)
+    Card(
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Outlined.SystemUpdate, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(10.dp))
+                Text("App updates", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            }
+            when (val st = state) {
+                is com.raikaai.app.core.update.UpdateManager.State.Idle,
+                is com.raikaai.app.core.update.UpdateManager.State.Checking -> {
+                    Text("Checking GitHub for a new version…", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth())
+                }
+                is com.raikaai.app.core.update.UpdateManager.State.UpToDate -> {
+                    Text("You have the latest version (v${BuildConfig.VERSION_NAME}).", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    androidx.compose.material3.OutlinedButton(onClick = { um.check() }) { Text("Check again") }
+                }
+                is com.raikaai.app.core.update.UpdateManager.State.Available -> {
+                    val r = st.release
+                    Text("Version ${r.version} is available" + (if (r.apkSize > 0) " · ${mb(r.apkSize)}" else ""), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                    if (r.notes.isNotBlank()) {
+                        Text(r.notes.take(600), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 10, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                    }
+                    androidx.compose.material3.Button(onClick = { um.download(context, r) }, modifier = Modifier.fillMaxWidth()) { Text("Download update") }
+                }
+                is com.raikaai.app.core.update.UpdateManager.State.Downloading -> {
+                    val frac = if (st.total > 0) (st.done.toFloat() / st.total).coerceIn(0f, 1f) else 0f
+                    Text("Downloading ${st.release.version}…  ${mb(st.done)} / ${mb(st.total)}" + (if (st.bytesPerSec > 0) " · ${mb(st.bytesPerSec)}/s" else ""), style = MaterialTheme.typography.bodyMedium)
+                    androidx.compose.material3.LinearProgressIndicator(progress = { frac }, modifier = Modifier.fillMaxWidth())
+                    androidx.compose.material3.TextButton(onClick = { um.cancel() }) { Text("Cancel") }
+                }
+                is com.raikaai.app.core.update.UpdateManager.State.Ready -> {
+                    Text("Version ${st.release.version} is downloaded and verified.", style = MaterialTheme.typography.bodyMedium)
+                    if (um.canInstall(context)) {
+                        androidx.compose.material3.Button(onClick = { um.install(context, st.file) }, modifier = Modifier.fillMaxWidth()) { Text("Install update") }
+                    } else {
+                        Text("Android needs your OK first: allow RaikaAI to install apps, then come back and tap Install.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        androidx.compose.material3.Button(onClick = { um.openInstallPermission(context) }, modifier = Modifier.fillMaxWidth()) { Text("Allow installing updates") }
+                        androidx.compose.material3.OutlinedButton(onClick = { um.install(context, st.file) }, modifier = Modifier.fillMaxWidth()) { Text("Install update") }
+                    }
+                    Text("Your chats, characters and Linux files are kept.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                is com.raikaai.app.core.update.UpdateManager.State.Failed -> {
+                    Text("Update check failed: ${st.message}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
+                    val r = st.release
+                    androidx.compose.material3.OutlinedButton(onClick = { if (r != null) um.download(context, r) else um.check() }) { Text(if (r != null) "Retry download" else "Try again") }
+                }
+            }
+        }
     }
 }

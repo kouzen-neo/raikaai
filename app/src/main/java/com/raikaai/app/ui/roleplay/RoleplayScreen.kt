@@ -124,6 +124,11 @@ fun RoleplayScreen(
                     onOpenDrawer = onOpenDrawer,
                     onStartChatWithCharacter = { onOpenNormalChat() },
                     showHeader = false,
+                    onPublishCharacter = { persona ->
+                        viewModel.pendingPublish.value = persona
+                        selectedImageUrl = ""
+                        navController.navigate("create")
+                    },
                 )
             }
             composable("create") {
