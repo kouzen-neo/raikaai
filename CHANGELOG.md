@@ -15,6 +15,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Agent → Memory text no longer sits under the navigation bar.
 
+### Project
+- README rewritten around what RaikaAI is (chat, agent, Linux) with new screenshots; all docs are in English. The Indonesian README and an old planning note were removed.
+- New docs: `docs/AGENT.md` (config files, tools, MCP, permissions, slash commands) and `docs/LINUX.md` (folders, terminal, Alpine tips, reset).
+- `AGENTS.md` (also `CLAUDE.md`) describes the workflow for contributors and AI coding agents.
+- `SECURITY.md` (private vulnerability reporting), `CONTRIBUTING.md`, `PRIVACY.md`, issue forms and a pull request template.
+- Acknowledgments list the projects actually used; `.gitattributes` counts only Kotlin and Rust in GitHub's language stats.
+
 ## [0.1.29] - 2026-11-20
 
 ### Changed
