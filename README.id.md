@@ -43,21 +43,21 @@ Aplikasi ini juga menyertakan **server HTTP kompatibel OpenAI (`/v1`)** berbasis
 
 ## Fitur
 
-- **Obrolan on-device**: respon streaming token per token, bisa dihentikan kapan saja, pengaturan temperature / Top-K / Top-P, indikator pemakaian konteks, blok kode markdown yang dapat dilipat (default 10 baris dengan toggle expand), text-to-speech, dan riwayat chat tersimpan.
-- **Linux Environment (Alpine PRoot, Tanpa Root)**: sistem Linux userland mandiri di dalam HP dengan direktori `/workspace` permanen. Dilengkapi virtual keypad ala Termux (`ESC`, `TAB`, `CTRL`, `ALT`, `SHIFT`, panah), pelengkap TAB otomatis, dan riwayat perintah.
-- **Terminal Multi-Tab Gaya Chrome**: jalankan beberapa sesi terminal sekaligus (`Term 1`, `Term 2`, tombol `+`) tanpa saling mengunci (*non-blocking*). Server (Vite/Node) bisa berjalan di tab 1 sambil mengetik perintah lain di tab 2, lengkap dengan live streaming output log, tombol stop cepat (`✕`), dan persistensi state saat berpindah menu.
-- **Autonomous Coding Agent Loop**: agen pemrograman mandiri ala OpenCode (hingga 30 ronde) dengan tool manipulasi file lokal (`read_file`, `write_file`, `edit_file`), kelanjutan otomatis saat limit tercapai, eksekusi server latar belakang (`&`), serta kontrol izin langsung dari chat (`/permission`).
-- **Peringkas Konteks Gaya OpenCode (`/compact`)**: merangkum percakapan panjang menjadi briefing terstruktur tanpa kehilangan konteks kerja penting sekaligus menghemat token context window.
-- **Server kompatibel OpenAI**: `POST /v1/chat/completions` (streaming SSE atau JSON tunggal), `POST /v1/completions`, `GET /v1/models`, `GET /health`. Autentikasi bearer-token opsional dan dukungan CORS.
-- **Manajemen model**: katalog bawaan berisi model yang sudah diuji; cari dan unduh bobot `.litertlm` dari Hugging Face (repo gated didukung via access token) dengan jeda dan lanjut; atau impor file model dari penyimpanan HP (SAF).
-- **Karakter**: buat persona kustom berisi avatar, system prompt, sapaan, dan contoh dialog. Bisa ganti persona di tengah percakapan. Impor/ekspor sebagai JSON.
-- **Chat dokumen (RAG)**: lampirkan file PDF, TXT, MD, CSV, atau kode sumber. Jawaban mencantumkan kutipan yang dirujuk (`[Doc1]`, `[Doc2]`).
-- **Skills & MCP**: paket skill modular dan klien Model Context Protocol (MCP). Setiap eksekusi tool selalu meminta persetujuan pengguna dulu.
-- **Vision & audio**: kirim gambar ke model yang mendukung vision, lampirkan klip audio, dan input suara via speech-to-text.
-- **Mode perbandingan**: jalankan satu prompt di dua model sekaligus (lokal/lokal atau lokal/remote).
-- **Benchmark**: ukur time-to-first-token (TTFT), token per detik, dan perbandingan GPU vs CPU di HP sendiri.
-- **Pencarian web & ringkasan tautan**: pencarian web opsional dengan sumber kutipan, dan ringkasan artikel dalam sekali ketuk.
-- **Tampilan**: tema Material 3 dengan pilihan warna aksen dan mode hitam untuk layar OLED.
+- **Chat on-device**: streaming token per token, bisa dihentikan, pengaturan sampling, indikator konteks, blok kode yang bisa dilipat, text-to-speech, edit bercabang, dan riwayat tersimpan. Balasan tetap berjalan saat pindah layar atau pindah chat.
+- **Agent Raika**: persona default adalah Raika AI, dikonfigurasi seperti harness agent modern: `SOUL.md` (identitas), `AGENTS.md` (instruksi tetap), dan `MEMORY.md` (fakta yang disimpan lewat tool `remember`), bisa diedit di **Agent → Memory**. Model on-device mendapat versi ringkas agar konteksnya tidak penuh.
+- **Hub Agent**: Plugins, Skills, MCP, dan Memory di satu tempat. MCP jalan untuk model lokal dan remote; server bisa berupa URL atau perintah yang berjalan di Alpine (mis. `npx -y @upstash/context7-mcp`), dan Raika bisa memasangnya sendiri setelah kamu setujui. Setiap panggilan MCP minta izin dulu.
+- **Linux environment (Alpine PRoot, tanpa root)**: Alpine dibundel di APK sehingga terpasang offline. `/workspace` permanen, storage HP opsional di `/sdcard`, folder Raika di `/root/.raika` (file konfigurasi plus semua chat sebagai Markdown di `chats/`). Tingkat izin: Ask, Auto, Full access.
+- **Terminal sungguhan**: helper PTY berbasis Rust dan emulator VT lengkap untuk aplikasi layar penuh (opencode, vim, htop), sentuhan sebagai mouse, pinch zoom, salin, paste, dan multi-tab.
+- **Loop agent coding**: pemakaian tool beberapa ronde (`read_file`, `write_file`, `edit_file`, shell), server otomatis berjalan di latar, dan indikator "sedang bekerja". Detail kartu tool bisa Quiet, Normal, atau Full (Pengaturan).
+- **Kontrol chat**: antrekan pesan saat balasan berjalan (atau Send now), `/btw` untuk pertanyaan sampingan yang tidak masuk chat, `/compact`, `/permission`, dan sheet "Add to chat" (kamera, foto, file, knowledge, pencarian web).
+- **Provider remote**: preset OpenAI, Anthropic, Gemini, OpenRouter, Groq, DeepSeek, Mistral, xAI, dan Ollama, plus endpoint OpenAI-compatible apa pun. Daftar model mengikuti provider yang dipilih; context window dideteksi dari provider atau keluarga model.
+- **Server kompatibel OpenAI**: `POST /v1/chat/completions` (SSE atau JSON), `POST /v1/completions`, `GET /v1/models`, `GET /health`, autentikasi bearer opsional dan CORS.
+- **Manajemen model**: katalog teruji; unduh bobot `.litertlm` dari Hugging Face (repo gated via token) dengan jeda/lanjut, atau impor dari penyimpanan.
+- **Characters**: satu hub untuk katalog roleplay online (Discover), karakter milikmu (Mine), dan Create. Publikasi ke kategori publik Community setelah peringatan yang jelas. Chat roleplay muncul di daftar Recent di sidebar.
+- **Chat dokumen (RAG)**: lampirkan PDF, TXT, MD, CSV, atau kode; jawaban mengutip potongannya (`[Doc1]`).
+- **Vision & audio**: gambar untuk model vision, klip audio, dan dikte suara langsung.
+- **Bandingkan, benchmark, pencarian web**: dua model berdampingan, TTFT dan token/detik di HP sendiri, pencarian web dengan sumber.
+- **Tampilan**: Material 3 dengan warna aksen dan mode hitam OLED.
 
 ---
 

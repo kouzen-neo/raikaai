@@ -33,7 +33,7 @@ It also includes a built-in **OpenAI-compatible HTTP server (`/v1`)** based on *
       <td align="center" valign="top"><img src="docs/screenshots/chat.png" width="220" height="489" alt="Chat Screen"></td>
       <td align="center" valign="top"><img src="docs/screenshots/models.png" width="220" height="489" alt="Models Hub"></td>
       <td align="center" valign="top"><img src="docs/screenshots/characters.png" width="220" height="489" alt="Characters"></td>
-      <td align="center" valign="top"><img src="docs/screenshots/skills.png" width="220" height="489" alt="Skills & Tools"></td>
+      <td align="center" valign="top"><img src="docs/screenshots/skills.png" width="220" height="489" alt="Agent"></td>
       <td align="center" valign="top"><img src="docs/screenshots/history.png" width="220" height="489" alt="Chat History"></td>
     </tr>
   </table>
@@ -43,21 +43,21 @@ It also includes a built-in **OpenAI-compatible HTTP server (`/v1`)** based on *
 
 ## Features
 
-- **On-device chat**: token-by-token streaming, stop generation anytime, adjustable temperature / Top-K / Top-P, context usage indicator, collapsible markdown code blocks (10 lines default with expand toggle), text-to-speech, and saved chat history.
-- **Linux Environment (Alpine PRoot, No Root)**: embedded on-device Linux userland with a persistent `/workspace` folder. Includes a Termux-style virtual keypad (`ESC`, `TAB`, `CTRL`, `ALT`, `SHIFT`, arrows), TAB auto-completion, and command history.
-- **Chrome-Style Multi-Tab Terminal**: run multiple concurrent terminal sessions (`Term 1`, `Term 2`, `+`) without blocking threads. Run servers (Vite/Node) in one tab while executing shell commands in another, with live streaming logs, instant stop button (`✕`), and ViewModel state persistence.
-- **Autonomous Coding Agent Loop**: multi-round OpenCode-style coding agent (up to 30 rounds) with dedicated file tools (`read_file`, `write_file`, `edit_file`), length auto-continuation, background server execution (`&`), and in-chat permission management (`/permission`).
-- **OpenCode-Style Context Compaction (`/compact`)**: summarizes multi-turn conversation into a structured briefing, freeing context window tokens without losing work state.
-- **OpenAI-compatible server**: `POST /v1/chat/completions` (SSE streaming or single JSON), `POST /v1/completions`, `GET /v1/models`, `GET /health`. Optional bearer-token auth and CORS support.
-- **Model manager**: built-in catalog of tested mobile models; search and download `.litertlm` weights from Hugging Face (gated repos supported via access token) with pause and resume; or import model files from device storage (SAF).
-- **Characters**: create custom personas with avatar, system prompt, greeting, and example dialogues. Switch persona mid-conversation. Import/export as JSON.
-- **Document chat (RAG)**: attach PDF, TXT, MD, CSV, or source code files. Answers cite the referenced excerpts (`[Doc1]`, `[Doc2]`).
-- **Skills & MCP**: modular skill packs plus a Model Context Protocol (MCP) client. Tool execution always asks for user approval first.
-- **Vision & audio**: send images to vision-capable models, attach audio clips, and dictate input via speech-to-text.
-- **Compare mode**: run one prompt on two models side by side (local/local or local/remote).
-- **Benchmark**: measure time-to-first-token (TTFT), tokens per second, and GPU vs CPU performance on your own device.
-- **Web search & link summary**: optional web lookup with cited sources, plus one-tap summarization of article links.
-- **Appearance**: Material 3 theme with selectable accent colors and a black mode for OLED screens.
+- **On-device chat**: token-by-token streaming, stop anytime, adjustable sampling, context usage indicator, collapsible code blocks, text-to-speech, branching edits, and saved history. Replies keep generating when you switch screens or chats.
+- **Raika agent**: the default persona is Raika AI, configured like a modern agent harness: `SOUL.md` (identity), `AGENTS.md` (standing instructions) and `MEMORY.md` (facts saved with the `remember` tool), editable in **Agent → Memory**. On-device models get a compact version so the small context is not flooded.
+- **Agent hub**: Plugins, Skills, MCP and Memory in one place. MCP works with local and remote models; servers can be a URL or a command that runs inside Alpine (e.g. `npx -y @upstash/context7-mcp`), and Raika can install them itself after you approve. Every MCP call asks first.
+- **Linux environment (Alpine PRoot, no root)**: Alpine ships inside the APK, so it installs offline. Persistent `/workspace`, optional phone storage at `/sdcard`, Raika's home at `/root/.raika` (its config files plus every chat as Markdown in `chats/`). Permission levels: Ask, Auto, Full access.
+- **Real terminal**: a Rust PTY helper and a full VT emulator run full-screen apps (opencode, vim, htop) with touch-as-mouse, pinch zoom, copy, bracketed paste and multiple tabs.
+- **Coding agent loop**: multi-round tool use (`read_file`, `write_file`, `edit_file`, shell) with servers detached automatically and a live "working" indicator. Tool cards show Quiet, Normal or Full detail (Settings).
+- **Chat controls**: queue messages while a reply is running (or Send now), `/btw` side questions that stay out of the chat, `/compact` context compaction, `/permission`, an "Add to chat" sheet (camera, photos, files, knowledge, web search).
+- **Remote providers**: presets for OpenAI, Anthropic, Gemini, OpenRouter, Groq, DeepSeek, Mistral, xAI and Ollama, plus any OpenAI-compatible endpoint. The model list follows the selected provider; the context window is detected from the provider or known model families.
+- **OpenAI-compatible server**: `POST /v1/chat/completions` (SSE or JSON), `POST /v1/completions`, `GET /v1/models`, `GET /health`, optional bearer-token auth and CORS.
+- **Model manager**: tested catalog; download `.litertlm` weights from Hugging Face (gated repos via token) with pause/resume, or import from storage.
+- **Characters**: one hub for the online roleplay catalog (Discover), your own characters (Mine) and Create. Publish to the public Community category after an explicit warning. Roleplay chats appear in the sidebar's Recent list.
+- **Document chat (RAG)**: attach PDF, TXT, MD, CSV or code; answers cite excerpts (`[Doc1]`).
+- **Vision & audio**: images for vision models, audio clips, and live speech-to-text dictation.
+- **Compare, benchmark, web search**: two models side by side, TTFT and tokens/s on your device, web lookup with cited sources.
+- **Appearance**: Material 3 with accent colors and an OLED black mode.
 
 ---
 

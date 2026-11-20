@@ -12,6 +12,17 @@ adb install -r app/build/outputs/apk/release/app-arm64-v8a-release.apk
 
 Without `-PabiFilter`, the build produces all ABIs + universal APK.
 
+## Native and bundled parts
+
+- **PTY helper**: `native/raikapty` is a small Rust program. `native/raikapty/build.sh` builds the
+  static musl binaries (aarch64, x86_64) and copies them to `app/src/main/jniLibs/*/libraikapty.so`.
+  Rebuild only when `src/main.rs` changes; the binaries are committed.
+- **Alpine rootfs**: `app/src/main/assets/rootfs/alpine-minirootfs-aarch64.bin` is the official
+  Alpine minirootfs `.tar.gz`, renamed so the asset packager keeps it compressed. Its SHA-256 is pinned
+  in `ContainerManifest.kt` (`BUNDLED_ROOTFS_SHA256`); update both together.
+- **Supabase**: the roleplay catalog schema lives in `supabase/migrations/`. Apply with the Supabase
+  CLI (`supabase db push`) using your own access token; never commit tokens.
+
 ## Release signing
 
 `app/release.keystore` is **git-ignored and never committed**. Provide it locally
@@ -35,5 +46,7 @@ see comments in the workflow.
 
 - `app/` — the Android application module.
 - `docs/` — user-facing docs (`ARCHITECTURE.md`, `API.md`, `DEVELOPMENT.md`).
+- `native/raikapty/` — Rust PTY helper source.
+- `supabase/migrations/` — database migrations for the roleplay catalog.
 - Root `*.md` working notes (`AGENTS.md`, `PLAN.md`, …) are intentionally
   git-ignored; only `README.md` + `docs/` ship publicly.

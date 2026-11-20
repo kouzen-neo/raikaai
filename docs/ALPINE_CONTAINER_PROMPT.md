@@ -1,3 +1,6 @@
+> **Historical planning note** (Indonesian). The container has since shipped; see
+> `docs/ARCHITECTURE.md` for the current design.
+
 # Prompt Implementasi — Alpine PRoot Container untuk RaikaAI (Branch `feat/alpine-proot`)
 
 > STATUS: EXECUTED 2026-10-16 — Fase 0–4 diimplementasikan di branch ini.

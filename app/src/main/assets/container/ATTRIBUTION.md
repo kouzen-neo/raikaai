@@ -49,3 +49,15 @@ Only the Alpine rootfs (~3 MB) is downloaded at install time.
    and `PROOT_LOADER(_32)=<nativeLibDir>/libproot_loader*.so`.
 5. Update the pinned SHA-256 hashes in
    `app/src/main/java/com/raikaai/app/core/container/ContainerManifest.kt`.
+
+## Alpine Linux minirootfs (bundled)
+
+`assets/rootfs/alpine-minirootfs-aarch64.bin` is the unmodified official Alpine Linux 3.21.0
+minirootfs for aarch64 (https://alpinelinux.org/downloads/), renamed from `.tar.gz`. Alpine
+packages carry their own licenses (mostly GPL-2.0 / MIT / BSD); see `/usr/share/licenses` inside
+the environment. SHA-256 is pinned in `ContainerManifest.kt`.
+
+## raikapty (PTY helper)
+
+`jniLibs/*/libraikapty.so` is built from `native/raikapty` in this repository (AGPL-3.0, same as
+RaikaAI) with the Rust `libc` crate (MIT/Apache-2.0).
