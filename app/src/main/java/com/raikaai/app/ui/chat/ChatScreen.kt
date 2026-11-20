@@ -28,6 +28,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -60,7 +61,12 @@ import androidx.compose.ui.graphics.SolidColor
 import com.raikaai.app.core.audio.AudioPlayerHelper
 import com.raikaai.app.core.audio.AudioRecorderHelper
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Schedule
+import androidx.compose.material.icons.outlined.KeyboardArrowDown
+import androidx.compose.material.icons.outlined.KeyboardArrowUp
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Article
 import androidx.compose.material.icons.filled.AttachFile
@@ -68,20 +74,15 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.ChatBubbleOutline
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FileDownload
-import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Link
-import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Stop
@@ -131,6 +132,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -296,6 +298,26 @@ fun ChatScreen(
         rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
             viewModel.addAttachments(uris, forceImage = true)
         }
+    // Camera: full-size photo into cache, shared through the FileProvider.
+    var pendingCameraUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    val cameraLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+            val uri = pendingCameraUri
+            if (ok && uri != null) viewModel.addAttachments(listOf(uri), forceImage = true)
+            pendingCameraUri = null
+        }
+    fun launchCamera() {
+        try {
+            val dir = File(context.cacheDir, "camera").apply { mkdirs() }
+            val file = File(dir, "photo_${System.currentTimeMillis()}.jpg")
+            val uri = androidx.core.content.FileProvider.getUriForFile(context, context.packageName + ".fileprovider", file)
+            pendingCameraUri = uri
+            cameraLauncher.launch(uri)
+        } catch (e: Exception) {
+            Toast.makeText(context, "No camera app available", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     fun launchImagePicker() {
         try {
             if (ActivityResultContracts.PickVisualMedia.isPhotoPickerAvailable(context)) {
@@ -351,11 +373,10 @@ fun ChatScreen(
             ttsHelper.destroy()
             audioPlayerHelper.stop()
             audioRecorderHelper.destroy()
-            // B40: stop an in-flight generation when leaving the chat screen,
-            // but NOT on configuration change (rotation) — the VM survives it.
-            if ((context as? Activity)?.isChangingConfigurations != true) {
-                viewModel.stopGeneration()
-            }
+            // Generation keeps running when the user opens another screen
+            // (Plugins, Settings): the ViewModel owns the chat, and the
+            // background-work service keeps the app alive. Switching or
+            // clearing the conversation still stops it.
         }
     }
 
@@ -373,11 +394,12 @@ fun ChatScreen(
                     val targetWav = File(audioDir, "rec_${System.currentTimeMillis()}.wav")
                     audioRecorderHelper.startRecording(targetWav)
                 } else {
+                    // Live dictation: partial text replaces the tail after what was typed.
+                    val typedBefore = input.text
+                    val withSpoken: (String) -> String = { t -> if (typedBefore.isBlank()) t else "$typedBefore $t" }
                     speechHelper.startListening(
-                        onResult = { transcribed ->
-                            val cur = input.text
-                            setInputText(if (cur.isBlank()) transcribed else "$cur $transcribed")
-                        },
+                        onResult = { transcribed -> setInputText(withSpoken(transcribed)) },
+                        onPartial = { partial -> setInputText(withSpoken(partial)) },
                         onFallbackToIntent = { intent ->
                             try {
                                 speechIntentLauncher.launch(intent)
@@ -420,23 +442,24 @@ fun ChatScreen(
     }
 
     val isSlashActive = input.text.startsWith("/")
+    // Context-aware list: roleplay hides developer commands, Linux commands
+    // only appear once the environment is installed. Recomputed when the
+    // menu opens, not per keystroke.
+    val contextCommands = remember(isSlashActive, isRolePlay) {
+        if (isSlashActive) viewModel.availableCommands() else emptyList()
+    }
     val matchingSlashCommands =
-        remember(input.text) {
-            if (input.text.startsWith("/")) {
-                val q = input.text.removePrefix("/").trim()
-                if (q.isEmpty()) {
-                    DEFAULT_SLASH_COMMANDS
-                } else {
-                    DEFAULT_SLASH_COMMANDS.filter {
-                        it.command.contains(q, ignoreCase = true) ||
-                            it.title.contains(q, ignoreCase = true) ||
-                            it.description.contains(q, ignoreCase = true)
-                    }
-                }
-            } else {
-                emptyList()
-            }
+        remember(input.text, contextCommands) { matchSlashCommands(contextCommands, input.text) }
+
+    // "/model" opens the model picker; every other command goes to the
+    // view model.
+    fun submitText(text: String) {
+        if (text.trim().equals("/model", ignoreCase = true)) {
+            onNavigateToModels()
+        } else {
+            viewModel.sendMessage(text)
         }
+    }
 
     val modelPin by viewModel.modelPinState
 
@@ -483,55 +506,27 @@ fun ChatScreen(
                 // sandbox, so surface the verified URL with a one-tap open
                 // instead of making the user guess the port.
                 val previewUrl by viewModel.containerPreviewUrl.collectAsState()
-                if (previewUrl != null) {
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = MaterialTheme.colorScheme.primaryContainer,
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 3.dp),
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            Icon(
-                                Icons.Default.Link,
-                                contentDescription = null,
-                                modifier = Modifier.size(14.dp),
-                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                            )
-                            Text(
-                                text = previewUrl.orEmpty(),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f),
-                            )
-                            TextButton(onClick = { viewModel.refreshContainerPreview() }) {
-                                Icon(
-                                    Icons.Outlined.Refresh,
-                                    contentDescription = "Re-check port",
-                                    modifier = Modifier.size(15.dp),
+                // The banner can be folded into a small pill; a server on a new
+                // URL unfolds it again.
+                var foldedUrl by rememberSaveable { mutableStateOf<String?>(null) }
+                previewUrl?.let { url ->
+                    ServerPreviewBar(
+                        url = url,
+                        folded = foldedUrl == url,
+                        onFold = { foldedUrl = url },
+                        onUnfold = { foldedUrl = null },
+                        onRefresh = { viewModel.refreshContainerPreview() },
+                        onOpen = {
+                            runCatching {
+                                context.startActivity(
+                                    Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                                 )
+                            }.onFailure {
+                                Toast.makeText(context, "No browser available", Toast.LENGTH_SHORT).show()
                             }
-                            TextButton(
-                                onClick = {
-                                    val url = previewUrl ?: return@TextButton
-                                    runCatching {
-                                        context.startActivity(
-                                            Intent(Intent.ACTION_VIEW, Uri.parse(url))
-                                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                                        )
-                                    }.onFailure {
-                                        Toast.makeText(context, "No browser available", Toast.LENGTH_SHORT).show()
-                                    }
-                                },
-                            ) {
-                                Text("Open", fontWeight = FontWeight.SemiBold)
-                            }
-                        }
-                    }
+                        },
+                    )
                 }
                 // Token Context indicator (Subtle status with dynamic progress line)
                 if (hasMessages || input.text.isNotBlank()) {
@@ -605,6 +600,57 @@ fun ChatScreen(
                     }
                 }
 
+                // ── Messages waiting for the current reply ──
+                viewModel.queuedMessages.filter { it.chatId == viewModel.currentConversationId }.forEach { q ->
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                    ) {
+                        Row(Modifier.padding(start = 12.dp, end = 4.dp, top = 2.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Outlined.Schedule, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Spacer(Modifier.width(8.dp))
+                            Text(q.text, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                            TextButton(onClick = { viewModel.sendQueuedNow(q.id) }) { Text("Send now", style = MaterialTheme.typography.labelMedium) }
+                            IconButton(onClick = { viewModel.removeQueued(q.id) }, modifier = Modifier.size(32.dp)) {
+                                Icon(Icons.Outlined.Close, contentDescription = "Remove from queue", modifier = Modifier.size(16.dp))
+                            }
+                        }
+                    }
+                }
+
+                // ── /btw side answer (not part of the chat) ──
+                viewModel.sideAnswer.value?.let { side ->
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = MaterialTheme.colorScheme.secondaryContainer,
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                    ) {
+                        Column(Modifier.padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 10.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    "btw · " + side.question,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                IconButton(onClick = { viewModel.dismissSideAnswer() }, modifier = Modifier.size(32.dp)) {
+                                    Icon(Icons.Outlined.Close, contentDescription = "Dismiss", modifier = Modifier.size(16.dp))
+                                }
+                            }
+                            if (side.loading) {
+                                LinearProgressIndicator(Modifier.fillMaxWidth().padding(end = 8.dp, top = 4.dp))
+                            } else {
+                                Column(Modifier.heightIn(max = 220.dp).verticalScroll(rememberScrollState()).padding(end = 8.dp)) {
+                                    com.raikaai.app.ui.component.MarkdownText(side.answer)
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // ── Slash Commands Quick Template Bar ──
                 AnimatedVisibility(
                     visible = isSlashActive && matchingSlashCommands.isNotEmpty(),
@@ -616,41 +662,45 @@ fun ChatScreen(
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
                         modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
                     ) {
-                        LazyRow(
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
+                        // Vertical list with descriptions (harness-style),
+                        // height-capped so the composer stays visible.
+                        LazyColumn(
+                            modifier = Modifier.fillMaxWidth().heightIn(max = 280.dp).padding(vertical = 4.dp),
                         ) {
                             items(matchingSlashCommands, key = { it.command }) { cmd ->
-                                Surface(
-                                    onClick = {
-                                        setInputText(cmd.promptTemplate)
-                                    },
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = MaterialTheme.colorScheme.surfaceContainerLowest,
-                                    border = androidx.compose.foundation.BorderStroke(
-                                        1.dp,
-                                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
-                                    ),
+                                Row(
+                                    modifier =
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .clickable {
+                                                // Picking only fills the composer; the user sends it.
+                                                setInputText(if (cmd.runsImmediately) cmd.command else cmd.promptTemplate)
+                                            }.padding(horizontal = 12.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
                                 ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                    ) {
-                                        Icon(
-                                            cmd.icon,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(15.dp),
-                                        )
-                                        Spacer(Modifier.width(6.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
                                         Text(
-                                            cmd.command,
-                                            style = MaterialTheme.typography.labelMedium,
-                                            fontWeight = FontWeight.Bold,
+                                            cmd.usage,
+                                            style = MaterialTheme.typography.labelLarge,
+                                            fontWeight = FontWeight.SemiBold,
+                                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
                                             color = MaterialTheme.colorScheme.onSurface,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                        Text(
+                                            cmd.description,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
                                         )
                                     }
+                                    Text(
+                                        cmd.group.label,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                    )
                                 }
                             }
                         }
@@ -752,7 +802,7 @@ fun ChatScreen(
                                                         .clickable { viewModel.removeAttachment(att.uri) },
                                                 ) {
                                                     Icon(
-                                                        Icons.Default.Close,
+                                                        Icons.Outlined.Close,
                                                         contentDescription = stringResource(R.string.chat_remove_attached_image),
                                                         modifier = Modifier.padding(2.dp),
                                                         tint = MaterialTheme.colorScheme.onSurface,
@@ -784,7 +834,7 @@ fun ChatScreen(
                                                 )
                                                 Spacer(Modifier.width(4.dp))
                                                 Icon(
-                                                    Icons.Default.Close,
+                                                    Icons.Outlined.Close,
                                                     contentDescription = stringResource(R.string.chat_remove_attached_file),
                                                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                                     modifier = Modifier
@@ -837,7 +887,7 @@ fun ChatScreen(
                                                 .clickable { viewModel.clearSelectedAudio() },
                                         ) {
                                             Icon(
-                                                Icons.Default.Close,
+                                                Icons.Outlined.Close,
                                                 contentDescription = stringResource(R.string.chat_remove_attached_audio),
                                                 modifier = Modifier.padding(2.dp),
                                                 tint = MaterialTheme.colorScheme.onSurface,
@@ -1026,7 +1076,7 @@ fun ChatScreen(
                                             modifier = Modifier.size(30.dp),
                                         ) {
                                             Icon(
-                                                imageVector = Icons.Default.Add,
+                                                imageVector = Icons.Outlined.Add,
                                                 contentDescription = stringResource(R.string.chat_add_attachment),
                                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                                 modifier = Modifier.size(16.dp),
@@ -1034,59 +1084,34 @@ fun ChatScreen(
                                         }
                                     }
 
-                                    DropdownMenu(
-                                        expanded = overlays.showAttachmentMenu,
-                                        onDismissRequest = { overlays.showAttachmentMenu = false },
-                                        shape = RoundedCornerShape(14.dp),
-                                    ) {
-                                        DropdownMenuItem(
-                                            text = { Text(stringResource(R.string.chat_attach_images), style = MaterialTheme.typography.bodySmall) },
-                                            leadingIcon = {
-                                                Icon(Icons.Outlined.AddPhotoAlternate, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
+                                    if (overlays.showAttachmentMenu) {
+                                        AddToChatSheet(
+                                            onDismiss = { overlays.showAttachmentMenu = false },
+                                            onCamera = {
+                                                overlays.showAttachmentMenu = false
+                                                launchCamera()
                                             },
-                                            onClick = {
+                                            onPhotos = {
                                                 overlays.showAttachmentMenu = false
                                                 launchImagePicker()
                                             },
-                                        )
-                                        DropdownMenuItem(
-                                            text = { Text(stringResource(R.string.chat_attach_file), style = MaterialTheme.typography.bodySmall) },
-                                            leadingIcon = {
-                                                Icon(Icons.Default.Description, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
-                                            },
-                                            onClick = {
+                                            onFiles = {
                                                 overlays.showAttachmentMenu = false
                                                 filePickerLauncher.launch(arrayOf("*/*"))
                                             },
-                                        )
-                                        DropdownMenuItem(
-                                            text = { Text(stringResource(R.string.chat_attach_knowledge), style = MaterialTheme.typography.bodySmall) },
-                                            leadingIcon = {
-                                                Icon(Icons.Outlined.AttachFile, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
-                                            },
-                                            trailingIcon = {
-                                                if (ragDocuments.isNotEmpty()) {
-                                                    Surface(
-                                                        shape = RoundedCornerShape(50),
-                                                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                                                    ) {
-                                                        Text(
-                                                            "${ragDocuments.size}",
-                                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
-                                                            style = MaterialTheme.typography.labelSmall,
-                                                            fontSize = 11.sp,
-                                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                        )
-                                                    }
-                                                }
-                                            },
-                                            onClick = {
+                                            knowledgeCount = ragDocuments.size,
+                                            onKnowledge = {
                                                 overlays.showAttachmentMenu = false
                                                 overlays.showRagSheet = true
                                             },
+                                            webSearch = settings.enableWebSearch,
+                                            onWebSearch = viewModel::setEnableWebSearch,
+                                            autoApprove = settings.containerYolo,
+                                            onAutoApprove = viewModel::setContainerYolo,
+                                            workspaceReady = viewModel.isContainerReady(),
                                         )
                                     }
-                                }
+}
 
                                 // 2. Model Selector Pill with Floating Dropup Menu
                                 Box {
@@ -1124,7 +1149,7 @@ fun ChatScreen(
                                             )
                                             Spacer(Modifier.width(3.dp))
                                             Icon(
-                                                imageVector = if (overlays.showModelDropdown) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowUp,
+                                                imageVector = if (overlays.showModelDropdown) Icons.Outlined.KeyboardArrowDown else Icons.Outlined.KeyboardArrowUp,
                                                 contentDescription = stringResource(R.string.chat_select_model),
                                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                                 modifier = Modifier.size(13.dp),
@@ -1214,11 +1239,12 @@ fun ChatScreen(
                                                             android.Manifest.permission.RECORD_AUDIO,
                                                         ) == android.content.pm.PackageManager.PERMISSION_GRANTED
                                                     if (hasPerm) {
+                                                        // Live dictation: partial text replaces the tail after what was typed.
+                                                        val typedBefore = input.text
+                                                        val withSpoken: (String) -> String = { t -> if (typedBefore.isBlank()) t else "$typedBefore $t" }
                                                         speechHelper.startListening(
-                                                            onResult = { transcribed ->
-                                                                val cur = input.text
-                                                                setInputText(if (cur.isBlank()) transcribed else "$cur $transcribed")
-                                                            },
+                                                            onResult = { transcribed -> setInputText(withSpoken(transcribed)) },
+                                                            onPartial = { partial -> setInputText(withSpoken(partial)) },
                                                             onFallbackToIntent = launchSpeechIntentSafely,
                                                         )
                                                     } else {
@@ -1242,7 +1268,9 @@ fun ChatScreen(
                                 Surface(
                                     shape = CircleShape,
                                     color =
-                                        if (isGenerating) {
+                                        if (isGenerating && canSend) {
+                                            MaterialTheme.colorScheme.primary
+                                        } else if (isGenerating) {
                                             MaterialTheme.colorScheme.error
                                         } else if (canSend) {
                                             MaterialTheme.colorScheme.primary
@@ -1253,20 +1281,33 @@ fun ChatScreen(
                                 ) {
                                     IconButton(
                                         onClick = {
-                                            if (isGenerating) {
+                                            if (isGenerating && canSend) {
+                                                // Typed during a reply: queue it (or answer /btw now).
+                                                val text = input.text
+                                                input = TextFieldValue("")
+                                                submitText(text)
+                                            } else if (isGenerating) {
                                                 viewModel.stopGeneration()
                                             } else if (canSend) {
                                                 val text = input.text
                                                 input = TextFieldValue("")
-                                                viewModel.sendMessage(text)
+                                                submitText(text)
                                             }
                                         },
                                         enabled = isGenerating || canSend,
                                         modifier = Modifier.size(34.dp),
                                     ) {
                                         Icon(
-                                            imageVector = if (isGenerating) Icons.Default.Stop else Icons.Default.ArrowUpward,
-                                            contentDescription = if (isGenerating) stringResource(R.string.chat_stop) else stringResource(R.string.chat_send),
+                                            imageVector = when {
+                                                isGenerating && canSend -> Icons.Outlined.Schedule
+                                                isGenerating -> Icons.Default.Stop
+                                                else -> Icons.Default.ArrowUpward
+                                            },
+                                            contentDescription = when {
+                                                isGenerating && canSend -> "Queue message"
+                                                isGenerating -> stringResource(R.string.chat_stop)
+                                                else -> stringResource(R.string.chat_send)
+                                            },
                                             tint = if (isGenerating || canSend) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
                                             modifier = Modifier.size(16.dp),
                                         )
@@ -1283,11 +1324,14 @@ fun ChatScreen(
             modifier =
                 Modifier
                     .fillMaxSize()
-                    .padding(innerPadding),
+                    // The list scrolls behind the floating composer (no dark
+                    // band); it gets the bottom inset as content padding.
+                    .padding(top = innerPadding.calculateTopPadding()),
         ) {
             if (!hasMessages) {
                 // ── Welcome Empty State Hero ──
                 EmptyChatHero(
+                    modifier = Modifier.padding(bottom = innerPadding.calculateBottomPadding()),
                     persona = activePersona,
                     modelName = modelDisplayName,
                     onPromptSelected = { prompt ->
@@ -1297,6 +1341,9 @@ fun ChatScreen(
                 )
             } else {
                 // ── Messages Feed ──
+                androidx.compose.runtime.CompositionLocalProvider(
+                    com.raikaai.app.ui.component.LocalToolVerbosity provides settings.toolVerbosity,
+                ) {
                 MessageList(
                     viewModel = viewModel,
                     activePersona = activePersona,
@@ -1311,7 +1358,9 @@ fun ChatScreen(
                     onPreviewImage = { path ->
                         overlays.previewImagePath = path
                     },
+                    bottomPadding = innerPadding.calculateBottomPadding(),
                 )
+                }
             }
 
             // Error Banner
@@ -1340,7 +1389,7 @@ fun ChatScreen(
                             onClick = { viewModel.clearError() },
                             modifier = Modifier.size(24.dp),
                         ) {
-                            Icon(Icons.Default.Check, contentDescription = "Dismiss", modifier = Modifier.size(16.dp))
+                            Icon(Icons.Outlined.Check, contentDescription = "Dismiss", modifier = Modifier.size(16.dp))
                         }
                     }
                 }
@@ -1362,3 +1411,96 @@ fun ChatScreen(
 }
 
 // Composables extracted to ChatComponents.kt
+
+/**
+ * Dev-server bar above the composer, styled like the tool cards. Folds into
+ * a small ":port" pill so it does not cover the chat.
+ */
+@Composable
+private fun ServerPreviewBar(
+    url: String,
+    folded: Boolean,
+    onFold: () -> Unit,
+    onUnfold: () -> Unit,
+    onRefresh: () -> Unit,
+    onOpen: () -> Unit,
+) {
+    val scheme = MaterialTheme.colorScheme
+    val running = Color(0xFF4CAF50)
+    val border = androidx.compose.foundation.BorderStroke(1.dp, scheme.outlineVariant.copy(alpha = 0.4f))
+    androidx.compose.animation.AnimatedContent(
+        targetState = folded,
+        label = "serverBar",
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 3.dp),
+    ) { isFolded ->
+        if (isFolded) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                Surface(
+                    onClick = onUnfold,
+                    shape = RoundedCornerShape(50),
+                    color = scheme.surfaceContainerHigh,
+                    border = border,
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(Modifier.size(7.dp).background(running, CircleShape))
+                        Spacer(Modifier.width(6.dp))
+                        val port = runCatching { Uri.parse(url).port }.getOrDefault(-1)
+                        Text(
+                            if (port > 0) ":$port" else "Server",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                            color = scheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+        } else {
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = scheme.surfaceContainerHigh,
+                border = border,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(
+                    modifier = Modifier.padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(Modifier.size(8.dp).background(running, CircleShape))
+                    Spacer(Modifier.width(10.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            "Server running",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = scheme.onSurface,
+                        )
+                        Text(
+                            url,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                            color = scheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    IconButton(onClick = onRefresh, modifier = Modifier.size(36.dp)) {
+                        Icon(Icons.Outlined.Refresh, contentDescription = "Re-check port", modifier = Modifier.size(18.dp), tint = scheme.onSurfaceVariant)
+                    }
+                    androidx.compose.material3.FilledTonalButton(
+                        onClick = onOpen,
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp),
+                        modifier = Modifier.height(34.dp),
+                    ) {
+                        Text("Open", style = MaterialTheme.typography.labelLarge)
+                    }
+                    IconButton(onClick = onFold, modifier = Modifier.size(36.dp)) {
+                        Icon(Icons.Outlined.Close, contentDescription = "Hide", modifier = Modifier.size(18.dp), tint = scheme.onSurfaceVariant)
+                    }
+                }
+            }
+        }
+    }
+}

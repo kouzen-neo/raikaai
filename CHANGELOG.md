@@ -7,6 +7,243 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.1.29] - 2026-11-20
+
+### Changed
+- MCP tab: one card per server with an icon (Linux command or URL), a status line (Connected · N tools, Starting in Linux…, Not connected + Try again), the command shown in monospace, a "Show N tools" list with test buttons, and Reconnect/Edit/Remove in a ⋮ menu. The list no longer touches the tabs.
+
+### Fixed
+- MCP tools were lost after restarting the app until "Discover tools" was tapped: enabled servers now connect on app start and when the MCP tab opens.
+
+## [0.1.28] - 2026-11-20
+
+### Added
+- Working indicator under the last message while Raika is busy: spinner, what it is doing (Thinking, Running command, Using a tool, Writing) and elapsed seconds, also between agent steps.
+
+### Fixed
+- A dark band behind the composer (around the server pill) covered messages when scrolling; the list now scrolls behind the floating composer.
+
+## [0.1.27] - 2026-11-20
+
+### Added
+- Settings → Terminal → Phone storage in Linux: mounts your phone storage at /sdcard so Raika can work in phone folders (or /workspace). A dialog explains the "All files access" permission before Android asks for it.
+- Settings → Terminal → Permission: Ask, Auto, or Full access (nothing blocked; destructive commands ask once). `/permission full` too.
+
+### Changed
+- Settings rows with a three-way choice put the buttons under the text, full width (the title no longer wraps one letter per line).
+- On-device (LiteRT): a much shorter Linux tool prompt and tool results capped at 1500 characters, so the small context is not flooded.
+
+## [0.1.26] - 2026-11-20
+
+### Changed
+- Edit message is a bottom sheet: a large focused text box, a note that sending makes a new branch, and two equal actions (New chat, Send).
+
+## [0.1.25] - 2026-11-20
+
+### Added
+- Message queue: text sent while a reply is being written waits above the composer and goes out when the reply ends; "Send now" stops the reply and sends it first. `/btw` still answers at once.
+- Settings → Terminal → Tool details: Quiet (one line), Normal (tap to open) or Full (output and file contents open).
+- Alpine notes in the agent prompt: musl not glibc, `apk` not apt, internet works, `ping`/`ip` fail under proot (not an outage), prefer apk packages over `curl | bash` installers.
+
+### Fixed
+- Commands with redirections (`2>&1`, `>&2`, `&>file`) were treated as background jobs and started as daemons, so `curl`, `ping` and `git clone` looked stuck and their output was cut.
+- Context window detection reads `context_length`-style fields from the provider's model list and falls back to known model families (Gemini, Claude, GPT, DeepSeek, Grok, Mistral, Llama, Qwen) instead of warning.
+- Picking a slash command only fills the composer; it no longer sends immediately.
+
+## [0.1.24] - 2026-11-20
+
+### Added
+- `/btw <question>`: a quick side question answered in a card above the composer; it is not saved to the chat or sent to the model later. On-device (LiteRT) gets a short context and waits for a running reply.
+- `/remember <fact>` saves to Raika's memory.
+- Stdio MCP servers that run inside the Alpine environment (e.g. `npx -y @upstash/context7-mcp`); Raika can install them with `add_mcp_server` after you approve.
+- Raika's home in Linux: `/root/.raika` holds SOUL.md, AGENTS.md, MEMORY.md and `chats/` (every chat as Markdown, roleplay in `chats/roleplay`), so the agent can read and grep past chats.
+- "Add to chat" sheet behind the + button: Camera, Photos, Files, Knowledge, Web search and Linux command permission.
+
+### Changed
+- Voice input: the recognizer was killed right after starting (a delayed cleanup ran after the new session began) and silence opened the fallback dialog. Speech now streams into the composer while you talk.
+- Model picker always lists the models of the selected remote provider (refreshed on open and on provider switch; stale lists are dropped).
+- Terminal always uses the PTY; the pipe mode and its switches are gone.
+- Slash commands trimmed to the essentials, without icons. `/permission ask | auto` replaces `/yolo` (old spellings still work).
+- MCP tab: no global switch; servers show where they run and whether Raika installed them; add dialog supports a Linux command or a URL.
+- Characters hub: Discover · Mine · Create. Roleplay chats are in the sidebar's Recent list; your profile is behind the header button.
+
+## [0.1.23] - 2026-11-20
+
+### Changed
+- Characters → Mine: no empty gap under the header; search and filters show only when there are more than 5 characters.
+- Raika AI uses the app icon (character list, right drawer, editor) and shows its description instead of the old system prompt.
+- Editing Raika AI opens SOUL.md directly instead of the generic character editor.
+- Character editor: one Avatar row (photo or icon), shorter labels, and roleplay details and sampler folded under "Roleplay details & sampler…".
+- Chat top bar: the character switcher uses the same icon as Characters in the sidebar.
+
+## [0.1.22] - 2026-11-20
+
+### Added
+- Agent hub: Plugins, Skills, MCP and Memory in one sidebar item ("Agent"); the separate MCP entry is gone.
+- Raika's own config: SOUL.md (identity), AGENTS.md (standing instructions) and MEMORY.md (facts about the user), editable in Agent → Memory and added to the system prompt.
+- `remember` tool: Raika saves lasting facts to MEMORY.md, shown as a "Remembered" card.
+- `add_mcp_server` tool: Raika can connect a Streamable HTTP MCP server after the user approves.
+- Community category for user-made roleplay characters, with a public warning and a confirmation checkbox before publishing.
+
+### Changed
+- MCP tools now work with remote models too, inside the same agent loop as the Linux tools, with approval per call.
+- On-device (LiteRT) models get a compact agent prompt: capped SOUL/AGENTS/MEMORY, one-line capabilities, at most 6 MCP tools, so the small context is not flooded.
+- Characters and Roleplay are one "Characters" hub: Discover · Mine · History · Create · Profile.
+- The default persona is "Raika AI" instead of "General"; its identity comes from SOUL.md.
+- Roleplay keeps the character card first and adds only a short user memory, no tool catalogs.
+- Bundled Alpine rootfs is stored as .bin so the APK packager keeps it compressed and the checksum matches.
+- Supabase: categories can no longer be created publicly, functions use a fixed search_path, slugs are consistent, and search/trending/category lists have indexes (`supabase/migrations/20261120123500_roleplay_cleanup.sql`).
+
+## [0.1.21] - 2026-11-20
+
+### Added
+- **Alpine ships with the app**: the Alpine 3.21 minirootfs (3.8 MB, checked against the official SHA-256) is bundled in the APK, so the Linux environment installs offline on first launch without an Install tap. Reset and reinstall use the bundled copy too; other ABIs still download it.
+
+### Changed
+- **One look across all screens**: every drawer screen (Models, Parameters, Skills & Plugins, MCP, Local API, All chats, Settings, Logs, About, Characters, Roleplay) uses the same header (menu button, title, one-line subtitle, actions on the right) at the same position. Roleplay no longer uses a separate app bar.
+- **Outlined icons everywhere**: filled icons were replaced with their outlined versions; filled ones remain only for status badges, the primary send/stop/play actions and the pin marker.
+
+## [0.1.20] - 2026-11-20
+
+### Fixed
+- **Replies keep generating when you leave the chat**: Opening another screen (for example to turn a plugin on or off) or switching to another chat no longer stops the reply. Each reply runs in its own chat's lane: it keeps streaming, runs its tools and is saved to the chat it belongs to, and opening that chat again shows it live. Stop, clearing the chat or deleting it still ends the reply.
+
+## [0.1.19] - 2026-11-20
+
+### Added
+- **Touch as a mouse in full-screen apps (PTY mode)**: for programs that enable mouse reporting (opencode, htop, vim with `mouse=a`), a tap clicks (tabs, buttons, dialogs), a swipe scrolls with the wheel, and a long press then drag selects. SGR and legacy encodings are supported.
+- **Copy**: text a program copies with OSC 52 (opencode copies its selection this way) goes to the Android clipboard; lines in the normal terminal view can be selected with a long press; "Copy output" in the ⋮ menu copies the whole screen.
+- **Paste** button in the terminal top bar while a program runs, since the keyboard's clipboard is hidden in the key-capture field. Uses bracketed paste when the program supports it, so multi-line text is not run line by line.
+- **Reset Linux environment** (Settings → Terminal): stops running commands and servers, deletes the rootfs and reinstalls a fresh Alpine. /workspace is kept unless you tick "Also delete my files in /workspace".
+
+## [0.1.18] - 2026-11-20
+
+### Fixed
+- **Terminal stuck after a program exits (PTY mode)**: Programs that leave helpers behind (opencode's background server) kept proot, and so the session, alive after the command ended, and typed keys went nowhere. The command wrapper now marks when it is done and the leftover processes are stopped, so the prompt comes back.
+- **Black frame around full-screen apps**: The terminal's margin stayed pure black while programs paint their own background. The margin now takes the program's edge color and the grid is centered.
+
+## [0.1.17] - 2026-11-20
+
+### Fixed
+- **Replies and tool loops stalling in the background**: Android freezes background apps and cuts their network (even resolving `localhost` failed: "Unable to resolve host"), so switching apps mid-reply slowed generation to a crawl and broke tool rounds. While a reply generates or a terminal command runs, a foreground service with a quiet "RaikaAI · Writing a reply…" notification and a partial wake lock keeps the app running; it stops as soon as the work is done.
+
+## [0.1.16] - 2026-11-20
+
+### Fixed
+- **Faded text in full-screen apps after the keyboard opens**: The terminal canvas reused cached text layouts that kept the color they were first drawn with, so text a program faded during a resize (opencode's footer) stayed almost invisible. Colors are now applied at draw time.
+- **Missing `/etc/machine-id` in the Linux environment**: The Alpine rootfs had none; each install now gets its own random machine id (read by tools such as dbus and telemetry libraries).
+
+## [0.1.15] - 2026-11-20
+
+### Added
+- **PTY mode for the terminal** (Settings → Terminal, or the terminal ⋮ menu): commands run on a real pseudo-terminal, so full-screen and interactive programs work (opencode, vim, htop, prompts that ask for input). Keys go straight to the running program, including ESC, TAB, arrows and the sticky CTRL/ALT/SHIFT keys; the size follows the screen and pinch zoom (programs get SIGWINCH). Off by default: the lighter pipe mode stays available.
+- **`native/raikapty`**: a small Rust helper (static musl, about 340 KB) shipped as `libraikapty.so`. It opens the PTY on the host, runs proot on it, and relays keys, output and resizes; no packages are needed in the guest. Rebuild with `native/raikapty/build.sh`.
+- **Full-screen terminal emulator** (`VtGrid`): alternate screen, absolute cursor addressing, scroll regions, insert/delete lines and characters, deferred wrap, background-color erase, truecolor, DEC line drawing, wide characters, and replies to terminal queries (cursor position, device attributes, window size, colors). It is drawn cell by cell on a canvas, and block and box-drawing characters are drawn as shapes, so logos and borders line up.
+- "Stop program" in the terminal ⋮ menu.
+
+### Fixed
+- Capability queries (DCS/APC strings) are no longer printed as text in the terminal.
+
+## [0.1.14] - 2026-11-20
+
+### Changed
+- **Dev-server bar**: The "server running" bar above the composer now matches the tool cards (neutral surface, thin outline, status dot, monospace URL) and can be folded with × into a small `:port` pill so it no longer covers the chat. Tapping the pill unfolds it; a server on a new URL unfolds it automatically.
+
+## [0.1.13] - 2026-11-20
+
+### Fixed
+- **Empty replies after edit/regenerate (Remote)**: Earlier replies were sent back to the provider with their `<think>` reasoning. Once a reply that was only a thinking block was in the history, the model answered with thinking alone, so edits, regenerations and new messages all came back empty. History now carries only the visible text of earlier replies and skips replies left blank.
+- **History for the reply being generated**: The in-progress reply is passed through untouched, so splitting tool results or merging messages can no longer make the history drop the wrong message.
+
+## [0.1.12] - 2026-11-20
+
+### Fixed
+- **Fake "[ran …]" lines**: 0.1.10 sent earlier tool results back to the model as `[ran `cmd`: exit 0]` notes; models copied that line as text and then invented the output without running anything. History now carries the real `<tool_call>` followed by a `[CONTAINER TOOL RESULT]` message with the actual (truncated) output, and leftover fake lines are removed from history and hidden in the chat.
+
+## [0.1.11] - 2026-11-20
+
+### Added
+- **Remote provider presets**: OpenAI, Anthropic, Google Gemini, OpenRouter, Groq, DeepSeek, Mistral, xAI and Ollama (LAN), plus "OpenAI-compatible" for any other server. Base URLs are filled in, each provider keeps its own API key, and "Get a key" opens the provider's key page. Existing setups are detected from their saved URL.
+
+### Changed
+- **Models screen**: Tabs are now "Local" and "Remote"; the remote tab shows a provider grid instead of a bare URL field.
+- **Sidebar**: Reorganized by priority: Chat, Roleplay, Characters; then Tools (Models, Parameters, Skills & Plugins, Terminal, MCP, Local API); then recent chats with "All chats". Settings, Logs and About moved to a footer, and the hidden "More" section is gone.
+- **Consistent names**: Screen titles match the sidebar (Parameters, Local API, MCP, Logs, All chats, Terminal).
+
+### Fixed
+- **Replies that stop mid-sentence**: A stream that ends without `[DONE]` or a finish reason is marked "incomplete", and replies that stop early (incomplete, provider limit, thinking only) show a clear notice with a full-size Retry button. A thinking-only reply is retried once automatically.
+- **Squeezed Retry button**: Long stats no longer push the message action buttons; stats ellipsize and all actions keep one size.
+- **Gemini and other versioned base URLs**: URLs such as `/v1beta/openai` no longer get an extra `/v1` appended.
+- Hosted providers are no longer probed with Ollama's `/api/show` (which also sent the API key there).
+
+## [0.1.10] - 2026-11-20
+
+### Added
+- **Terminal screen emulation**: The Linux terminal interprets carriage returns, cursor moves, erase sequences and 16/256/truecolor SGR colors, so progress bars, `clear` and tools like fastfetch (logo with info beside it) render like a real terminal, in color.
+- **Pinch to zoom** in the terminal (font size is remembered). The column count follows the screen width and font size, and programs get `COLUMNS`/`TERM` to format for it.
+- **Real prompt and `cd`**: The prompt shows `root@raika:/path#` and the working directory persists between commands.
+
+### Fixed
+- **Raw escape codes in chat tool results**: Output such as `[90m→[0m` from colored programs is rendered through the terminal screen and shown as clean text, for the chat card and for the model.
+- **Models faking tool results**: Earlier replies' rendered tool blocks were sent back to the model, which then imitated them (multi-line commands in backticks with invented output). They are now replaced by short notes such as ``[ran `ls`: exit 0]``.
+
+## [0.1.9] - 2026-11-20
+
+### Added
+- **Pi-style agent loop on-device**: Local models can now chain Linux tools (look -> edit -> run -> verify) for up to 8 rounds per turn instead of one, with duplicate commands skipped.
+- **Multi-edit**: `edit_file` accepts `edits: [{oldText, newText}, ...]`, applied against the original file (each match unique, no overlaps, all or nothing).
+- **Project instructions**: `/workspace/AGENTS.md` is loaded into the sandbox prompt automatically.
+- **SKILL.md viewer**: Tap a skill to read its Markdown (rendered or source), toggle, edit, export or delete it.
+- **Tappable citations**: `[1]` in answers opens the matching source.
+
+### Changed
+- **Skills & Plugins**: The hub is split into Plugins (Web Search, Documents, Chat Memory, Code Artifacts, Auto-Compact, Thinking, Vision) and Skills (Markdown instructions), with shorter descriptions and distinct Material You icon tiles instead of the same sparkle everywhere. The skill editor has an icon picker.
+- **Web search answers**: Top result pages are read and the most relevant passages kept, and the model is told to answer directly with inline citations. The "Searched the web · N sources" card now sits above the answer.
+- **Sandbox tool prompt**: Rewritten pi-style (one line per tool, short rules, working directory).
+- **Tool output**: Results sent to the model keep the END of the output, where errors are.
+
+### Fixed
+- **Commands hanging on large output**: The sandbox stopped reading output after 64 KB, so chatty commands (npm install, apk add, builds) blocked until the timeout killed them. Output is now always drained.
+
+## [0.1.8] - 2026-11-20
+
+### Fixed
+- **HTML preview always failed**: The sandbox filter blocked the preview's own `data:` document (no host), so every preview showed `ERR_HTTP_RESPONSE_CODE_FAILURE`. In-document schemes (`data:`, `about:`, `blob:`) are now allowed. Foreign network hosts stay blocked.
+- **"Running …" line left behind**: The status line was removed by a regex that failed on commands containing `'`, `&`, `;`, `|` or `/`. Running commands now show a pending tool card that is replaced exactly by the result.
+- **Commands repeated in agent loops**: Remote models received the whole rendered message (status lines and result blocks) as their own history and imitated it. Only the model's raw text of each round is sent now, and identical tool calls are replaced one at a time.
+- `_italic_` markdown is rendered.
+
+## [0.1.7] - 2026-11-20
+
+### Changed
+- **Terminal prompt follows the output**: The shell prompt is now the last line of the output stream (like a real terminal) instead of being pinned to the bottom of the screen. It scrolls with the output and stays visible when the keyboard opens.
+
+## [0.1.6] - 2026-11-20
+
+### Added
+- **Interleaved thinking**: Every `<think>` block now renders where the model produced it (think -> answer -> tool -> think -> answer), instead of all thoughts being merged into one card at the top.
+- **Compact tool cards**: Tool calls and Linux environment results render as one-line cards (icon, command, status) with collapsible, height-capped output. Older saved chats are converted too.
+- **Context-aware slash commands**: A new harness-style command set (`/new`, `/retry`, `/compact`, `/model`, `/skills`, `/help`, `/search`, `/image`, `/remind`, writing templates, Linux commands) shown as a vertical list with descriptions. Roleplay chats get `/continue`, `/ooc`, `/scene` and hide developer commands; Linux commands appear only once the environment is installed.
+- **New bundled skills**: Concise, Bahasa Indonesia, Coding, Step by step, Tutor, Linux agent, plus roleplay-only Immersive roleplay and Slow-burn story. Toggle with `/skills <name>`.
+
+### Changed
+- **Linux environment screen**: Full-screen black terminal with numbered session tabs in the top bar, a Terminal/Files toggle and an overflow menu, and a two-row extra-keys grid (`SYM` page for shell symbols, hold-to-repeat arrows). Layout inspired by Appine.
+- **Markdown rendering**: Consecutive lines form one paragraph, nested lists are indented, `####`-level headings, horizontal rules, task lists, `~~strikethrough~~`, `***bold italic***` and `1)` lists are supported, with better spacing.
+- **Roleplay prompt**: Roleplay chats no longer receive code-output rules, tool catalogs or non-roleplay skills, which saves context and keeps replies in character.
+- **Previous reasoning is dropped from history**: Earlier turns' `<think>` blocks are no longer sent back to the model, even with thinking enabled.
+- **License**: RaikaAI is now licensed under AGPL-3.0.
+
+### Fixed
+- **Engine use-after-close race**: A generation fetched the LiteRT engine in one critical section and used it in another, so a concurrent request (e.g. a `/v1` client) could reload and close the engine in between. Engine acquisition and generation now happen under the same lock.
+- **Model reload on every message after GPU fallback**: After a GPU -> CPU fallback the active backend ("CPU (Fallback)") never matched the requested "GPU", forcing a full model reload (and a fresh failed GPU attempt) for every message. The requested backend is now tracked separately.
+- **Model reload thrash from `max_tokens`**: Any change in the token budget (e.g. `/v1` clients sending different `max_tokens`) reloaded the multi-GB model. The engine now only reloads when a larger budget is needed.
+- **Repeated reloads for unsupported modalities**: Image/audio requests on a model whose vision/audio encoder failed to initialize no longer trigger a pointless reload each time.
+- **Workspace path check**: File tools used a bare string-prefix check, which also accepted sibling folders such as `workspace2/`. The check now uses a path-segment boundary (same fix for the rootfs tar extractor).
+- **SSRF guard gaps**: Blocked addresses now also include `100.64.0.0/10` (carrier-grade NAT, used by Tailscale), `0.0.0.0/8`, and IPv6 unique-local `fc00::/7`.
+
+### Security
+- Removed the hardcoded release keystore password fallback from `app/build.gradle.kts`; local builds read it from the gitignored `local.properties` (CI keeps using secrets).
+
 ## [0.1.5] - 2026-10-24
 
 ### Added

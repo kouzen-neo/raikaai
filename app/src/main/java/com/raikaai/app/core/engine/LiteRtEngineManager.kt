@@ -192,6 +192,9 @@ class LiteRtEngineManager private constructor(
     private var engine: Engine? = null
     private var activeModelPath: String? = null
     private var activeBackend: String? = null
+
+    /** Backend the caller asked for (activeBackend may differ after a fallback). */
+    private var activeRequestedBackend: String? = null
     private var activeTokenBudget: Int = 0
     private var activeVisionSupported: Boolean = false
     private var activeAudioSupported: Boolean = false
@@ -283,14 +286,8 @@ class LiteRtEngineManager private constructor(
             try {
                 val hasAudio = !audioPath.isNullOrBlank() || (audioBytes != null && audioBytes.isNotEmpty())
                 val hasImage = !imagePath.isNullOrBlank() || (imageBytes != null && imageBytes.isNotEmpty())
-                val activeEngine = getOrCreateEngine(params, requireAudio = hasAudio, requireVision = hasImage)
-                val backendName = activeBackend ?: params.backend
+                var backendName = params.backend
                 val modelName = File(params.modelPath).name
-
-                val imgTag = if (!imagePath.isNullOrBlank()) " + image ($imagePath)" else if (imageBytes != null && imageBytes.isNotEmpty()) " + image (${imageBytes.size / 1024} KB)" else ""
-                val audioTag = if (!audioPath.isNullOrBlank()) " + audio ($audioPath)" else if (audioBytes != null && audioBytes.isNotEmpty()) " + audio (${audioBytes.size / 1024} KB)" else ""
-                logEngine("[LiteRT Request] Stream on $backendName ($modelName)$imgTag$audioTag")
-                logEngine("  ├── Input: ~$inputTokens tokens (${prompt.length} chars) · temp=${params.temperature}, topK=${params.topK}")
 
                 var outputText = ""
                 var tokenCount = 0
@@ -341,6 +338,18 @@ class LiteRtEngineManager private constructor(
                 }
 
                 mutex.withLock {
+                    // Acquire the engine under the SAME lock as the generation:
+                    // acquiring it in a separate critical section let a
+                    // concurrent request (e.g. a /v1 client with different
+                    // params) reload and close it in between, so this request
+                    // would then use a closed native engine.
+                    val activeEngine = withContext(Dispatchers.IO) { getOrCreateEngineLocked(params) }
+                    backendName = activeBackend ?: params.backend
+                    val imgTag = if (!imagePath.isNullOrBlank()) " + image ($imagePath)" else if (hasImage) " + image (${imageBytes?.size?.div(1024) ?: 0} KB)" else ""
+                    val audioTag = if (!audioPath.isNullOrBlank()) " + audio ($audioPath)" else if (hasAudio) " + audio (${audioBytes?.size?.div(1024) ?: 0} KB)" else ""
+                    logEngine("[LiteRT Request] Stream on $backendName ($modelName)$imgTag$audioTag")
+                    logEngine("  ├── Input: ~$inputTokens tokens (${prompt.length} chars) · temp=${params.temperature}, topK=${params.topK}")
+
                     val sampler =
                         SamplerConfig(
                             topK = params.topK,
@@ -516,14 +525,19 @@ class LiteRtEngineManager private constructor(
      * Falls back from GPU (OpenCL) to CPU (XNNPack) when initialization fails.
      * Fully runs on Dispatchers.IO to guarantee zero blocking of Android main thread.
      */
-    suspend fun getOrCreateEngine(
-        params: EngineParams,
-        requireAudio: Boolean = false,
-        requireVision: Boolean = false,
-    ): Engine =
+    suspend fun getOrCreateEngine(params: EngineParams): Engine =
         withContext(Dispatchers.IO) {
-            mutex.withLock {
-                val file = File(params.modelPath)
+            mutex.withLock { getOrCreateEngineLocked(params) }
+        }
+
+    /**
+     * Must be called with [mutex] held (the mutex is not reentrant).
+     * Modalities are not a reload trigger: initialization already tries every
+     * modality the model is a candidate for, so reloading for a missing one
+     * would only repeat the same failed attempt on every request.
+     */
+    private fun getOrCreateEngineLocked(params: EngineParams): Engine {
+            val file = File(params.modelPath)
             if (!file.exists() || file.length() == 0L) {
                 val err = "Model file not found at: ${params.modelPath}"
                 logEngine("[ERROR] $err")
@@ -531,17 +545,21 @@ class LiteRtEngineManager private constructor(
                 throw IllegalStateException(err)
             }
 
-            val needsAudioReload = requireAudio && !activeAudioSupported && isAudioCandidate(params.modelPath)
-            val needsVisionReload = requireVision && !activeVisionSupported && isVisionCandidate(params.modelPath)
-            val tokenBudget = minOf(maxOf(1024, maxOf(params.contextWindow, params.maxTokens)), 8192)
-            val needsBudgetReload = activeTokenBudget > 0 && activeTokenBudget != tokenBudget
+            val requestedBudget = minOf(maxOf(1024, maxOf(params.contextWindow, params.maxTokens)), 8192)
+            // Grow-only: a loaded engine with a larger budget serves smaller
+            // requests fine. Reloading on every difference made /v1 clients
+            // with different max_tokens reload the multi-GB model per request.
+            val needsBudgetReload = activeTokenBudget > 0 && requestedBudget > activeTokenBudget
+            val tokenBudget = if (needsBudgetReload || activeTokenBudget == 0) requestedBudget else activeTokenBudget
 
             val needsReload =
                 engine == null ||
                     activeModelPath != params.modelPath ||
-                    (activeBackend != null && !activeBackend!!.startsWith(params.backend, ignoreCase = true)) ||
-                    needsAudioReload ||
-                    needsVisionReload ||
+                    // Compare against the backend that was REQUESTED, not the
+                    // one that ended up active: after a GPU -> CPU fallback the
+                    // active backend is "CPU (Fallback)", which never matches
+                    // "GPU" and forced a full reload on every message.
+                    (activeRequestedBackend != null && !activeRequestedBackend.equals(params.backend, ignoreCase = true)) ||
                     needsBudgetReload
 
             if (needsReload) {
@@ -581,6 +599,7 @@ class LiteRtEngineManager private constructor(
                         )
                     engine = initResult.engine
                     activeBackend = params.backend
+                    activeRequestedBackend = params.backend
                     activeTokenBudget = tokenBudget
                     activeVisionSupported = initResult.visionSupported
                     activeAudioSupported = initResult.audioSupported
@@ -606,6 +625,7 @@ class LiteRtEngineManager private constructor(
                                 )
                             engine = initResult.engine
                             activeBackend = "CPU (Fallback)"
+                            activeRequestedBackend = params.backend
                             activeTokenBudget = tokenBudget
                             activeVisionSupported = initResult.visionSupported
                             activeAudioSupported = initResult.audioSupported
@@ -635,8 +655,7 @@ class LiteRtEngineManager private constructor(
                 _loadedModelPath.value = params.modelPath
             }
 
-            engine ?: throw IllegalStateException("Google AI Edge LiteRT-LM engine initialization failed.")
-        }
+            return engine ?: throw IllegalStateException("Google AI Edge LiteRT-LM engine initialization failed.")
     }
 
     private data class EngineInitResult(
@@ -767,6 +786,7 @@ class LiteRtEngineManager private constructor(
             engine = null
             activeModelPath = null
             activeBackend = null
+            activeRequestedBackend = null
             activeTokenBudget = 0
             activeVisionSupported = false
             activeAudioSupported = false

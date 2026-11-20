@@ -63,6 +63,9 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.asContextElement
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -104,6 +107,9 @@ data class PersonaPreset(
 /** Max autonomous container rounds per remote turn (OpenCode-style agent loop). */
 internal const val MAX_CONTAINER_ROUNDS = 30
 
+/** Tool rounds per turn for on-device models (smaller, slower, easier to derail). */
+internal const val MAX_LOCAL_TOOL_ROUNDS = 8
+
 /** Fresh turns kept verbatim beside a compaction summary (never folded). */
 internal const val VERBATIM_TAIL_COUNT = 4
 
@@ -119,14 +125,20 @@ internal fun isValidCompactionSummary(md: String): Boolean {
         t.contains("## Work State")
 }
 
+/** Raika's own tools (see AgentConfig): no Linux environment needed. */
+private val AGENT_SELF_TOOLS = setOf("remember", "add_mcp_server")
+
+private const val SIDE_SYSTEM = "You answer quick side questions about an ongoing chat. Be brief and direct."
+
 val PERSONA_PRESETS =
     listOf(
         PersonaPreset(
+            // The id stays "general": saved chats refer to it.
             id = "general",
-            name = "General",
+            name = "Raika AI",
             iconType = "general",
-            description = "Local on-device AI assistant ready to help with various tasks and inquiries.",
-            greeting = "Hello! I am your local AI assistant. How can I help you today?",
+            description = "RaikaAI, your assistant: chat, research, code and the Linux workspace.",
+            greeting = "Hi, I'm Raika. What are we working on?",
             systemPrompt = DEFAULT_SYSTEM_PROMPT,
         ),
     )
@@ -225,8 +237,45 @@ class ChatViewModel(
     val settings = MutableStateFlow(Settings())
 
     /** Estimated cumulative remote API spend in USD (owned by ServerControls). */
-    val messages = mutableStateListOf<ChatMessageEntry>()
-    val isGenerating = mutableStateOf(false)
+    /**
+     * The state one chat needs while it generates. Each reply runs in the
+     * lane of the chat it belongs to, so it keeps going (and is saved to that
+     * chat) when the user opens another chat. The lane is bound to the
+     * reply's coroutines through [laneLocal]; everything else sees [uiLane].
+     */
+    class ChatLane {
+        val messages = mutableStateListOf<ChatMessageEntry>()
+        val isGenerating = mutableStateOf(false)
+        var conversationId: String? = null
+        var conversation: Conversation? = null
+        var nodes: MutableList<ChatMessageEntry> = mutableListOf()
+        var genJob: Job? = null
+    }
+
+    /** The chat on screen. */
+    private var uiLane by mutableStateOf(ChatLane())
+
+    /** Chats whose reply is still generating after the user switched away. */
+    private val backgroundLanes = mutableStateListOf<ChatLane>()
+
+    private val laneLocal = ThreadLocal<ChatLane?>()
+
+    /** The lane of the running coroutine, or the chat on screen. */
+    private val lane: ChatLane get() = laneLocal.get() ?: uiLane
+
+    /** Binds a coroutine to the current lane (see [ChatLane]). */
+    private fun laneContext(): kotlin.coroutines.CoroutineContext = laneLocal.asContextElement(lane)
+
+    val messages: androidx.compose.runtime.snapshots.SnapshotStateList<ChatMessageEntry> get() = lane.messages
+    val isGenerating: androidx.compose.runtime.MutableState<Boolean> get() = lane.isGenerating
+
+    /** True while any chat (on screen or in the background) is generating. */
+    val anyGenerating: Boolean get() = uiLane.isGenerating.value || backgroundLanes.any { it.isGenerating.value }
+
+    private val generatingState =
+        object : State<Boolean> {
+            override val value: Boolean get() = isGenerating.value
+        }
     val errorMessage = mutableStateOf<String?>(null)
     val installedModels = mutableStateOf<List<com.raikaai.app.localai.InstalledModel>>(emptyList())
     val conversations = mutableStateOf<List<ConversationHeader>>(emptyList())
@@ -234,6 +283,9 @@ class ChatViewModel(
     val normalConversations = mutableStateOf<List<ConversationHeader>>(emptyList())
     /** Roleplay-chat history; never mixed with normal history. */
     val roleplayConversations = mutableStateOf<List<ConversationHeader>>(emptyList())
+
+    /** A roleplay chat the sidebar asked the Characters hub to open. */
+    val pendingRoleplayChatId = mutableStateOf<String?>(null)
 
     // Character/persona state lives in PersonaStore; these accessors keep
     // UI and internal call sites unchanged.
@@ -247,7 +299,7 @@ class ChatViewModel(
         engine = engine,
         scope = viewModelScope,
         settings = settings,
-        isGenerating = isGenerating,
+        isGenerating = generatingState,
         onError = { errorMessage.value = it },
     )
     val isBenchmarking: State<Boolean> get() = benchmarkRunner.isBenchmarking
@@ -281,7 +333,7 @@ class ChatViewModel(
 
     /** Parses a preview URL's port so the UI can probe/refresh on demand. */
     fun refreshContainerPreview() {
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(Dispatchers.IO + laneContext()) {
             val port = containerManager.probeListeningPort()
             containerManager.markPreviewPort(port)
         }
@@ -299,12 +351,153 @@ class ChatViewModel(
         var input by androidx.compose.runtime.mutableStateOf(androidx.compose.ui.text.input.TextFieldValue(""))
         var histPos by androidx.compose.runtime.mutableIntStateOf(-1)
         var job: Job? = null
+
+        /** Shell working directory, kept across commands like a real shell. */
+        var cwd by androidx.compose.runtime.mutableStateOf("/workspace")
+
+        /** PTY mode: keystrokes go here while a program runs (null otherwise). */
+        var ptyInput by androidx.compose.runtime.mutableStateOf<java.io.OutputStream?>(null)
+
+        /** PTY mode: full-screen program's screen while it uses the alternate screen. */
+        var grid by androidx.compose.runtime.mutableStateOf<com.raikaai.app.ui.environment.VtGrid?>(null)
+
+        /** Bumped on every grid change so the canvas redraws. */
+        var gridVersion by androidx.compose.runtime.mutableIntStateOf(0)
+
+        /** The running program accepts bracketed paste. */
+        var bracketedPaste = false
+    }
+
+    /** Terminal width in columns, measured by the screen (font size and width). */
+    var terminalCols: Int = 80
+
+    /** Terminal height in rows, measured by the screen. */
+    var terminalRows: Int = 30
+
+    /** Cell size in pixels, for programs that ask for the window size. */
+    var terminalCellPx: Pair<Int, Int> = 8 to 16
+
+    /**
+     * Pastes the clipboard into the running program (PTY mode). Returns false
+     * when nothing is running there, so the caller pastes into the prompt.
+     */
+    fun pasteToTerminal(sessionId: String = activeTerminalSessionId): Boolean {
+        val session = terminalSessions.firstOrNull { it.id == sessionId } ?: return false
+        if (session.ptyInput == null) return false
+        val cm = app.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        val text = runCatching { cm.primaryClip?.getItemAt(0)?.coerceToText(app)?.toString() }.getOrNull()
+        if (text.isNullOrEmpty()) return true
+        // Terminals send Enter as CR; bracketed paste keeps multi-line text from running line by line.
+        val body = text.replace("\r\n", "\r").replace('\n', '\r')
+        sendTerminalInput(if (session.bracketedPaste) "\u001B[200~$body\u001B[201~" else body, sessionId)
+        return true
+    }
+
+    /**
+     * Resets the Linux environment to a fresh Alpine: stops everything that
+     * runs in it, deletes the rootfs (installed packages, /root, /etc
+     * changes) and installs it again. /workspace is kept unless
+     * [deleteWorkspace].
+     */
+    fun resetLinuxEnvironment(deleteWorkspace: Boolean) {
+        terminalSessions.forEach { it.job?.cancel() }
+        viewModelScope.launch(laneContext()) {
+            containerManager.cancelRun()
+            containerManager.stopAllDaemons()
+            containerManager.wipe()
+            if (deleteWorkspace) {
+                withContext(Dispatchers.IO) {
+                    containerManager.workspaceDir.listFiles()?.forEach { it.deleteRecursively() }
+                }
+            }
+            terminalSessions.forEach { session ->
+                session.lines.clear()
+                session.history.clear()
+                session.cwd = "/workspace"
+            }
+            containerManager.install()
+        }
+    }
+
+    /** Copies what the terminal shows: the full-screen program's screen, or the session output. */
+    fun copyTerminalOutput(sessionId: String = activeTerminalSessionId) {
+        val session = terminalSessions.firstOrNull { it.id == sessionId } ?: return
+        val grid = session.grid
+        val text =
+            if (grid != null) {
+                (0 until grid.rows).joinToString("\n") { grid.rowText(it) }.trimEnd()
+            } else {
+                session.lines.joinToString("\n") { l ->
+                    if (l.kind == com.raikaai.app.core.container.ContainerManager.TermKind.CMD) "# " + l.text else l.text
+                }.trimEnd()
+            }
+        if (text.isNotEmpty()) copyToClipboard(text)
+    }
+
+    /** Puts [text] on the Android clipboard (terminal copy, OSC 52). */
+    fun copyToClipboard(text: String) {
+        runCatching {
+            val cm = app.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            cm.setPrimaryClip(android.content.ClipData.newPlainText("Terminal", text))
+            // Android 13+ shows its own confirmation.
+            if (android.os.Build.VERSION.SDK_INT < 33) {
+                android.widget.Toast.makeText(app, "Copied", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    /** Sends keystrokes to the program running in [sessionId] (PTY mode). */
+    fun sendTerminalInput(text: String, sessionId: String = activeTerminalSessionId) {
+        val out = terminalSessions.firstOrNull { it.id == sessionId }?.ptyInput ?: return
+        val bytes = text.toByteArray(Charsets.UTF_8)
+        viewModelScope.launch(Dispatchers.IO + laneContext()) {
+            runCatching { synchronized(out) { out.write(bytes); out.flush() } }
+        }
+    }
+
+    /** New terminal size: running PTY programs get SIGWINCH, grids resize. */
+    fun resizeTerminal(cols: Int, rows: Int) {
+        if (cols == terminalCols && rows == terminalRows) return
+        terminalCols = cols
+        terminalRows = rows
+        terminalSessions.forEach { session ->
+            session.grid?.let { it.resize(rows, cols); session.gridVersion++ }
+            val out = session.ptyInput ?: return@forEach
+            val msg = containerManager.resizeMessage(rows, cols)
+            viewModelScope.launch(Dispatchers.IO + laneContext()) {
+                runCatching { synchronized(out) { out.write(msg); out.flush() } }
+            }
+        }
     }
 
     val terminalSessions = androidx.compose.runtime.mutableStateListOf<TerminalSession>().apply {
         add(TerminalSession(initialTitle = "Term 1"))
     }
     var activeTerminalSessionId by androidx.compose.runtime.mutableStateOf(terminalSessions.first().id)
+
+    init {
+        // The rootfs ships in the APK: set the environment up right away.
+        containerManager.autoInstallIfBundled()
+        // While a reply generates or a command runs, a foreground service keeps
+        // the app alive: Android otherwise freezes it and cuts its network as
+        // soon as the user switches apps, and the work stalls.
+        viewModelScope.launch {
+            androidx.compose.runtime.snapshotFlow {
+                when {
+                    anyGenerating -> "Writing a reply…"
+                    terminalSessions.any { it.isRunning } -> "Running a command…"
+                    else -> null
+                }
+            }.distinctUntilChanged().collect { text ->
+                com.raikaai.app.core.work.BackgroundWorkService.update(app, text)
+            }
+        }
+    }
+
+    override fun onCleared() {
+        com.raikaai.app.core.work.BackgroundWorkService.update(app, null)
+        super.onCleared()
+    }
 
     val activeTerminalSession: TerminalSession
         get() = terminalSessions.firstOrNull { it.id == activeTerminalSessionId } ?: terminalSessions.first()
@@ -346,11 +539,12 @@ class ChatViewModel(
             session.title = shortCmd
         }
 
-        session.lines.add(com.raikaai.app.core.container.ContainerManager.TermLine(com.raikaai.app.core.container.ContainerManager.TermKind.CMD, clean))
+        val cwdBefore = session.cwd
+        session.lines.add(com.raikaai.app.core.container.ContainerManager.TermLine(com.raikaai.app.core.container.ContainerManager.TermKind.CMD, clean, cwd = cwdBefore))
         if (session.history.isEmpty() || session.history.last() != clean) {
             session.history.add(clean)
         }
-        session.job = viewModelScope.launch(Dispatchers.IO) {
+        session.job = viewModelScope.launch(Dispatchers.IO + laneContext()) {
             try {
                 if (com.raikaai.app.core.container.containsBackgroundOp(clean)) {
                     val res = containerManager.startDaemon(clean)
@@ -359,12 +553,7 @@ class ChatViewModel(
                         if (res.stderr.isNotBlank()) session.lines.add(com.raikaai.app.core.container.ContainerManager.TermLine(com.raikaai.app.core.container.ContainerManager.TermKind.ERR, res.stderr))
                     }
                 } else {
-                    containerManager.runStreaming(clean, timeoutSec = 600) { kind, line ->
-                        session.lines.add(com.raikaai.app.core.container.ContainerManager.TermLine(kind, line))
-                        if (session.lines.size > 1500) {
-                            session.lines.removeRange(0, 100)
-                        }
-                    }
+                    runInTerminalScreen(session, clean, cwdBefore)
                 }
             } catch (_: kotlinx.coroutines.CancellationException) {
                 withContext(Dispatchers.Main) {
@@ -382,6 +571,137 @@ class ChatViewModel(
                 }
             }
         }
+    }
+
+    /**
+     * Runs [command] for the terminal through an [com.raikaai.app.ui.environment.AnsiScreen]
+     * so carriage returns, cursor moves, erases and colors render like a real
+     * terminal. The shell starts in [cwd] and the final directory is read back,
+     * so `cd` persists between commands.
+     */
+    private suspend fun runInTerminalScreen(
+        session: TerminalSession,
+        command: String,
+        cwd: String,
+    ) {
+        // Every terminal command runs on a real PTY (the pipe mode is gone).
+        if (!containerManager.ptyAvailable()) {
+            withContext(Dispatchers.Main) {
+                session.lines.add(
+                    com.raikaai.app.core.container.ContainerManager.TermLine(
+                        com.raikaai.app.core.container.ContainerManager.TermKind.ERR,
+                        "Terminal helper missing from this build (libraikapty.so).",
+                    ),
+                )
+            }
+            return
+        }
+        runInPty(session, command, cwd)
+    }
+
+    /**
+     * PTY mode: runs [command] on a real terminal. Normal output scrolls in
+     * the session lines like pipe mode; a program on the alternate screen
+     * gets a [VtGrid] shown full-screen until it leaves it.
+     */
+    private suspend fun runInPty(
+        session: TerminalSession,
+        command: String,
+        cwd: String,
+    ) {
+        val TermLine = com.raikaai.app.core.container.ContainerManager::TermLine
+        val out = com.raikaai.app.core.container.ContainerManager.TermKind.OUT
+        val cols = terminalCols
+        val rows = terminalRows
+        val screen = com.raikaai.app.ui.environment.AnsiScreen(cols)
+        val defaultFg = androidx.compose.ui.graphics.Color(0xFFE6E6E6)
+        val errFg = androidx.compose.ui.graphics.Color(0xFFFF6B6B)
+        val cwdName = "cwd_" + session.id.filter { it.isLetterOrDigit() }.take(12)
+        fun quote(v: String) = "'" + v.replace("'", "'\\''") + "'"
+        val reply: (String) -> Unit = { sendTerminalInput(it, session.id) }
+        screen.respond = reply
+        screen.altScreenEnabled = true
+        screen.screenRows = rows
+        // The real tty provides size and colors; only the env defaults remain.
+        val wrapped =
+            "export TERM=xterm-256color COLORTERM=truecolor TMPDIR=/tmp; " +
+                "cd -- ${quote(cwd)} 2>/dev/null || cd /workspace; " +
+                command +
+                "\n__raika_rc=\$?; mkdir -p /workspace/.raika 2>/dev/null; pwd > /workspace/.raika/$cwdName 2>/dev/null; " +
+                // Marker: the command is done even if background processes it
+                // started keep proot (and so the PTY) alive.
+                "printf '\\033]9998;%s\\007' \"\$__raika_rc\"; exit \$__raika_rc"
+        withContext(Dispatchers.Main) {
+            var start = session.lines.size
+            var kill: (() -> Unit)? = null
+            fun syncLines() {
+                if (screen.clearRequested) {
+                    screen.clearRequested = false
+                    session.lines.clear()
+                    start = 0
+                }
+                val dropped = minOf(screen.droppedSinceSync, session.lines.size - start)
+                if (dropped > 0) session.lines.removeRange(start, start + dropped)
+                val from = screen.takeDirtyFrom()
+                if (from != Int.MAX_VALUE) {
+                    for (i in from until screen.rowCount) {
+                        val line = TermLine(out, screen.plainRow(i), screen.annotatedRow(i, defaultFg, errFg), null)
+                        val idx = start + i
+                        if (idx < session.lines.size) session.lines[idx] = line else session.lines.add(line)
+                    }
+                    while (session.lines.size > start + screen.rowCount) session.lines.removeAt(session.lines.lastIndex)
+                }
+                if (start > 3000) {
+                    session.lines.removeRange(0, 500)
+                    start -= 500
+                }
+            }
+            try {
+                containerManager.runPty(
+                    wrapped,
+                    rows = rows,
+                    cols = cols,
+                    onStdin = { session.ptyInput = it },
+                    onKill = { kill = it },
+                ) { chunk ->
+                    var rest = chunk
+                    while (rest.isNotEmpty()) {
+                        val grid = session.grid
+                        if (grid != null) {
+                            val n = grid.feed(rest)
+                            rest = rest.substring(n)
+                            if (grid.exitRequested) session.grid = null
+                        } else {
+                            val n = screen.feed(rest)
+                            rest = rest.substring(n)
+                            syncLines()
+                            if (screen.doneCode != null) {
+                                kill?.invoke()
+                                kill = null
+                            }
+                            if (screen.altRequested) {
+                                screen.altRequested = false
+                                session.grid =
+                                    com.raikaai.app.ui.environment.VtGrid(terminalRows, terminalCols, reply).apply {
+                                        cellWidthPx = terminalCellPx.first
+                                        cellHeightPx = terminalCellPx.second
+                                        onClipboard = { text -> copyToClipboard(text) }
+                                    }
+                            }
+                        }
+                    }
+                    session.bracketedPaste = session.grid?.bracketedPaste ?: screen.bracketedPaste
+                    session.gridVersion++
+                }
+            } finally {
+                session.grid = null
+                session.ptyInput = null
+            }
+        }
+        runCatching { java.io.File(containerManager.workspaceDir, ".raika/$cwdName").readText().trim() }
+            .getOrNull()
+            ?.takeIf { it.startsWith("/") }
+            ?.let { dir -> withContext(Dispatchers.Main) { session.cwd = dir } }
     }
 
     fun cancelTerminal(sessionId: String = activeTerminalSessionId) {
@@ -498,7 +818,7 @@ class ChatViewModel(
     }
 
     fun attachAudioUri(uri: Uri) {
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(Dispatchers.IO + laneContext()) {
             val audioDir = File(app.filesDir, "chat_audio").apply { if (!exists()) mkdirs() }
             val dest = File(audioDir, "audio_${System.currentTimeMillis()}.wav")
             try {
@@ -534,7 +854,7 @@ class ChatViewModel(
             return
         }
         if (isGenerating.value || imageGenState.value != null) return
-        viewModelScope.launch {
+        viewModelScope.launch(laneContext()) {
             imageGenState.value = "Generating image…"
             try {
                 val bytes =
@@ -602,7 +922,7 @@ class ChatViewModel(
             errorMessage.value = "Invalid URL. Example: https://example.com/article"
             return
         }
-        viewModelScope.launch {
+        viewModelScope.launch(laneContext()) {
             urlFetchState.value = "Fetching page…"
             val page =
                 try {
@@ -621,16 +941,72 @@ class ChatViewModel(
         }
     }
 
-    var currentConversationId: String? = null
-        private set
+    var currentConversationId: String?
+        get() = lane.conversationId
+        private set(v) {
+            lane.conversationId = v
+        }
     /**
      * Conversation id whose persona still needs resolving because custom
      * personas hadn't loaded when it was opened. Retried after customs load.
      * (Owned by PersonaStore.)
      */
-    private var conversation: Conversation? = null
-    private var nodes = mutableListOf<ChatMessageEntry>() // flat tree storage for branching
-    private var genJob: Job? = null
+    private var conversation: Conversation?
+        get() = lane.conversation
+        set(v) {
+            lane.conversation = v
+        }
+
+    // Flat tree storage for branching.
+    private var nodes: MutableList<ChatMessageEntry>
+        get() = lane.nodes
+        set(v) {
+            lane.nodes = v
+        }
+
+    private var genJob: Job?
+        get() = lane.genJob
+        set(v) {
+            lane.genJob = v
+        }
+
+    /**
+     * Before showing another chat: a chat that is still generating moves to
+     * the background (its reply continues and is saved there) and the screen
+     * gets a fresh lane.
+     */
+    private fun detachGeneratingLane() {
+        backgroundLanes.removeAll { !it.isGenerating.value }
+        val cur = uiLane
+        if (cur.isGenerating.value) {
+            if (cur !in backgroundLanes) backgroundLanes.add(cur)
+            uiLane = ChatLane()
+        }
+    }
+
+    /** Shows chat [id] again if its reply is still generating in the background. */
+    private fun reattachLane(id: String): Boolean {
+        val bg = backgroundLanes.firstOrNull { it.conversationId == id } ?: return false
+        backgroundLanes.remove(bg)
+        uiLane = bg
+        bg.conversation?.let { conv ->
+            roleplayMode = conv.personaId?.startsWith("roleplay_") == true
+            personaStore.applyPersona(personaStore.resolvePersona(conv.personaId))
+        }
+        refreshPinState()
+        updateContextTokens()
+        return true
+    }
+
+    /** Stops and forgets a background reply of chat [id] (it was deleted). */
+    private fun dropBackgroundLane(id: String?) {
+        backgroundLanes.filter { id == null || it.conversationId == id }.forEach { bg ->
+            bg.conversation = null // its final persist() must not recreate the chat
+            bg.genJob?.cancel()
+            bg.isGenerating.value = false
+            backgroundLanes.remove(bg)
+        }
+    }
 
     /**
      * Compare mode: pass 2 runs the same prompt on a challenger model, then
@@ -716,7 +1092,7 @@ class ChatViewModel(
         val selectedMessages = messages.subList(0, upToIndex + 1).toList()
         if (selectedMessages.isEmpty()) return
 
-        viewModelScope.launch {
+        viewModelScope.launch(laneContext()) {
             stopGeneration()
             val newConvId = java.util.UUID.randomUUID().toString()
             var prevId: String? = null
@@ -781,14 +1157,46 @@ class ChatViewModel(
         s: Settings? = null,
     ): Pair<String, List<String>?> {
         val ctx = ragContext(query)
-        var system = if (base.isBlank()) CODE_OUTPUT_RULES.trimStart('\n') else base + CODE_OUTPUT_RULES
-        val activeSkills = skillsManager.getActivePromptInstructions()
+        // Roleplay gets only the character prompt plus roleplay skills: code
+        // rules, tool catalogs and coding skills break immersion and eat the
+        // small on-device context window.
+        val rp = roleplayMode
+        var system =
+            when {
+                rp -> base
+                base.isBlank() -> CODE_OUTPUT_RULES.trimStart('\n')
+                else -> base + CODE_OUTPUT_RULES
+            }
+        val activeSkills = skillsManager.getActivePromptInstructions(roleplay = rp)
         if (activeSkills.isNotBlank()) {
             system = "$system$activeSkills"
         }
-        s?.let { system += mcpToolsPromptBlock(it) }
-        s?.let { system += containerToolsPromptBlock(it) }
-        if (s != null && s.modelSource == ChatConstants.SOURCE_REMOTE && (s.remoteImageModelId.isNotBlank() || s.remoteModelId.isNotBlank())) {
+        // Raika's own config (SOUL / AGENTS / MEMORY + capabilities) leads the
+        // prompt. On-device models get the compact version: small context.
+        val compact = (s ?: settings.value).modelSource != ChatConstants.SOURCE_REMOTE
+        val agentBlock =
+            runCatching {
+                agentConfig.promptBlock(
+                    includeSoul = activePersona.value.id == "general",
+                    roleplay = rp,
+                    compact = compact,
+                    capabilities = agentCapabilities(compact),
+                )
+            }.getOrDefault("")
+        // Roleplay: the character card leads and the short memory follows,
+        // so immersion stays intact.
+        if (agentBlock.isNotBlank()) {
+            system = when {
+                system.isBlank() -> agentBlock
+                rp -> "$system\n\n$agentBlock"
+                else -> "$agentBlock\n\n$system"
+            }
+        }
+        if (!rp) {
+            s?.let { system += mcpToolsPromptBlock(it) }
+            s?.let { system += containerToolsPromptBlock(it) }
+        }
+        if (!rp && s != null && s.modelSource == ChatConstants.SOURCE_REMOTE && (s.remoteImageModelId.isNotBlank() || s.remoteModelId.isNotBlank())) {
             system += "\n\n[IMAGE GENERATION TOOL]\n" +
                 "You have access to an image generator tool. When the user asks to draw, generate, visualize, or modify an image " +
                 "(e.g. 'buat gambar...', 'jadikan kucing biru', 'ubah warna...', 'draw a...', 'create an image of...'), " +
@@ -822,7 +1230,7 @@ class ChatViewModel(
     }
 
     fun importRagDocument(uri: Uri) {
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(Dispatchers.IO + laneContext()) {
             val doc = rag.importFromUri(uri)
             if (doc == null) {
                 withContext(Dispatchers.Main) {
@@ -833,7 +1241,7 @@ class ChatViewModel(
     }
 
     fun deleteRagDocument(id: String) {
-        viewModelScope.launch(Dispatchers.IO) { rag.delete(id) }
+        viewModelScope.launch(Dispatchers.IO + laneContext()) { rag.delete(id) }
     }
 
     fun setRagEnabled(v: Boolean) = launchSetting { settingsRepo.setRagEnabled(v) }
@@ -857,10 +1265,46 @@ class ChatViewModel(
     private fun promptWindowMessages(): List<ChatMessageEntry> {
         val summary = conversation?.summary
         val base = if (summary.isNullOrBlank()) messages.toList() else unfoldedMessages()
-        return base.filter {
+        val list = base.filter {
             it.role != ChatConstants.ROLE_COMPACTION && it.role != ChatConstants.ROLE_SYSTEM
         }
+        if (list.isEmpty()) return list
+        // Callers drop the last entry (the reply being generated) with
+        // dropLast(1), so it is passed through untouched: splitting or merging
+        // it would make them drop the wrong piece.
+        return prepareHistoryForModel(list.dropLast(1)) + list.last()
     }
+
+    /** Earlier messages as the model should see them (see [promptWindowMessages]). */
+    private fun prepareHistoryForModel(list: List<ChatMessageEntry>): List<ChatMessageEntry> =
+        list.mapNotNull { m ->
+            // Earlier replies go back WITHOUT their reasoning: replies that were
+            // only a <think> block taught the model to answer with thinking
+            // alone, so every later reply came back empty. Replies left blank
+            // (thinking-only, failed) are skipped.
+            if (m.role != ChatConstants.ROLE_ASSISTANT) return@mapNotNull m
+            val visible = stripThinking(m.content).trim()
+            if (visible.isEmpty()) null else m.copy(content = visible)
+        }.flatMap {
+            // Rendered tool cards in earlier replies are sent back the way the
+            // agent loop produced them: the real tool call, then the result as
+            // its own message. A text summary instead got imitated by models,
+            // which then wrote fake results without running anything.
+            if (it.role == ChatConstants.ROLE_ASSISTANT) {
+                expandToolBlocksForModel(it.content).map { (role, text) -> it.copy(role = role, content = text) }
+            } else {
+                listOf(it)
+            }
+        }.fold(mutableListOf<ChatMessageEntry>()) { acc, m ->
+            // Keep strict user/assistant alternation for strict providers.
+            val last = acc.lastOrNull()
+            if (last != null && last.role == m.role && m.role != ChatConstants.ROLE_COMPACTION) {
+                acc[acc.lastIndex] = last.copy(content = last.content + "\n\n" + m.content)
+            } else {
+                acc.add(m)
+            }
+            acc
+        }
 
     /**
      * Returns messages that were not yet folded into the rolling summary.
@@ -1004,7 +1448,7 @@ class ChatViewModel(
             conv.summarizedUntilId = foldable.last().id
             compressionTick.value++
             updateContextTokens()
-            viewModelScope.launch { runCatching { chatRepo.save(conv) } }
+            viewModelScope.launch(laneContext()) { runCatching { chatRepo.save(conv) } }
             return conv.summary
         } finally {
             isCompressing.value = false
@@ -1021,7 +1465,7 @@ class ChatViewModel(
         val convId = currentConversationId ?: return
         val mid = messageId ?: return
         if (content.isBlank()) return
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(Dispatchers.IO + laneContext()) {
             runCatching {
                 val blocks = CodeArtifacts.extractFencedBlocks(content)
                 if (CodeArtifacts.shouldCapture(blocks)) {
@@ -1033,11 +1477,11 @@ class ChatViewModel(
     }
 
     fun deleteArtifact(id: String) {
-        viewModelScope.launch(Dispatchers.IO) { artifactStore.delete(id) }
+        viewModelScope.launch(Dispatchers.IO + laneContext()) { artifactStore.delete(id) }
     }
 
     fun deleteArtifactProject(projectId: String) {
-        viewModelScope.launch(Dispatchers.IO) { artifactStore.deleteProject(projectId) }
+        viewModelScope.launch(Dispatchers.IO + laneContext()) { artifactStore.deleteProject(projectId) }
     }
 
     fun exportArtifactProject(
@@ -1045,7 +1489,7 @@ class ChatViewModel(
         folderLabel: String,
         onDone: (Int) -> Unit,
     ) {
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(Dispatchers.IO + laneContext()) {
             val files = artifactStore.artifacts.value.filter { it.projectId == projectId }
             val map = LinkedHashMap<String, String>()
             files.forEach { a -> artifactStore.readContent(a)?.let { map[a.fileName] = it } }
@@ -1059,7 +1503,7 @@ class ChatViewModel(
         projectId: String,
         onReady: (String?, Map<String, String>) -> Unit,
     ) {
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(Dispatchers.IO + laneContext()) {
             val files = artifactStore.artifacts.value.filter { it.projectId == projectId }
             val map = LinkedHashMap<String, String>()
             var entry: String? = null
@@ -1097,8 +1541,22 @@ class ChatViewModel(
         }
         // MCP server configs with tokens re-hydrated from encrypted storage.
         viewModelScope.launch {
+            // Stdio MCP servers run inside Alpine.
+            mcpManager.stdioLauncher = { cmd -> containerManager.startShellProcess(cmd) }
+            // The global MCP switch is gone: servers are on/off one by one.
+            if (!settings.value.mcpEnabled) settingsRepo.setMcpEnabled(true)
+            val autoConnected = mutableSetOf<String>()
             settingsRepo.mcpServersFlow.collect { servers ->
                 mcpManager.setServers(servers)
+                // Tools are known per session: connect enabled servers once so
+                // the agent has them in chat without opening the MCP tab.
+                servers.filter { it.enabled && autoConnected.add(it.id) && mcpManager.toolsByServer.value[it.id].isNullOrEmpty() }
+                    .forEach { srv ->
+                        launch(Dispatchers.IO) {
+                            if (srv.isStdio && !containerReady(settings.value)) return@launch
+                            runCatching { mcpManager.refreshTools(srv) }
+                        }
+                    }
             }
         }
         viewModelScope.launch {
@@ -1129,7 +1587,7 @@ class ChatViewModel(
     }
 
     fun refreshInstalledModels() {
-        viewModelScope.launch {
+        viewModelScope.launch(laneContext()) {
             installedModels.value = modelManager.getInstalledModels()
             refreshFreeDiskSpace()
         }
@@ -1140,7 +1598,7 @@ class ChatViewModel(
     }
 
     fun refreshConversations() {
-        viewModelScope.launch {
+        viewModelScope.launch(laneContext()) {
             val normal = defaultChatRepo.listConversationHeaders()
             val roleplay = roleplayChatRepo.listConversationHeaders()
             normalConversations.value = normal
@@ -1168,7 +1626,7 @@ class ChatViewModel(
     fun isModelDownloaded(model: com.raikaai.app.localai.LocalAiModel): Boolean = modelManager.isModelDownloaded(model)
 
     fun setActiveCustomPath(path: String) {
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(Dispatchers.IO + laneContext()) {
             settingsRepo.setCustomModelPath(path)
             settingsRepo.setActiveModelId("")
             settingsRepo.setModelSource(ChatConstants.SOURCE_LOCAL)
@@ -1256,7 +1714,7 @@ class ChatViewModel(
 
     /** Moves a conversation into a folder ("" = no folder). */
     fun setConversationFolder(id: String, folder: String) {
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(Dispatchers.IO + laneContext()) {
             val conv = chatRepo.get(id) ?: return@launch
             conv.folder = folder.trim().take(40)
             chatRepo.save(conv)
@@ -1270,7 +1728,7 @@ class ChatViewModel(
 
     /** Replaces a conversation's tags (unlike folder, a chat can carry several). */
     fun setConversationTags(id: String, tags: List<String>) {
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(Dispatchers.IO + laneContext()) {
             val conv = chatRepo.get(id) ?: return@launch
             conv.tags = com.raikaai.app.data.sanitizeTags(tags)
             chatRepo.save(conv)
@@ -1284,8 +1742,9 @@ class ChatViewModel(
 
     fun selectConversation(id: String) {
         if (currentConversationId == id) return
-        stopGeneration()
-        viewModelScope.launch {
+        detachGeneratingLane()
+        if (reattachLane(id)) return
+        viewModelScope.launch(laneContext()) {
             val conv = if (roleplayMode) {
                 roleplayChatRepo.get(id) ?: defaultChatRepo.get(id)
             } else {
@@ -1356,7 +1815,7 @@ class ChatViewModel(
 
     /** Quick switcher: sets persona active and loads its most recent conversation or starts a fresh one. */
     fun selectPersonaQuick(persona: PersonaPreset) {
-        viewModelScope.launch {
+        viewModelScope.launch(laneContext()) {
             personaStore.applyPersona(persona)
             val targetRepo = if (roleplayMode) roleplayChatRepo else defaultChatRepo
             val recentId = targetRepo
@@ -1372,8 +1831,8 @@ class ChatViewModel(
     }
 
     fun newChat(withPersona: PersonaPreset? = null) {
-        // Detach the old conversation BEFORE cancelling generation, so the
-        // cancelled job's persist() can never resurrect a just-deleted chat.
+        // A reply still generating keeps running in its own chat.
+        detachGeneratingLane()
         conversation = null
         stopGeneration()
         val p = withPersona ?: activePersona.value
@@ -1441,14 +1900,20 @@ class ChatViewModel(
         // so "Clear All Messages" never leaves a leftover entry in history.
         val id = conv?.id
         if (id != null) {
-            viewModelScope.launch { chatRepo.delete(id) }
+            viewModelScope.launch(laneContext()) { chatRepo.delete(id) }
         }
         refreshConversations()
     }
 
     fun deleteConversation(id: String) {
-        viewModelScope.launch {
+        dropBackgroundLane(id)
+        if (currentConversationId == id) {
+            conversation = null
+            stopGeneration()
+        }
+        viewModelScope.launch(laneContext()) {
             chatRepo.delete(id)
+            withContext(Dispatchers.IO) { runCatching { com.raikaai.app.core.agent.ChatArchive.delete(containerManager.raikaHomeDir, id) } }
             rag.clearChatMemory(id)
             if (currentConversationId == id) {
                 newChat()
@@ -1458,7 +1923,7 @@ class ChatViewModel(
     }
 
     fun renameConversation(id: String, newTitle: String) {
-        viewModelScope.launch {
+        viewModelScope.launch(laneContext()) {
             chatRepo.rename(id, newTitle)
             if (currentConversationId == id) {
                 conversation?.title = newTitle
@@ -1468,7 +1933,10 @@ class ChatViewModel(
     }
 
     fun clearAllConversations() {
-        viewModelScope.launch {
+        dropBackgroundLane(null)
+        conversation = null
+        stopGeneration()
+        viewModelScope.launch(laneContext()) {
             chatRepo.deleteAll()
             rag.clearAllMemories()
             newChat()
@@ -1512,6 +1980,7 @@ class ChatViewModel(
     }
 
     fun stopGeneration() {
+        val wasRunning = genJob != null || isGenerating.value
         genJob?.cancel()
         genJob = null
         // A stopped compare must never chain pass 2 or merge into a later run.
@@ -1520,7 +1989,8 @@ class ChatViewModel(
         // Never leave an approval dialog hanging after stop/switch.
         denyMcpApproval()
         denyContainerApproval()
-        engine.cancelGeneration()
+        // Another chat may be generating in the background on the same engine.
+        if (wasRunning) engine.cancelGeneration()
         isGenerating.value = false
         if (messages.isNotEmpty() && messages.last().role == ChatConstants.ROLE_ASSISTANT && messages.last().content.isBlank()) {
             messages.removeAt(messages.lastIndex)
@@ -1721,9 +2191,9 @@ class ChatViewModel(
                     }
                     return currentSources
                 }
-                if (isContainerToolCall(genericCall.name)) {
-                    if (!containerReady(s)) {
-                        errorMessage.value = "Linux Environment not ready — run /env install or open /env to install, then retry."
+                if (isContainerToolCall(genericCall.name) || isSelfToolCall(genericCall.name)) {
+                    if (!isSelfToolCall(genericCall.name) && !containerReady(s)) {
+                        errorMessage.value = "Terminal not ready. Install it from Terminal in the sidebar (or /env install), then retry."
                         KLog.w("ChatVM", "Container call skipped: environment not ready")
                     } else {
                         return handleContainerToolCall(
@@ -1861,6 +2331,57 @@ class ChatViewModel(
         return updatedSources
     }
 
+    private val agentConfig get() = com.raikaai.app.core.agent.AgentConfig.get(app)
+
+    /**
+     * Tools the agent loops (local and remote) can run: Linux workspace
+     * tools, Raika's own tools (remember, add_mcp_server) and tools on the
+     * user's MCP servers.
+     */
+    private fun isAgentToolCall(name: String): Boolean =
+        isContainerToolCall(name) || name.lowercase() in AGENT_SELF_TOOLS ||
+            (settings.value.mcpEnabled && mcpManager.findTool(name) != null)
+
+    /** Raika's own tools; they need no Linux environment. */
+    private fun isSelfToolCall(name: String): Boolean = name.lowercase() in AGENT_SELF_TOOLS
+
+    /** One line per thing Raika can do right now, for the system prompt. */
+    private fun agentCapabilities(compact: Boolean): List<String> {
+        val s = settings.value
+        val call = { name: String, args: String -> "<tool_call>{\"name\": \"$name\", \"arguments\": $args}</tool_call>" }
+        val out = mutableListOf<String>()
+        if (compact) {
+            out += "remember tool ${call("remember", "{\"text\": \"...\"}")}"
+            if (s.enableWebSearch) out += "web search"
+            if (containerReady(s)) out += "Linux workspace"
+            val mcpCount = if (s.mcpEnabled) mcpManager.allEnabledTools().size else 0
+            if (mcpCount > 0) out += "$mcpCount MCP tools"
+            return out
+        }
+        out += "Memory: save a lasting fact or preference about the user with ${call("remember", "{\"text\": \"Prefers TypeScript\"}")}. It is stored in MEMORY.md and shown to you in every chat."
+        out += "MCP: install an MCP server yourself. Stdio servers run in the Linux workspace: install the runtime first if needed (`apk add nodejs npm` or `apk add python3 uv`), then " +
+            "${call("add_mcp_server", "{\"name\": \"context7\", \"command\": \"npx -y @upstash/context7-mcp\"}")}. Remote servers: {\"name\", \"url\"}. The user approves, then the tools are yours."
+        out += "Your home in Linux is /root/.raika: SOUL.md, AGENTS.md, MEMORY.md and chats/ (past chats as Markdown). You can read and edit these files with your Linux tools."
+        if (s.mcpEnabled) {
+            val servers = mcpManager.servers.value.filter { it.enabled }
+            if (servers.isNotEmpty()) {
+                out += "Connected MCP servers: " + servers.joinToString(", ") { srv ->
+                    val n = mcpManager.allEnabledTools().count { it.serverId == srv.id }
+                    "${srv.name} ($n tools)"
+                }
+            }
+        }
+        out += if (s.enableWebSearch) "Web search: on (results are added to your context)." else "Web search: off (the user can turn it on in Agent → Plugins)."
+        out += if (containerReady(s)) {
+            "Linux workspace (Alpine): ready; see the tools section. Past chats are Markdown files in ${com.raikaai.app.core.agent.ChatArchive.GUEST_DIR} (roleplay/ subfolder for roleplay): grep them when the user refers to an earlier conversation."
+        } else {
+            "Linux workspace: not installed."
+        }
+        val skillNames = skills.value.filter { it.isEnabled }.map { it.name }
+        if (skillNames.isNotEmpty()) out += "Active skills: " + skillNames.joinToString(", ")
+        return out
+    }
+
     private fun isContainerToolCall(name: String): Boolean {
         val n = name.lowercase()
         return n in CONTAINER_EXEC_NAMES || n in CONTAINER_INSTALL_NAMES ||
@@ -1944,6 +2465,115 @@ class ChatViewModel(
     )
 
     /**
+     * Runs Raika's own tools and MCP tools for the agent loops; null when
+     * [lower] is a Linux workspace tool. MCP calls and new servers need the
+     * user's approval, like terminal commands.
+     */
+    private suspend fun agentSelfOrMcpTool(
+        lower: String,
+        toolName: String,
+        args: com.google.gson.JsonObject,
+    ): ContainerDispatch? {
+        fun str(vararg keys: String): String =
+            keys.firstNotNullOfOrNull { k -> args.get(k)?.takeIf { it.isJsonPrimitive }?.asString?.trim()?.ifEmpty { null } }.orEmpty()
+        fun card(kind: String, title: String, ok: Boolean) =
+            "\n\n```raika-tool\n$kind\n${title.lineSequence().first().take(160)}\nexit=${if (ok) 0 else 1}\n```\n"
+        when (lower) {
+            "remember" -> {
+                val text = str("text", "fact", "memory", "content")
+                return runCatching { agentConfig.remember(text) }.fold(
+                    onSuccess = { line ->
+                        ContainerDispatch(
+                            "[MEMORY SAVED]\n$line\nIt is now in MEMORY.md. Continue with the user's request; do not repeat the fact back unless useful.",
+                            card("memory", text, ok = true), 0,
+                        )
+                    },
+                    onFailure = { e -> ContainerDispatch("[MEMORY ERROR]\n${e.message}. Call remember with {\"text\": \"...\"}.", null, 1) },
+                )
+            }
+            "add_mcp_server" -> {
+                val name = str("name").ifEmpty { "MCP server" }.take(40)
+                val url = str("url", "endpoint")
+                val command = str("command", "cmd")
+                val token = str("token", "auth_token", "api_key")
+                if (command.isEmpty() && !url.startsWith("https://") && !url.startsWith("http://")) {
+                    return ContainerDispatch(
+                        "[MCP ERROR]\nadd_mcp_server needs {\"name\", \"command\"} for a stdio server run in Linux " +
+                            "(e.g. \"npx -y @upstash/context7-mcp\"), or {\"name\", \"url\"} for a Streamable HTTP endpoint.",
+                        null, 1,
+                    )
+                }
+                if (command.isNotEmpty() && !containerReady(settings.value)) {
+                    return ContainerDispatch("[MCP ERROR]\nStdio MCP servers run in the Linux workspace, which is not installed.", null, 1)
+                }
+                val approved =
+                    requestMcpApproval(
+                        com.raikaai.app.mcp.McpCallRequest(
+                            serverId = "raika",
+                            serverName = "RaikaAI",
+                            toolName = "add_mcp_server",
+                            arguments = com.google.gson.JsonObject().apply {
+                                addProperty("name", name)
+                                if (command.isNotEmpty()) addProperty("command", command) else addProperty("url", url)
+                                if (token.isNotEmpty()) addProperty("token", "(hidden)")
+                            },
+                        ),
+                    )
+                if (!approved) return ContainerDispatch("[MCP DENIED]\nThe user declined adding $name. Do not retry; ask how to continue.", card("mcp", "Add $name (declined)", ok = false), 1)
+                val existing = mcpManager.servers.value.firstOrNull { it.name.equals(name, ignoreCase = true) }
+                val config =
+                    com.raikaai.app.mcp.McpServerConfig(
+                        id = existing?.id ?: java.util.UUID.randomUUID().toString(),
+                        name = name,
+                        url = if (command.isNotEmpty()) "" else url,
+                        command = command,
+                        addedByAgent = true,
+                    )
+                settingsRepo.upsertMcpServer(config, token.ifEmpty { null })
+                if (!settings.value.mcpEnabled) settingsRepo.setMcpEnabled(true)
+                val withToken = if (token.isNotEmpty()) config.copy(authToken = token) else config
+                return runCatching { mcpManager.refreshTools(withToken) }.fold(
+                    onSuccess = { tools ->
+                        ContainerDispatch(
+                            "[MCP SERVER ADDED]\n$name (${config.location}): ${tools.size} tools.\n" +
+                                tools.take(30).joinToString("\n") { "- ${it.signature}: ${it.description.take(120)}" } +
+                                "\nYou can call these tools now with <tool_call>.",
+                            card("mcp", "Connected $name · ${tools.size} tools", ok = true), 0,
+                        )
+                    },
+                    onFailure = { e ->
+                        ContainerDispatch(
+                            "[MCP ERROR]\n$name was saved but discovery failed: ${e.message}. Tell the user; they can check it in Agent → MCP.",
+                            card("mcp", "Add $name (discovery failed)", ok = false), 1,
+                        )
+                    },
+                )
+            }
+        }
+        if (!settings.value.mcpEnabled) return null
+        val tool = mcpManager.findTool(toolName) ?: return null
+        val req = com.raikaai.app.mcp.McpCallRequest(tool.serverId, tool.serverName, tool.name, args)
+        if (!requestMcpApproval(req)) {
+            return ContainerDispatch(
+                "[MCP TOOL CALL DENIED]\nThe user denied `${tool.name}`. Do not retry it; ask how to continue.",
+                card("mcp", "${tool.name} (declined)", ok = false), 1,
+            )
+        }
+        return runCatching { mcpManager.callTool(tool.serverId, tool.name, args) }.fold(
+            onSuccess = { r ->
+                ContainerDispatch(
+                    "[MCP TOOL RESULT]\nTool: ${tool.name} [server: ${tool.serverName}]\n" +
+                        (if (r.isError) "The tool reported an error:\n" else "") + "Result:\n${r.text.take(8000)}",
+                    card("mcp", "${tool.name} · ${tool.serverName}", ok = !r.isError), if (r.isError) 1 else 0,
+                )
+            },
+            onFailure = { e ->
+                ContainerDispatch("[MCP TOOL ERROR]\nCalling `${tool.name}` failed: ${e.message}. Explain briefly.", card("mcp", "${tool.name} failed", ok = false), 1)
+            },
+        )
+    }
+
+    /**
      * Shared executor for all container tools (local + remote): daemon
      * manager calls, policy gate, approval, run-or-detach, verbose block.
      * Returns the model-facing context, an optional user-visible block,
@@ -1960,6 +2590,7 @@ class ChatViewModel(
         followUpErrCap: Int = 1000,
     ): ContainerDispatch {
         val lower = toolName.lowercase()
+        agentSelfOrMcpTool(lower, toolName, args)?.let { return it }
         if (lower == "list_daemons") {
             val list = containerManager.listDaemons()
             return ContainerDispatch(
@@ -2034,11 +2665,13 @@ class ChatViewModel(
                 )
             }
             val oldString = runCatching {
-                args.get("old_string") ?: args.get("oldString") ?: args.get("find") ?: args.get("pattern") ?: args.get("old")
+                args.get("old_string") ?: args.get("oldString") ?: args.get("oldText") ?: args.get("find") ?: args.get("pattern") ?: args.get("old")
             }.getOrNull()?.takeIf { it.isJsonPrimitive }?.asString.orEmpty()
             val newString = runCatching {
-                args.get("new_string") ?: args.get("newString") ?: args.get("replace") ?: args.get("new")
+                args.get("new_string") ?: args.get("newString") ?: args.get("newText") ?: args.get("replace") ?: args.get("new")
             }.getOrNull()?.takeIf { it.isJsonPrimitive }?.asString.orEmpty()
+            // pi-style multi-edit: "edits": [{"oldText": "...", "newText": "..."}, ...]
+            val multiEdits = parseEditList(args)
             val replaceAll = listOf("replace_all", "replaceAll", "all").any { k ->
                 runCatching {
                     val v = args.get(k) ?: return@any false
@@ -2049,9 +2682,9 @@ class ChatViewModel(
                     }
                 }.getOrDefault(false)
             }
-            if (oldString.isEmpty()) {
+            if (oldString.isEmpty() && multiEdits.isEmpty()) {
                 return ContainerDispatch(
-                    "[CONTAINER TOOL ERROR]\nedit_file requires \"old_string\" (exact text to find).",
+                    "[CONTAINER TOOL ERROR]\nedit_file requires \"edits\": [{\"oldText\", \"newText\"}] (or \"old_string\"/\"new_string\").",
                     null, null,
                 )
             }
@@ -2068,7 +2701,12 @@ class ChatViewModel(
                 )
             }
             return try {
-                val res = containerManager.editFile(path, oldString, newString, replaceAll)
+                val res =
+                    if (multiEdits.isNotEmpty()) {
+                        containerManager.multiEditFile(path, multiEdits)
+                    } else {
+                        containerManager.editFile(path, oldString, newString, replaceAll)
+                    }
                 ranThisTurn?.set("edit_file:${res.path}", 0)
                 val auto = yolo || alwaysAllowed
                 val block = formatContainerRunBlock(
@@ -2160,7 +2798,17 @@ class ChatViewModel(
                 null, null,
             )
         }
-        if (policy == com.raikaai.app.core.container.InstallPolicy.DENY) {
+        val fullAccess = settings.value.containerFullAccess
+        if (policy == com.raikaai.app.core.container.InstallPolicy.DENY && fullAccess) {
+            // Full access: destructive commands are allowed, after one explicit OK.
+            onStatus(pendingToolCard(command))
+            if (!requestContainerApproval(command)) {
+                return ContainerDispatch(
+                    "[CONTAINER TOOL CALL DENIED]\nThe user denied running `$command`. Ask how to proceed.",
+                    null, null,
+                )
+            }
+        } else if (policy == com.raikaai.app.core.container.InstallPolicy.DENY) {
             KLog.w("ChatVM", "Container call denied by policy: $command")
             return ContainerDispatch(
                 "[CONTAINER TOOL DENIED]\nThat command is blocked by policy (destructive or untrusted source). " +
@@ -2168,7 +2816,7 @@ class ChatViewModel(
                 null, null,
             )
         }
-        onStatus("Running `$command` in Linux Environment…")
+        onStatus(pendingToolCard(command))
         val normalized = com.raikaai.app.core.container.normalizeCommand(command)
         val alwaysAllowed = normalized in com.raikaai.app.core.container.parseAlwaysAllow(alwaysAllowJson)
         val approved = if (policy == com.raikaai.app.core.container.InstallPolicy.ASK && !yolo && !alwaysAllowed) {
@@ -2202,19 +2850,23 @@ class ChatViewModel(
         // the flag: a foreground run blocks until `timeout`, then force-kills
         // the process tree, so the agent ends up reporting a dead server.
         val serverLike = com.raikaai.app.core.container.looksLikeServerCommand(command)
-        val res = if (wantsBackground || com.raikaai.app.core.container.containsBackgroundOp(command) || serverLike) {
+        val rawRes = if (wantsBackground || com.raikaai.app.core.container.containsBackgroundOp(command) || serverLike) {
             containerManager.startDaemon(command)
         } else {
             containerManager.run(command, timeoutSec = timeout)
         }
+        // Programs color and position their output (fastfetch, npm): apply
+        // that like a terminal and drop the escape codes, for the chat card
+        // and for the model alike.
+        val res = rawRes.copy(stdout = plainTerminalText(rawRes.stdout), stderr = plainTerminalText(rawRes.stderr))
         KLog.d("ChatVM", "Container tool exit=${res.exitCode} timedOut=${res.timedOut}")
         ranThisTurn?.set(com.raikaai.app.core.container.dedupKeyOf(command), res.exitCode)
         val block = formatContainerRunBlock(
             command, res.stdout, res.stderr, res.exitCode, res.timedOut, autoApproved = auto,
         )
         val ctx = "[CONTAINER TOOL RESULT]\nCommand: $command\nExit: ${res.exitCode}${if (res.timedOut) " (timed out)" else ""}\n" +
-            "stdout:\n${res.stdout.take(followUpOutCap)}\n" +
-            (if (res.stderr.isNotBlank()) "stderr:\n${res.stderr.take(followUpErrCap)}\n" else "") +
+            "stdout:\n${tailForModel(res.stdout, followUpOutCap)}\n" +
+            (if (res.stderr.isNotBlank()) "stderr:\n${tailForModel(res.stderr, followUpErrCap)}\n" else "") +
             (if (res.exitCode == 127) "\nHINT: 'command not found' — this minimal rootfs has busybox applets (wget, netstat, unzip, ifconfig) plus a curl shim; anything else needs `apk add` first.\n" else "") +
             (if (res.exitCode != 0 && command.contains('\n')) "\nHINT: the command contained a line break. If a path or package name got split across lines, re-emit the ENTIRE tool call on ONE single line.\n" else "") +
             "[NEXT ACTION]\nIf you got the information you needed, proceed directly to reading/writing files or answer the user. Do NOT repeat the same shell command."
@@ -2222,9 +2874,10 @@ class ChatViewModel(
     }
 
     /**
-     * Executes one autonomous container tool call round: policy gate
-     * (ALLOW → run, ASK → approval → run, DENY → refuse) → follow-up stream
-     * with the result injected. Exactly one round per generation.
+     * On-device agent loop (pi-style): run the call, show the result card,
+     * stream a follow-up with the result, and keep going while the follow-up
+     * asks for another container tool. Bounded by [MAX_LOCAL_TOOL_ROUNDS];
+     * an equivalent command is never run twice in one turn.
      */
     private suspend fun handleContainerToolCall(
         call: com.raikaai.app.skills.ToolCallParser.GenericToolCall,
@@ -2237,83 +2890,98 @@ class ChatViewModel(
         onMetricsUpdate: (LiteRtEngineManager.InferenceMetrics) -> Unit,
     ): List<String>? {
         val idx = messages.lastIndex
-        val dispatched = dispatchContainerTool(
-            call.name, call.arguments, s.containerYolo, null, s.containerAlwaysAllowJson,
-            onStatus = { status ->
-                if (currentConversationId == targetChatId && idx >= 0 && messages[idx].role == ChatConstants.ROLE_ASSISTANT) {
-                    val curr = messages[idx].content
-                    val updated = if (call.rawCallText.isNotBlank() && curr.contains(call.rawCallText)) {
-                        curr.replace(call.rawCallText, "\n\n_${status}_\n\n")
-                    } else curr
-                    messages[idx] = messages[idx].copy(content = updated)
-                }
-            },
-        )
-        val toolContext = dispatched.toolContext
-        val executedBlock: String? = dispatched.block
-        if (currentConversationId != targetChatId) return currentSources
-
-        // In-place replace tool call with executed block in the message
-        if (idx >= 0 && messages[idx].role == ChatConstants.ROLE_ASSISTANT) {
-            val curr = messages[idx].content
-            val block = executedBlock.orEmpty()
-            val withBlock = when {
-                call.rawCallText.isNotBlank() && curr.contains(call.rawCallText) ->
-                    curr.replace(call.rawCallText, block)
-                curr.contains("\n_Running ") || curr.contains("\n_Executing ") -> {
-                    val clean = curr.replace(Regex("\n*_[A-Za-z0-9 `.…_-]+_\n*"), "\n\n")
-                    if (block.isNotBlank()) clean.trimEnd() + "\n\n" + block else clean
-                }
-                block.isNotBlank() ->
-                    curr.trimEnd() + "\n\n" + block
-                else -> curr
-            }
-            messages[idx] = messages[idx].copy(content = withBlock.trimEnd() + "\n\n")
-        }
-
-        // Inject the tool outcome into the last user turn and stream a follow-up.
-        val followUpHistory = history.mapIndexed { i, msg ->
-            if (i == history.lastIndex && msg.role.equals(ChatConstants.ROLE_USER, ignoreCase = true)) {
-                PromptBuilder.ChatMessage(
-                    role = ChatConstants.ROLE_USER,
-                    content = "$toolContext\n\nQuestion: ${msg.content}",
-                )
-            } else {
-                msg
-            }
-        }
-        val followUpPrompt =
-            PromptBuilder.build(
-                messages = followUpHistory,
-                systemPrompt = effectiveSystem,
-                templateFormat = s.promptTemplateFormat,
-                modelPath = modelPath,
-                enableThinking = s.enableThinking,
-                contextWindow = s.contextWindowTokens,
+        val ranThisTurn = mutableMapOf<String, Int>()
+        // Small on-device context: only the most recent results are re-sent.
+        val recentResults = ArrayDeque<String>()
+        var current = call
+        var rounds = 0
+        while (true) {
+            rounds++
+            var statusMarker: String? = null
+            val dispatched = dispatchContainerTool(
+                current.name, current.arguments, s.containerYolo, ranThisTurn, s.containerAlwaysAllowJson,
+                // On-device context is small: keep each tool result short.
+                followUpOutCap = 1500, followUpErrCap = 400,
+                onStatus = { marker ->
+                    if (currentConversationId == targetChatId && idx >= 0 && messages[idx].role == ChatConstants.ROLE_ASSISTANT) {
+                        val curr = messages[idx].content
+                        if (current.rawCallText.isNotBlank() && curr.contains(current.rawCallText)) {
+                            statusMarker = marker
+                            messages[idx] = messages[idx].copy(content = curr.replaceFirstLiteral(current.rawCallText, marker))
+                        }
+                    }
+                },
             )
+            if (currentConversationId != targetChatId) return currentSources
 
-        // B42: never mutate a new conversation with this chat's tool-call state.
-        if (currentConversationId != targetChatId) return currentSources
+            // Swap the call (or its running card) for the result card.
+            if (idx >= 0 && messages[idx].role == ChatConstants.ROLE_ASSISTANT) {
+                val withBlock = swapInToolResult(messages[idx].content, statusMarker, current.rawCallText, dispatched.block.orEmpty())
+                messages[idx] = messages[idx].copy(content = withBlock.trimEnd() + "\n\n")
+            }
+            recentResults.addLast(dispatched.toolContext)
+            while (recentResults.size > 3) recentResults.removeFirst()
 
-        collectStreamIntoMessage(
-            deltas =
-                engine.streamResponse(
-                    prompt = followUpPrompt,
-                    params =
-                        LiteRtEngineManager.engineParamsFromSettings(
-                            s = s,
-                            modelPath = modelPath,
-                            systemPrompt = effectiveSystem,
-                            enableThinking = s.enableThinking,
-                            temperature = effectiveTemperature(s),
-                            topK = effectiveTopK(s),
-                            maxTokens = s.maxTokens,
-                        ),
-                    onMetrics = { onMetricsUpdate(it) },
-                ),
-            targetChatId = targetChatId,
-        )
+            // Inject the tool outcomes into the last user turn and stream a follow-up.
+            val toolContext = recentResults.joinToString("\n\n")
+            val followUpHistory = history.mapIndexed { i, msg ->
+                if (i == history.lastIndex && msg.role.equals(ChatConstants.ROLE_USER, ignoreCase = true)) {
+                    PromptBuilder.ChatMessage(
+                        role = ChatConstants.ROLE_USER,
+                        content = "$toolContext\n\nQuestion: ${msg.content}",
+                    )
+                } else {
+                    msg
+                }
+            }
+            val followUpPrompt =
+                PromptBuilder.build(
+                    messages = followUpHistory,
+                    systemPrompt = effectiveSystem,
+                    templateFormat = s.promptTemplateFormat,
+                    modelPath = modelPath,
+                    enableThinking = s.enableThinking,
+                    contextWindow = s.contextWindowTokens,
+                )
 
+            // B42: never mutate a new conversation with this chat's tool-call state.
+            if (currentConversationId != targetChatId) return currentSources
+
+            val roundStart = messages.getOrNull(idx)?.content?.length ?: 0
+            collectStreamIntoMessage(
+                deltas =
+                    engine.streamResponse(
+                        prompt = followUpPrompt,
+                        params =
+                            LiteRtEngineManager.engineParamsFromSettings(
+                                s = s,
+                                modelPath = modelPath,
+                                systemPrompt = effectiveSystem,
+                                enableThinking = s.enableThinking,
+                                temperature = effectiveTemperature(s),
+                                topK = effectiveTopK(s),
+                                maxTokens = s.maxTokens,
+                            ),
+                        onMetrics = { onMetricsUpdate(it) },
+                    ),
+                targetChatId = targetChatId,
+            )
+            if (currentConversationId != targetChatId) return currentSources
+
+            // Continue only when this follow-up asked for another sandbox tool.
+            val content = messages.getOrNull(idx)?.takeIf { it.role == ChatConstants.ROLE_ASSISTANT }?.content ?: break
+            val roundText = content.substring(roundStart.coerceIn(0, content.length))
+            val next = com.raikaai.app.skills.ToolCallParser.parseGenericCall(roundText) ?: break
+            if (!isAgentToolCall(next.name)) break
+            if (rounds >= MAX_LOCAL_TOOL_ROUNDS) {
+                messages[idx] = messages[idx].copy(
+                    content = content.replaceFirstLiteral(next.rawCallText, "").trimEnd() +
+                        "\n\n_(Stopped after $MAX_LOCAL_TOOL_ROUNDS tool rounds. Ask me to continue if needed.)_",
+                )
+                break
+            }
+            current = next
+        }
         return currentSources
     }
 
@@ -2513,7 +3181,7 @@ class ChatViewModel(
             !trimmed.startsWith("/killdaemon", ignoreCase = true) &&
             !trimmed.startsWith("/env", ignoreCase = true)
         ) return false
-        viewModelScope.launch {
+        viewModelScope.launch(laneContext()) {
             val reply = when {
                 trimmed.startsWith("/verbose", ignoreCase = true) -> {
                     val cmd = Regex("^/verbose\\s+(.+)", RegexOption.IGNORE_CASE)
@@ -2613,7 +3281,7 @@ class ChatViewModel(
     private fun tryHandleYoloCommand(body: String): Boolean {
         val trimmed = body.trim()
         if (!trimmed.startsWith("/yolo", ignoreCase = true)) return false
-        viewModelScope.launch {
+        viewModelScope.launch(laneContext()) {
             val arg = trimmed.drop("/yolo".length).trim().lowercase()
             val reply = when (arg) {
                 "on", "enable", "true", "1" -> {
@@ -2643,9 +3311,22 @@ class ChatViewModel(
     private fun tryHandlePermissionCommand(body: String): Boolean {
         val trimmed = body.trim()
         if (!trimmed.startsWith("/permission", ignoreCase = true)) return false
-        viewModelScope.launch {
+        viewModelScope.launch(laneContext()) {
             val arg = trimmed.drop("/permission".length).trim()
             val reply = when {
+                // One switch: ask before each command, or run them (destructive ones stay blocked).
+                arg.equals("ask", ignoreCase = true) -> {
+                    settingsRepo.setContainerPermission(0)
+                    "Permission: **Ask**. Raika asks before each Linux command."
+                }
+                arg.equals("full", ignoreCase = true) -> {
+                    settingsRepo.setContainerPermission(2)
+                    "Permission: **Full access**. Nothing is blocked; destructive commands ask once."
+                }
+                arg.equals("auto", ignoreCase = true) -> {
+                    settingsRepo.setContainerPermission(1)
+                    "Permission: **Auto**. Linux commands run without asking; destructive ones stay blocked."
+                }
                 arg.startsWith("yolo", ignoreCase = true) -> {
                     when (arg.drop("yolo".length).trim().lowercase()) {
                         "on", "enable", "true", "1" -> {
@@ -2693,7 +3374,7 @@ class ChatViewModel(
                     "Always-allow list cleared. All non-trivial commands ask approval again (YOLO aside)."
                 }
                 arg.isBlank() -> permissionStatusText()
-                else -> "Usage: /permission [yolo on|off | allow <command> | forget <n|command> | clear]"
+                else -> "Usage: /permission ask | auto | full | allow <command> | forget <n> | clear"
             }
             appendLocalExchange(trimmed, reply)
         }
@@ -2704,8 +3385,8 @@ class ChatViewModel(
         val s = settings.value
         val list = com.raikaai.app.core.container.parseAlwaysAllow(s.containerAlwaysAllowJson).toList()
         return buildString {
-            appendLine("Sandbox permissions")
-            appendLine("YOLO mode: ${if (s.containerYolo) "ON (auto-run all but destructive)" else "OFF (ask per command)"}")
+            appendLine("**Permission: ${if (s.containerYolo) "Auto" else "Ask"}**")
+            appendLine(if (s.containerYolo) "Linux commands run without asking (destructive ones stay blocked)." else "Raika asks before each Linux command.")
             if (list.isEmpty()) {
                 appendLine("Always allowed: (none)")
             } else {
@@ -2713,7 +3394,7 @@ class ChatViewModel(
                 list.forEachIndexed { i, cmd -> appendLine("${i + 1}. `$cmd`") }
             }
             append("Policy: destructive / untrusted commands are always blocked. ")
-            append("Manage: /permission allow <cmd> | /permission forget <n> | /permission clear | /permission yolo on|off")
+            append("Change: /permission ask | auto · /permission allow <cmd> · /permission forget <n>")
         }.trim()
     }
 
@@ -2733,7 +3414,7 @@ class ChatViewModel(
             }
             return
         }
-        viewModelScope.launch {
+        viewModelScope.launch(laneContext()) {
             imageGenState.value = "Generating image…"
             if (messageIndex in messages.indices) {
                 messages[messageIndex] = messages[messageIndex].copy(
@@ -2801,10 +3482,70 @@ class ChatViewModel(
         persist()
     }
 
+    /** A /btw side question: answered aside, never added to the chat. */
+    data class SideAnswer(val question: String, val answer: String = "", val loading: Boolean = true)
+
+    val sideAnswer = mutableStateOf<SideAnswer?>(null)
+    private var sideJob: Job? = null
+
+    fun dismissSideAnswer() {
+        sideJob?.cancel()
+        sideAnswer.value = null
+    }
+
+    /**
+     * `/btw <question>`: a quick question about the current chat. It sees the
+     * recent turns but its answer is not saved and is not sent to the model
+     * later. On-device (LiteRT) gets a short context and waits for a running
+     * reply, since the engine runs one generation at a time.
+     */
+    private fun askSideQuestion(question: String) {
+        val s = effectiveSettings()
+        val local = s.modelSource != ChatConstants.SOURCE_REMOTE
+        if (local && isGenerating.value) {
+            sideAnswer.value = SideAnswer(question, "Wait until the current reply finishes; the on-device model answers one thing at a time.", loading = false)
+            return
+        }
+        val budget = if (local) 2500 else 16000
+        val recent =
+            messages.filter { it.role == ChatConstants.ROLE_USER || it.role == ChatConstants.ROLE_ASSISTANT }
+                .mapNotNull { m -> stripThinking(m.content).trim().takeIf { it.isNotBlank() }?.let { "[${m.role}] $it" } }
+                .reversed()
+                .fold(mutableListOf<String>()) { acc, line ->
+                    if (acc.sumOf { it.length } + line.length <= budget) acc.add(line)
+                    acc
+                }.reversed()
+        val prompt =
+            buildString {
+                if (recent.isNotEmpty()) {
+                    appendLine("Conversation so far (context only):")
+                    recent.forEach { appendLine(it) }
+                    appendLine()
+                }
+                appendLine("Side question from the user. Answer it directly and briefly, in the user's language.")
+                appendLine("Do not continue the main task, do not call tools.")
+                appendLine()
+                append(question)
+            }
+        sideAnswer.value = SideAnswer(question)
+        sideJob?.cancel()
+        sideJob =
+            viewModelScope.launch {
+                val window = if (local) s.contextWindowTokens else s.effectiveRemoteContextWindow(s.remoteModelId)
+                val text =
+                    runCatching { stripThinking(generateCompactedSummary(s, prompt, window, SIDE_SYSTEM)).trim() }
+                        .getOrElse { "Couldn't answer: ${it.message ?: it.javaClass.simpleName}" }
+                if (sideAnswer.value?.question == question) {
+                    sideAnswer.value = SideAnswer(question, text.ifBlank { "(no answer)" }, loading = false)
+                }
+            }
+    }
+
     private suspend fun generateCompactedSummary(
         s: Settings,
         prompt: String,
         windowTokens: Int,
+        system: String = "You maintain a rolling memory summary of an ongoing conversation. Output ONLY the summary text concisely.",
     ): String {
         if (s.modelSource == ChatConstants.SOURCE_REMOTE) {
             val cleanUrl = s.remoteBaseUrl.trim()
@@ -2813,10 +3554,7 @@ class ChatViewModel(
             }
             val remoteMessages =
                 listOf(
-                    RemoteChatMessage(
-                        role = "system",
-                        text = "You maintain a rolling memory summary of an ongoing conversation. Output ONLY the summary text concisely.",
-                    ),
+                    RemoteChatMessage(role = "system", text = system),
                     RemoteChatMessage(role = "user", text = prompt),
                 )
             val sb = StringBuilder()
@@ -2888,7 +3626,7 @@ class ChatViewModel(
         errorMessage.value = null
 
         genJob =
-            viewModelScope.launch {
+            viewModelScope.launch(laneContext()) {
                 try {
                     val clean =
                         foldable.mapNotNull { m ->
@@ -3021,8 +3759,145 @@ class ChatViewModel(
         }
     }
 
+    /** True when the Linux environment is installed (gates its slash commands). */
+    fun isLinuxInstalled(): Boolean = runCatching { containerManager.isInstalled() }.getOrDefault(false)
+
+    /** Slash commands offered in the current chat (normal chat vs roleplay). */
+    fun availableCommands(): List<SlashCommand> = availableSlashCommands(roleplayMode, isLinuxInstalled())
+
+    /**
+     * Session commands that need no model call (/new, /retry, /help, /skills)
+     * plus "/model", which the screen handles by opening the model picker.
+     * Returns true when [body] was consumed.
+     */
+    private fun tryHandleSessionCommand(body: String): Boolean {
+        val trimmed = body.trim()
+        val name = trimmed.substringBefore(' ').lowercase()
+        val arg = trimmed.substringAfter(' ', "").trim()
+        when (name) {
+            "/new", "/clear" -> {
+                newChat()
+                return true
+            }
+            "/retry", "/regen" -> {
+                if (messages.any { it.role == ChatConstants.ROLE_ASSISTANT }) {
+                    regenerateLastResponse()
+                } else {
+                    errorMessage.value = "Nothing to retry yet."
+                }
+                return true
+            }
+            "/help", "/?" -> {
+                appendLocalExchange(trimmed, slashHelpText(availableCommands()))
+                return true
+            }
+            "/btw" -> {
+                if (arg.isBlank()) errorMessage.value = "Usage: /btw <question>" else askSideQuestion(arg)
+                return true
+            }
+            "/remember" -> {
+                if (arg.isBlank()) {
+                    errorMessage.value = "Usage: /remember <fact about you>"
+                } else {
+                    val line = runCatching { agentConfig.remember(arg) }.getOrElse { "Couldn't save: ${it.message}" }
+                    appendLocalExchange(trimmed, "Saved to memory:\n$line")
+                }
+                return true
+            }
+            "/skills", "/skill" -> {
+                viewModelScope.launch(laneContext()) { appendLocalExchange(trimmed, handleSkillsCommand(arg)) }
+                return true
+            }
+        }
+        return false
+    }
+
+    private suspend fun handleSkillsCommand(arg: String): String {
+        val all = skillsManager.skills.value
+        if (all.isEmpty()) return "No skills installed. Add one from the Skills screen."
+        if (arg.isBlank()) {
+            return buildString {
+                append("**Skills** (toggle with `/skills <name>`)\n\n")
+                all.forEach { sk ->
+                    append(if (sk.isEnabled) "- ✅ " else "- ⬜ ")
+                    append("**${sk.name}** — ${sk.description.take(90)}\n")
+                }
+            }.trimEnd()
+        }
+        val match =
+            all.firstOrNull { it.name.equals(arg, ignoreCase = true) || it.id.equals(arg, ignoreCase = true) }
+                ?: all.filter { it.name.contains(arg, ignoreCase = true) }.singleOrNull()
+                ?: return "No single skill matches \"$arg\". Type `/skills` to see the list."
+        skillsManager.toggleSkill(match.id, !match.isEnabled)
+        return "Skill **${match.name}** is now ${if (match.isEnabled) "off" else "on"}."
+    }
+
+    /**
+     * Rewrites roleplay / shortcut commands into the text actually sent to
+     * the model. Returns [body] unchanged when it is not such a command.
+     */
+    private fun rewriteShortcutCommand(body: String): String {
+        val trimmed = body.trim()
+        val name = trimmed.substringBefore(' ').lowercase()
+        val arg = trimmed.substringAfter(' ', "").trim()
+        return when {
+            name == "/continue" -> "(Continue the scene from where it stopped. Stay in character and do not speak for me.)"
+            name == "/ooc" && arg.isNotBlank() -> "(OOC: $arg)"
+            name == "/scene" && arg.isNotBlank() -> "[Scene direction: $arg. Narrate it and react in character.]"
+            name == "/remind" && arg.isNotBlank() -> "remind me $arg"
+            else -> body
+        }
+    }
+
+    /** One automatic retry per user turn when a reply ends after thinking only. */
+    private var thinkingOnlyRetried = false
+
+    /** A message typed while a reply was still being written. */
+    data class QueuedMessage(val id: Long, val chatId: String?, val text: String)
+
+    val queuedMessages = androidx.compose.runtime.mutableStateListOf<QueuedMessage>()
+    private var queueSeq = 0L
+    private var queueWatcherStarted = false
+
+    /** Sends queued messages of the open chat once its reply is done. */
+    private fun startQueueWatcher() {
+        if (queueWatcherStarted) return
+        queueWatcherStarted = true
+        viewModelScope.launch {
+            androidx.compose.runtime.snapshotFlow { Triple(isGenerating.value, queuedMessages.size, currentConversationId) }
+                .collect { (generating, size, chatId) ->
+                    if (generating || size == 0) return@collect
+                    val next = queuedMessages.firstOrNull { it.chatId == chatId } ?: return@collect
+                    queuedMessages.remove(next)
+                    sendMessage(next.text)
+                }
+        }
+    }
+
+    fun removeQueued(id: Long) {
+        queuedMessages.removeAll { it.id == id }
+    }
+
+    /** Stops the running reply; the queued message then goes out first. */
+    fun sendQueuedNow(id: Long) {
+        val item = queuedMessages.firstOrNull { it.id == id } ?: return
+        queuedMessages.remove(item)
+        queuedMessages.add(0, item)
+        stopGeneration()
+    }
+
     fun sendMessage(userText: String) {
-        val body = userText.trim()
+        thinkingOnlyRetried = false
+        if (isGenerating.value && userText.isNotBlank()) {
+            val t = userText.trim()
+            // Side questions answer at once; everything else waits its turn.
+            if (t.startsWith("/btw", ignoreCase = true) && tryHandleSessionCommand(t)) return
+            startQueueWatcher()
+            queuedMessages.add(QueuedMessage(++queueSeq, currentConversationId, t))
+            return
+        }
+        if (!isGenerating.value && userText.trim().startsWith("/") && tryHandleSessionCommand(userText)) return
+        val body = rewriteShortcutCommand(userText).trim()
         val currentAudioFile = selectedAudioFile.value
         val pending = selectedAttachments.value
         if ((body.isBlank() && pending.isEmpty() && currentAudioFile == null) || isGenerating.value) return
@@ -3042,7 +3917,7 @@ class ChatViewModel(
         // model, pass 2 is chained from the generation finally-block.
         pendingComparePass = comparePassFor(s)
         genJob =
-            viewModelScope.launch {
+            viewModelScope.launch(laneContext()) {
             var savedAudioFile: File? = currentAudioFile
             var audioBytes: ByteArray? = null
             if (savedAudioFile != null) {
@@ -3296,7 +4171,7 @@ class ChatViewModel(
         var remoteFinishReason: String? = null
 
         genJob =
-            viewModelScope.launch {
+            viewModelScope.launch(laneContext()) {
                 try {
                     var systemContent = resolveSystemPrompt(s)
                     if (!s.enableThinking) {
@@ -3438,6 +4313,15 @@ class ChatViewModel(
                                         outputTokens,
                                     )
                                     messages[idx] = current.copy(stats = badge)
+                                    // Usually a one-off provider hiccup: retry once by itself
+                                    // after this run releases isGenerating.
+                                    if (!thinkingOnlyRetried) {
+                                        thinkingOnlyRetried = true
+                                        viewModelScope.launch(laneContext()) {
+                                            androidx.compose.runtime.snapshotFlow { isGenerating.value }.first { generating -> !generating }
+                                            if (currentConversationId == targetRemoteChatId) regenerateLastResponse()
+                                        }
+                                    }
                                 } else {
                                     messages.removeAt(idx)
                                     errorMessage.value = "Remote model returned an empty response. Please try again."
@@ -3450,7 +4334,12 @@ class ChatViewModel(
                                 // finish_reason=length means the PROVIDER cut the reply
                                 // at its own cap (our max_tokens request was higher).
                                 // Surfacing it answers "kepotong" complaints in-app.
-                                val cutSuffix = if (remoteFinishReason == "length") " · provider limit" else ""
+                                val cutSuffix =
+                                    when (remoteFinishReason) {
+                                        "length" -> " · provider limit"
+                                        null -> " · incomplete"
+                                        else -> ""
+                                    }
                                 KLog.d(
                                     "ChatVM",
                                     "Remote done: requested max_tokens=${s.maxTokens}, " +
@@ -3517,13 +4406,17 @@ class ChatViewModel(
         if (idx < 0 || messages[idx].role != ChatConstants.ROLE_ASSISTANT) return
         if (currentConversationId != targetChatId) return
         val firstCall = com.raikaai.app.skills.ToolCallParser.parseGenericCall(messages[idx].content) ?: return
-        if (!isContainerToolCall(firstCall.name)) return
-        if (!containerReady(s)) {
-            errorMessage.value = "Linux Environment not ready — run /env install or open /env to install, then retry."
+        if (!isAgentToolCall(firstCall.name)) return
+        if (isContainerToolCall(firstCall.name) && !containerReady(s)) {
+            errorMessage.value = "Terminal not ready. Install it from Terminal in the sidebar (or /env install), then retry."
             KLog.w("ChatVM", "Remote container call skipped: environment not ready")
             return
         }
         var rounds = 0
+        // Where the model's text for the current round starts in the message,
+        // and whether that text still has to be recorded in the agent history.
+        var roundStart = 0
+        var freshRound = true
         val ranThisTurn = mutableMapOf<String, Int>()
         val executedBlocks = mutableListOf<String>()
         var keptRawFallback = false
@@ -3543,20 +4436,30 @@ class ChatViewModel(
         while (rounds < MAX_CONTAINER_ROUNDS) {
             if (currentConversationId != targetChatId) return
             val call = com.raikaai.app.skills.ToolCallParser.parseGenericCall(messages[idx].content) ?: break
-            if (!isContainerToolCall(call.name)) break
+            if (!isAgentToolCall(call.name)) break
             rounds++
             KLog.d("ChatVM", "Remote container round $rounds/$MAX_CONTAINER_ROUNDS: ${call.name}")
-            val assistantCallText = messages[idx].content
+            // Only the model's own raw text of this round goes into the agent
+            // history. Sending the whole message (earlier rounds' status
+            // lines and rendered result blocks) made models imitate that
+            // format and repeat commands.
+            if (freshRound) {
+                val content = messages[idx].content
+                val roundText = content.substring(roundStart.coerceIn(0, content.length)).trim()
+                agentMessages.add(RemoteChatMessage(role = "assistant", text = roundText))
+                freshRound = false
+            }
+            var statusMarker: String? = null
             val dispatched = dispatchContainerTool(
                 call.name, call.arguments, s.containerYolo, ranThisTurn, s.containerAlwaysAllowJson,
                 followUpOutCap = 3500, followUpErrCap = 600,
-                onStatus = { status ->
+                onStatus = { marker ->
                     if (currentConversationId == targetChatId && messages[idx].role == ChatConstants.ROLE_ASSISTANT) {
                         val curr = messages[idx].content
-                        val updated = if (call.rawCallText.isNotBlank() && curr.contains(call.rawCallText)) {
-                            curr.replace(call.rawCallText, "\n\n_${status}_\n\n")
-                        } else curr
-                        messages[idx] = messages[idx].copy(content = updated)
+                        if (call.rawCallText.isNotBlank() && curr.contains(call.rawCallText)) {
+                            statusMarker = marker
+                            messages[idx] = messages[idx].copy(content = curr.replaceFirstLiteral(call.rawCallText, marker))
+                        }
                     }
                 },
             )
@@ -3567,26 +4470,21 @@ class ChatViewModel(
             // Replace tool call in message in-place (never wipe assistant text or generated code)
             val block = dispatched.block.orEmpty()
             val curr = messages[idx].content
-            val withBlock = when {
-                call.rawCallText.isNotBlank() && curr.contains(call.rawCallText) ->
-                    curr.replace(call.rawCallText, block)
-                curr.contains("\n_Running ") || curr.contains("\n_Executing ") -> {
-                    val clean = curr.replace(Regex("\n*_[A-Za-z0-9 `.…_-]+_\n*"), "\n\n")
-                    if (block.isNotBlank()) clean.trimEnd() + "\n\n" + block else clean
-                }
-                block.isNotBlank() ->
-                    curr.trimEnd() + "\n\n" + block
-                else -> curr
-            }
+            val withBlock = swapInToolResult(curr, statusMarker, call.rawCallText, block)
             messages[idx] = messages[idx].copy(content = withBlock.trim())
 
-            // Record this turn in the ongoing agent conversation
-            agentMessages.add(RemoteChatMessage(role = "assistant", text = assistantCallText))
-            agentMessages.add(RemoteChatMessage(role = "user", text = toolContext))
+            // Record the tool result; several queued calls of one round are
+            // merged into a single user turn.
+            val last = agentMessages.lastOrNull()
+            if (last != null && last.role == "user") {
+                agentMessages[agentMessages.lastIndex] = last.copy(text = last.text + "\n\n" + toolContext)
+            } else {
+                agentMessages.add(RemoteChatMessage(role = "user", text = toolContext))
+            }
 
             // If there's another tool call already present in this message, execute it in the next round
             val nextQueuedCall = com.raikaai.app.skills.ToolCallParser.parseGenericCall(messages[idx].content)
-            if (nextQueuedCall != null && isContainerToolCall(nextQueuedCall.name)) {
+            if (nextQueuedCall != null && isAgentToolCall(nextQueuedCall.name)) {
                 continue
             }
 
@@ -3599,6 +4497,8 @@ class ChatViewModel(
             // Append spacing before streaming follow-up without deleting prior content
             val beforeStream = messages[idx].content.trimEnd()
             messages[idx] = messages[idx].copy(content = "$beforeStream\n\n")
+            roundStart = messages[idx].content.length
+            freshRound = true
 
             var followFinishReason: String? = null
             try {
@@ -3629,7 +4529,7 @@ class ChatViewModel(
             messages[idx].role == ChatConstants.ROLE_ASSISTANT
         ) {
             val more = com.raikaai.app.skills.ToolCallParser.parseGenericCall(messages[idx].content)
-            if (more != null && isContainerToolCall(more.name)) {
+            if (more != null && isAgentToolCall(more.name)) {
                 messages[idx] = messages[idx].copy(
                     content = messages[idx].content +
                         "\n\n_(Stopped after $MAX_CONTAINER_ROUNDS tool rounds — ask me to continue if needed.)_",
@@ -3712,7 +4612,7 @@ class ChatViewModel(
         val targetChatId = currentConversationId
 
         genJob =
-            viewModelScope.launch {
+            viewModelScope.launch(laneContext()) {
                 // Disk reads stay off the main thread (large camera photos).
                 val imageBytes = AttachmentPipeline.readBytesOffMain(editImagePathStr)
                 val audioBytes = AttachmentPipeline.readBytesOffMain(editAudioPathStr)
@@ -3829,7 +4729,7 @@ class ChatViewModel(
         val targetRegenChatId = currentConversationId
 
         genJob =
-            viewModelScope.launch {
+            viewModelScope.launch(laneContext()) {
                 var regenBlankFailed = false
                 // Disk reads stay off the main thread (large camera photos).
                 val imageBytes = AttachmentPipeline.readBytesOffMain(imagePathStr)
@@ -3957,9 +4857,20 @@ class ChatViewModel(
         // contains at least one real user message. This keeps Delete All /
         // New Conversation from leaving empty "New Chat" entries behind.
         val hasRealContent = conv.messages.any { it.role == ChatConstants.ROLE_USER }
-        viewModelScope.launch {
+        // Readable copy of the visible branch for ~/.raika/chats in Alpine.
+        val archiveLines = messages.map { com.raikaai.app.core.agent.ChatArchive.Line(it.role, it.content) }
+        viewModelScope.launch(laneContext()) {
             if (!force && !hasRealContent && !targetRepo.exists(conv.id)) return@launch
             targetRepo.save(conv)
+            if (hasRealContent) {
+                withContext(Dispatchers.IO) {
+                    runCatching {
+                        com.raikaai.app.core.agent.ChatArchive.write(
+                            containerManager.raikaHomeDir, conv.id, conv.title, isRoleplay, conv.updatedAt, archiveLines,
+                        )
+                    }
+                }
+            }
             // Ensure no stale duplicate exists in the wrong storage
             val wrongRepo = if (isRoleplay) defaultChatRepo else roleplayChatRepo
             if (wrongRepo.exists(conv.id)) {
@@ -4016,6 +4927,48 @@ class ChatViewModel(
     fun setRemoteBaseUrl(url: String) = launchSetting { settingsRepo.setRemoteBaseUrl(url) }
 
     fun setRemoteApiKey(key: String) = launchSetting { settingsRepo.setRemoteApiKey(key) }
+
+    /** The preset in use; installs from before presets are detected from the URL. */
+    fun currentRemoteProvider(s: Settings = settings.value): com.raikaai.app.core.remote.RemoteProvider =
+        if (s.remoteProvider.isNotBlank()) {
+            com.raikaai.app.core.remote.RemoteProviders.byId(s.remoteProvider)
+        } else {
+            com.raikaai.app.core.remote.RemoteProviders.detect(s.remoteBaseUrl)
+        }
+
+    /**
+     * Switches the remote preset. The current key (and URL for self-hosted
+     * presets) is remembered for the old preset, and the new preset's saved
+     * key and URL are restored, so each provider keeps its own key.
+     */
+    fun selectRemoteProvider(id: String) =
+        launchSetting {
+            val s = settings.value
+            val old = currentRemoteProvider(s)
+            if (old.id == id && s.remoteProvider.isNotBlank()) return@launchSetting
+            settingsRepo.setProviderApiKey(old.id, s.remoteApiKey)
+            if (old.editableUrl) settingsRepo.setProviderBaseUrl(old.id, s.remoteBaseUrl)
+            val next = com.raikaai.app.core.remote.RemoteProviders.byId(id)
+            val url =
+                if (next.editableUrl) settingsRepo.providerBaseUrl(next.id).ifBlank { next.baseUrl } else next.baseUrl
+            settingsRepo.setRemoteProvider(next.id)
+            settingsRepo.setRemoteBaseUrl(url)
+            settingsRepo.setRemoteApiKey(settingsRepo.providerApiKey(next.id))
+            if (old.id != next.id) {
+                settingsRepo.setRemoteModelId("")
+                benchmarkRunner.clearRemoteModels()
+            }
+            // Always list the models of the provider that is now selected.
+            settings.first { it.remoteBaseUrl == url }
+            refreshActiveRemoteModels()
+        }
+
+    /** Fetches the model list of the selected remote provider (quietly). */
+    fun refreshActiveRemoteModels() {
+        val s = settings.value
+        if (s.remoteBaseUrl.isBlank()) return
+        benchmarkRunner.fetchRemoteModels(s.remoteBaseUrl, s.remoteApiKey, silent = true)
+    }
 
     fun setRemoteImageModelId(id: String) = launchSetting { settingsRepo.setRemoteImageModelId(id) }
 
@@ -4140,6 +5093,7 @@ class ChatViewModel(
     val mcpServers: StateFlow<List<com.raikaai.app.mcp.McpServerConfig>> get() = mcpManager.servers
     val mcpToolsByServer: StateFlow<Map<String, List<com.raikaai.app.mcp.McpTool>>> get() = mcpManager.toolsByServer
     val mcpToolErrors: StateFlow<Map<String, String>> get() = mcpManager.errors
+    val mcpBusy: StateFlow<Set<String>> get() = mcpManager.busy
 
     /**
      * Explicit safety boundary for autonomous MCP tool calls: when the model
@@ -4212,16 +5166,16 @@ class ChatViewModel(
     fun upsertMcpServer(
         server: com.raikaai.app.mcp.McpServerConfig,
         authToken: String? = null,
-    ) = viewModelScope.launch(Dispatchers.IO) { settingsRepo.upsertMcpServer(server, authToken) }
+    ) = viewModelScope.launch(Dispatchers.IO + laneContext()) { settingsRepo.upsertMcpServer(server, authToken) }
 
     fun removeMcpServer(serverId: String) =
-        viewModelScope.launch(Dispatchers.IO) { settingsRepo.removeMcpServer(serverId) }
+        viewModelScope.launch(Dispatchers.IO + laneContext()) { settingsRepo.removeMcpServer(serverId) }
 
     fun setMcpServerEnabled(server: com.raikaai.app.mcp.McpServerConfig, enabled: Boolean) =
         upsertMcpServer(server.copy(enabled = enabled))
 
     fun refreshMcpTools() =
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(Dispatchers.IO + laneContext()) {
             runCatching { mcpManager.refreshAllEnabled() }
                 .onFailure { e ->
                     withContext(Dispatchers.Main) {
@@ -4231,7 +5185,7 @@ class ChatViewModel(
         }
 
     fun refreshMcpServerTools(server: com.raikaai.app.mcp.McpServerConfig) =
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(Dispatchers.IO + laneContext()) {
             runCatching { mcpManager.refreshTools(server) }
                 .onFailure { e ->
                     withContext(Dispatchers.Main) {
@@ -4250,7 +5204,7 @@ class ChatViewModel(
         argsJson: String,
         onResult: (String) -> Unit,
     ) {
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(Dispatchers.IO + laneContext()) {
             val result =
                 runCatching {
                     val args =
@@ -4312,8 +5266,10 @@ class ChatViewModel(
      * Remote providers are excluded: their tool calls have no executor here.
      */
     private fun mcpToolsPromptBlock(s: Settings): String {
-        if (!s.mcpEnabled || s.modelSource != ChatConstants.SOURCE_LOCAL) return ""
-        val tools = mcpManager.allEnabledTools().take(12)
+        if (!s.mcpEnabled) return ""
+        val local = s.modelSource != ChatConstants.SOURCE_REMOTE
+        // On-device context is small: fewer tools, shorter descriptions.
+        val tools = mcpManager.allEnabledTools().take(if (local) 6 else 40)
         if (tools.isEmpty()) return ""
         return buildString {
             append("\n\n[MCP TOOLS]\n")
@@ -4323,11 +5279,11 @@ class ChatViewModel(
             append("Available tools:\n")
             tools.forEach { t ->
                 append("- ${t.signature}")
-                val desc = t.description.take(160)
+                val desc = t.description.take(if (local) 80 else 200)
                 if (desc.isNotBlank()) append(": $desc")
                 append("  [server: ${t.serverName}]\n")
             }
-        }.take(2500)
+        }.take(if (local) 1500 else 8000)
     }
 
     /**
@@ -4339,6 +5295,9 @@ class ChatViewModel(
      * after a failed install while the marker tells the truth. Heals the flag
      * when they disagree so prompt, tools, and UI converge.
      */
+    /** True when the Linux workspace is installed and usable. */
+    fun isContainerReady(): Boolean = containerReady(settings.value)
+
     private fun containerReady(s: Settings): Boolean {
         if (containerManager.isInstalled()) {
             if (!s.alpineInstalled) launchSetting { settingsRepo.setAlpineInstalled(true) }
@@ -4347,33 +5306,58 @@ class ChatViewModel(
         return s.alpineInstalled
     }
 
+    /**
+     * Linux sandbox tool block, pi-style: one line per tool, short rules, the
+     * working directory, and /workspace/AGENTS.md as project instructions.
+     * Kept compact because it rides along in every on-device prompt.
+     */
     private fun containerToolsPromptBlock(s: Settings): String {
         if (!containerReady(s)) return ""
-        return "\n\n[CODING & SANDBOX TOOLS]\n" +
-            "You have a Linux (Alpine) sandbox with a persistent /workspace folder. " +
-            "To interact with files or run commands, emit EXACTLY one tool call block and then stop:\n\n" +
-            "1. Write or create a file (full content):\n" +
-            "<tool_call>{\"name\": \"write_file\", \"arguments\": {\"path\": \"<file>\", \"content\": \"<full text>\"}}</tool_call>\n" +
-            "Parent folders are created automatically. Always use write_file or edit_file to modify files (do NOT use bash echo/cat).\n\n" +
-            "2. Exact find-and-replace edit in an existing file:\n" +
-            "<tool_call>{\"name\": \"edit_file\", \"arguments\": {\"path\": \"<file>\", \"old_string\": \"<exact text to replace>\", \"new_string\": \"<replacement>\"}}</tool_call>\n" +
-            "old_string must match existing file content exactly (preserve whitespace and indentation).\n\n" +
-            "3. Read a file with line numbers:\n" +
-            "<tool_call>{\"name\": \"read_file\", \"arguments\": {\"path\": \"<file>\", \"offset\": 1, \"limit\": 400}}</tool_call>\n\n" +
-            "4. Run shell commands, tests, or scripts:\n" +
-            "<tool_call>{\"name\": \"execute_in_container\", \"arguments\": {\"command\": \"<command>\"}}</tool_call>\n" +
-            "Long-running servers (npm run dev, vite, python -m http.server, php -S, node server.js) are detected and detached automatically, so you do NOT need \"run_in_background\" — but setting it is harmless. Prefer single quotes for paths with spaces.\n\n" +
-            "5. Install missing packages:\n" +
-            "<tool_call>{\"name\": \"ensure_package\", \"arguments\": {\"command\": \"apk add --no-cache <pkg>\"}}</tool_call>\n\n" +
-            "CRITICAL RULES:\n" +
-            "- Files live strictly in /workspace. Chat attachments are mirrored to /workspace/chat_uploads/.\n" +
-            "- Do NOT repeat exploration commands or re-read files you already inspected in earlier turns. Move directly to editing or writing files.\n" +
-            "- When writing code, write the complete file or make targeted edits with edit_file. Do not loop reading the same file.\n" +
-            "- NEVER claim a server or web app is running, built, or active (e.g. \"Status: Active HTTP 200 OK\") unless the tool result shows a listening port. Your server result includes the real startup output and the detected URL. If the result says the command EXITED, it is NOT serving — fix the error and start it again; do not tell the user it works.\n" +
-            "- ALWAYS report the exact URL from \"Listening on http://127.0.0.1:<port>\". Never guess a port: Vite uses 5173 (5174 if busy), not 3000.\n" +
-            "- To make a server reachable from another device use `--host 0.0.0.0` (e.g. `npm run dev -- --host 0.0.0.0`).\n" +
-            "- Manage servers with list_daemons and stop_daemon {\"id\"}.\n" +
-            "- Act directly: emit tool calls instead of asking what to run. Do not narrate reasoning steps."
+        val call = { name: String, argsJson: String -> "<tool_call>{\"name\": \"$name\", \"arguments\": $argsJson}</tool_call>" }
+        val phone = if (containerManager.phoneStorageMounted()) " Phone storage is at /sdcard (Download, Documents, DCIM...); work there when the user names a phone folder." else ""
+        if (s.modelSource != ChatConstants.SOURCE_REMOTE) {
+            // On-device (LiteRT): small context, so a short block.
+            return buildString {
+                append("\n\n<tools>\nAlpine Linux sandbox (apk, musl, root, cwd /workspace).$phone One tool call, then stop.\n")
+                append(call("execute_in_container", "{\"command\": \"ls\"}")).append("\n")
+                append(call("read_file", "{\"path\": \"a.py\"}")).append("\n")
+                append(call("write_file", "{\"path\": \"a.py\", \"content\": \"...\"}")).append("\n")
+                append(call("edit_file", "{\"path\": \"a.py\", \"edits\": [{\"oldText\": \"x\", \"newText\": \"y\"}]}")).append("\n")
+                append("Never invent output. Output is cut to the last lines.\n</tools>")
+            }
+        }
+        val projectNotes =
+            runCatching {
+                val f = java.io.File(containerManager.workspaceDir, "AGENTS.md")
+                if (f.isFile && f.length() in 1..64_000) f.readText().trim().take(3000) else ""
+            }.getOrDefault("")
+        return buildString {
+            append("\n\n<tools>\n")
+            append("You can work in a Linux (Alpine) sandbox. To use a tool, emit exactly one tool call and stop; the result comes back in the next message.\n")
+            append("- read: read a file with line numbers. ").append(call("read_file", "{\"path\": \"app.py\", \"offset\": 1, \"limit\": 200}")).append("\n")
+            append("- bash: run a shell command in /workspace. ").append(call("execute_in_container", "{\"command\": \"ls -la\"}")).append("\n")
+            append("- edit: exact replacements, several at once. ").append(call("edit_file", "{\"path\": \"app.py\", \"edits\": [{\"oldText\": \"exact old\", \"newText\": \"new\"}]}")).append("\n")
+            append("- write: create or overwrite a whole file. ").append(call("write_file", "{\"path\": \"app.py\", \"content\": \"...\"}")).append("\n")
+            append("- install: ").append(call("ensure_package", "{\"command\": \"apk add --no-cache nodejs\"}")).append("\n")
+            append("</tools>\n<rules>\n")
+            append("- Look before you change: read a file before editing it; use bash for ls, find, grep.\n")
+            append("- Use edit for small changes and write for new files or full rewrites; never write files with echo or cat.\n")
+            append("- Each edits[].oldText must match the file exactly and only once; keep it short.\n")
+            append("- Output is truncated to the LAST lines; errors are at the end. Use read with offset for big files.\n")
+            append("- Verify your change by running it. Do not repeat a command that already succeeded.\n")
+            append("- Servers (npm run dev, vite, python -m http.server) are detached automatically. Report only the URL the tool result shows; never claim a server runs unless the result shows a listening port.\n")
+            append("- Be concise. Show file paths clearly. Finish with a short summary of what changed.\n")
+            append("</rules>\n<environment>\n")
+            append("- Alpine Linux (musl libc, aarch64) under proot on Android, running as root. Not Debian: use `apk add <pkg>`, never apt.\n")
+            append("- Internet works. A failed download is usually DNS or one host being down: retry or try another mirror before concluding you are offline.\n")
+            append("- glibc-only binaries (prebuilt installers like bun.sh, many `curl | bash` scripts) fail on musl: prefer apk packages (`apk add nodejs npm python3 py3-pip git curl`). Node tools: `npx -y <pkg>`.\n")
+            append("- proot limits: no systemd/services, no raw sockets (ping and `ip` fail, that is not an outage), no kernel modules, no Docker. Check the network with `curl -sI https://example.com`.\n")
+            append("- Long jobs: commands time out after 30-120 s; for servers use background (they are detached and listed by list_daemons).\n")
+            append("</environment>\n<cwd>/workspace (chat uploads in /workspace/chat_uploads)$phone</cwd>")
+            if (projectNotes.isNotBlank()) {
+                append("\n<project_instructions path=\"/workspace/AGENTS.md\">\n").append(projectNotes).append("\n</project_instructions>")
+            }
+        }
     }
 
     /** Records the estimated USD cost of one remote generation (owned by ServerControls). */
@@ -4385,7 +5369,7 @@ class ChatViewModel(
     fun loadActiveModel() {
         val s = settings.value
         val modelPath = ChatServerService.resolveModelPath(app, s) ?: return
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(Dispatchers.IO + laneContext()) {
             try {
                 engine.load(
                     LiteRtEngineManager.EngineParams(
@@ -4411,7 +5395,7 @@ class ChatViewModel(
     }
 
     fun unloadActiveModel() {
-        viewModelScope.launch(Dispatchers.IO) { engine.unload() }
+        viewModelScope.launch(Dispatchers.IO + laneContext()) { engine.unload() }
     }
 
     fun startDownload(modelId: String) {
@@ -4443,7 +5427,7 @@ class ChatViewModel(
     }
 
     fun setActivePreset(modelId: String) {
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(Dispatchers.IO + laneContext()) {
             settingsRepo.setActiveModelId(modelId)
             settingsRepo.setCustomModelPath("")
             settingsRepo.setModelSource(ChatConstants.SOURCE_LOCAL)
@@ -4453,7 +5437,7 @@ class ChatViewModel(
     }
 
     fun importCustomModel(uri: Uri) {
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(Dispatchers.IO + laneContext()) {
             val path = modelManager.importCustomModel(uri)
             if (path != null) {
                 settingsRepo.setCustomModelPath(path)
@@ -4506,7 +5490,11 @@ class ChatViewModel(
      */
     private fun resolveSystemPrompt(s: Settings): String {
         val persona = activePersona.value
-        if (persona.id == "general" || persona.id.isBlank()) return s.systemPrompt
+        // Raika AI: identity comes from SOUL.md (agent block); a system
+        // prompt the user changed in Parameters is still applied.
+        if (persona.id == "general" || persona.id.isBlank()) {
+            return if (s.systemPrompt.trim() == DEFAULT_SYSTEM_PROMPT.trim()) "" else s.systemPrompt
+        }
         val profile = if (persona.id.startsWith("roleplay_")) {
             roleplayProfileStore.load()
         } else {
@@ -4575,8 +5563,13 @@ class ChatViewModel(
 
     fun setContainerYolo(v: Boolean) = launchSetting { settingsRepo.setContainerYolo(v) }
 
+    fun setContainerPermission(level: Int) = launchSetting { settingsRepo.setContainerPermission(level) }
+
+    fun setToolVerbosity(v: Int) = launchSetting { settingsRepo.setToolVerbosity(v) }
+
+
     private fun launchSetting(block: suspend () -> Unit) {
-        viewModelScope.launch { block() }
+        viewModelScope.launch(laneContext()) { block() }
     }
 }
 
@@ -4593,19 +5586,158 @@ internal fun formatContainerRunBlock(
     timedOut: Boolean,
     autoApproved: Boolean,
 ): String {
-    val head = if (autoApproved) "`$command` [auto]" else "`$command`"
+    // The head must stay ONE line: a multi-line command (heredoc file writes)
+    // used to dump the whole script into the chat. The renderer turns
+    // "`cmd`" + a fence ending in "exit=N" into a compact tool card.
+    val trimmedCmd = command.trim()
+    val firstLine = trimmedCmd.lineSequence().firstOrNull().orEmpty().replace('`', '\'')
+    val shown =
+        (if (firstLine.length > 160) firstLine.take(160) + "…" else firstLine) +
+            if (trimmedCmd.contains('\n')) " …" else ""
+    val head = if (autoApproved) "`$shown` [auto]" else "`$shown`"
+    // Cap the parts, never the assembled string: truncating the whole block
+    // could cut the closing fence, and everything the model wrote afterwards
+    // then rendered inside the code block. A fence inside the output would
+    // close the block early, so it is defused too.
+    val fence = "```"
+    val out = stdout.take(1000).replace(fence, "'''")
+    val err = stderr.take(300).replace(fence, "'''")
     return buildString {
+        append("\n\n")
         append(head)
-        append("\n```\n")
-        val out = stdout.take(1000)
-        val err = stderr.take(300)
-        if (out.isBlank() && err.isBlank()) append("(no output)") else append(out)
+        append("\n$fence\n")
+        if (out.isBlank() && err.isBlank()) append("(no output)") else append(out.trimEnd())
         if (err.isNotBlank()) {
             append("\n[stderr]\n")
-            append(err)
+            append(err.trimEnd())
         }
         append("\nexit=$exitCode")
         if (timedOut) append(" (timed out)")
-        append("\n```")
-    }.take(1600)
+        append("\n$fence\n")
+    }
+}
+
+/** Replaces only the FIRST occurrence of [old] (two identical calls must not both be swapped). */
+internal fun String.replaceFirstLiteral(old: String, new: String): String {
+    if (old.isEmpty()) return this
+    val i = indexOf(old)
+    return if (i < 0) this else substring(0, i) + new + substring(i + old.length)
+}
+
+/** Compact "running" tool card shown while a sandbox command executes. */
+internal fun pendingToolCard(command: String): String {
+    val firstLine = command.trim().lineSequence().firstOrNull().orEmpty().replace('`', '\'')
+    val shown = if (firstLine.length > 160) firstLine.take(160) + "…" else firstLine
+    val fence = "```"
+    return "\n\n${fence}raika-tool\nrun\n$shown\npending\n$fence\n\n"
+}
+
+/**
+ * Puts the executed result [block] where the tool call was: over the
+ * running card ([marker]) if one was shown, else over the raw call text,
+ * else appended. Skipped calls (empty block) simply disappear.
+ */
+internal fun swapInToolResult(
+    content: String,
+    marker: String?,
+    rawCallText: String,
+    block: String,
+): String =
+    when {
+        marker != null && content.contains(marker) -> content.replaceFirstLiteral(marker, block)
+        rawCallText.isNotBlank() && content.contains(rawCallText) -> content.replaceFirstLiteral(rawCallText, block)
+        block.isNotBlank() -> content.trimEnd() + "\n\n" + block
+        else -> content
+    }
+
+
+/**
+ * Keeps the END of tool output for the model (pi-style): build and test
+ * failures are reported last, so head truncation hid exactly the error.
+ * Cuts on a line boundary and says how much was dropped.
+ */
+internal fun tailForModel(text: String, maxChars: Int): String {
+    if (text.length <= maxChars) return text
+    var tail = text.takeLast(maxChars)
+    val nl = tail.indexOf('\n')
+    if (nl in 0 until tail.length - 1) tail = tail.substring(nl + 1)
+    val dropped = text.lineSequence().count() - tail.lineSequence().count()
+    return "…($dropped earlier lines truncated)\n$tail"
+}
+
+/**
+ * Reads pi-style `edits` from tool arguments: an array of objects with
+ * oldText/newText (or old_string/new_string), a JSON string holding that
+ * array, or a single edit object.
+ */
+internal fun parseEditList(args: com.google.gson.JsonObject): List<Pair<String, String>> {
+    var raw: com.google.gson.JsonElement = args.get("edits") ?: return emptyList()
+    if (raw.isJsonPrimitive && raw.asJsonPrimitive.isString) {
+        raw = runCatching { com.google.gson.JsonParser.parseString(raw.asString) }.getOrNull() ?: return emptyList()
+    }
+    val items =
+        when {
+            raw.isJsonArray -> raw.asJsonArray.toList()
+            raw.isJsonObject -> listOf(raw)
+            else -> return emptyList()
+        }
+    return items.mapNotNull { el ->
+        val o = el.takeIf { it.isJsonObject }?.asJsonObject ?: return@mapNotNull null
+        fun str(vararg keys: String): String? =
+            keys.firstNotNullOfOrNull { k -> o.get(k)?.takeIf { it.isJsonPrimitive }?.asString }
+        val old = str("oldText", "old_string", "oldString", "old") ?: return@mapNotNull null
+        val new = str("newText", "new_string", "newString", "new") ?: ""
+        old to new
+    }
+}
+
+private val ANSI_ESCAPE = Regex("\u001B(?:\\[[0-9;?:<=>]*[ -/]*[@-~]|\\][^\u0007\u001B]*(?:\u0007|\u001B\\\\)?|[()][0-9A-Za-z]|[78cDEMH=>])")
+private val TOOL_RESULT_BLOCK =
+    Regex("(?m)^`([^`\n]+)`( \\[auto\\])?\n```\n([\\s\\S]*?)\nexit=(-?\\d+)( \\(timed out\\))?\n```")
+private val TOOL_CARD_FENCE = Regex("```raika-tool\n[\\s\\S]*?```")
+
+/** A "[ran `cmd`: exit 0]" line a model wrote itself (imitating an old history format). */
+internal val FAKE_RAN_LINE = Regex("(?m)^[ \t]*\\[ran `[^\n]*`: exit -?\\d+[^\\]\n]*\\][ \t]*\n?")
+
+/**
+ * Splits an earlier assistant reply at its rendered tool results into the
+ * shape the agent loop used: assistant text ending in the real
+ * `<tool_call>`, then a user "[CONTAINER TOOL RESULT]" message with the
+ * output, then the rest of the reply. Running cards, escape codes and fake
+ * "[ran …]" lines are dropped. Returns (role, content) pairs.
+ */
+internal fun expandToolBlocksForModel(content: String): List<Pair<String, String>> {
+    val cleaned = content.replace(TOOL_CARD_FENCE, "").replace(ANSI_ESCAPE, "").replace(FAKE_RAN_LINE, "")
+    val out = mutableListOf<Pair<String, String>>()
+    var pos = 0
+    var pendingAssistant = StringBuilder()
+    for (m in TOOL_RESULT_BLOCK.findAll(cleaned)) {
+        pendingAssistant.append(cleaned, pos, m.range.first)
+        val command = m.groupValues[1].removeSuffix(" …")
+        val args = org.json.JSONObject().put("command", command).toString()
+        pendingAssistant.append("<tool_call>{\"name\": \"execute_in_container\", \"arguments\": ").append(args).append("}</tool_call>")
+        out += "assistant" to pendingAssistant.toString().trim()
+        pendingAssistant = StringBuilder()
+        val timeout = if (m.groupValues[5].isNotEmpty()) " (timed out)" else ""
+        out += "user" to
+            "[CONTAINER TOOL RESULT]\nCommand: $command\nExit: ${m.groupValues[4]}$timeout\n" +
+            tailForModel(m.groupValues[3].trim(), 1200)
+        pos = m.range.last + 1
+    }
+    pendingAssistant.append(cleaned.substring(pos))
+    val rest = pendingAssistant.toString().trim()
+    if (rest.isNotEmpty() || out.isEmpty()) out += "assistant" to rest
+    return out
+}
+
+/**
+ * Renders raw program output through the terminal screen (carriage returns,
+ * cursor moves, erases) and returns plain text without escape codes.
+ */
+internal fun plainTerminalText(raw: String, cols: Int = 120): String {
+    if (raw.isEmpty() || (raw.indexOf('\u001B') < 0 && raw.indexOf('\r') < 0 && raw.indexOf('\b') < 0)) return raw
+    val screen = com.raikaai.app.ui.environment.AnsiScreen(cols, maxRows = 4000)
+    screen.feed(raw)
+    return (0 until screen.rowCount).joinToString("\n") { screen.plainRow(it) }.trimEnd() +
+        if (raw.endsWith("\n")) "\n" else ""
 }

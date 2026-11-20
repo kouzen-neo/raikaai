@@ -22,13 +22,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.outlined.Bolt
+import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.Dns
+import androidx.compose.material.icons.outlined.Speed
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -87,7 +87,7 @@ internal fun ServerBenchmarkSection(viewModel: ChatViewModel) {
                 onClick = { selectedTab = 0 },
                 text = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Dns, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Icon(Icons.Outlined.Dns, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(6.dp))
                         Text("OpenAI Server", fontWeight = FontWeight.SemiBold)
                     }
@@ -98,7 +98,7 @@ internal fun ServerBenchmarkSection(viewModel: ChatViewModel) {
                 onClick = { selectedTab = 1 },
                 text = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Speed, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Icon(Icons.Outlined.Speed, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(6.dp))
                         Text("Speed Benchmark", fontWeight = FontWeight.SemiBold)
                     }
@@ -215,7 +215,7 @@ private fun ServerControlCard(viewModel: ChatViewModel) {
                                 fontFamily = FontFamily.Monospace,
                             )
                         }
-                        Icon(Icons.Default.ContentCopy, contentDescription = "Copy URL", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                        Icon(Icons.Outlined.ContentCopy, contentDescription = "Copy URL", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
                     }
                 }
             }
@@ -424,7 +424,7 @@ private fun ApiSnippetsCard(viewModel: ChatViewModel) {
                                                 },
                                                 modifier = Modifier.size(24.dp),
                                             ) {
-                                                Icon(Icons.Default.ContentCopy, contentDescription = "Copy code", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
+                                                Icon(Icons.Outlined.ContentCopy, contentDescription = "Copy code", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
                                             }
                                         }
                                         Spacer(Modifier.height(4.dp))
@@ -609,7 +609,7 @@ private fun BenchmarkCard(viewModel: ChatViewModel) {
                     Spacer(Modifier.width(8.dp))
                     Text("Running Benchmark...")
                 } else {
-                    Icon(Icons.Default.Bolt, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Icon(Icons.Outlined.Bolt, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
                     Text(if (isModelLoaded) "Run Speed Test (${settings.backend})" else "Load Model First to Benchmark")
                 }

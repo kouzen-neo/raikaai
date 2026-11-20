@@ -1,7 +1,21 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
 }
+
+// Gitignored local.properties is also consulted for signing secrets, so a
+// local release build works without committing the passwords anywhere.
+val localProps =
+    Properties().apply {
+        val f = rootProject.file("local.properties")
+        if (f.exists()) f.inputStream().use { load(it) }
+    }
+
+fun signingProp(name: String): String? =
+    (project.findProperty(name) as String?)?.takeIf { it.isNotBlank() }
+        ?: localProps.getProperty(name)?.takeIf { it.isNotBlank() }
 
 android {
     namespace = "com.raikaai.app"
@@ -25,8 +39,8 @@ android {
         applicationId = "com.raikaai.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 6
-        versionName = "0.1.5"
+        versionCode = 30
+        versionName = "0.1.29"
     }
 
     splits {
@@ -49,19 +63,17 @@ android {
             enableV1Signing = true
             enableV2Signing = true
             // Passwords are intentionally NOT hardcoded: read from environment first,
-            // then gradle.properties / local.properties (never commit those files).
+            // then gradle.properties, then local.properties (never commit those files).
             // Falls back to the pre-rebrand LITECHAT_* / litechat.* names so the
             // existing release.keystore (alias "localgpt") keeps working.
             val ksStorePw = System.getenv("RAIKAAI_KEYSTORE_STORE_PASSWORD")?.takeIf { it.isNotBlank() }
                 ?: System.getenv("LITECHAT_KEYSTORE_STORE_PASSWORD")?.takeIf { it.isNotBlank() }
-                ?: (project.findProperty("raikaai.keystore.storePassword") as String?)?.takeIf { it.isNotBlank() }
-                ?: (project.findProperty("litechat.keystore.storePassword") as String?)?.takeIf { it.isNotBlank() }
-                ?: "localgpt123"
+                ?: signingProp("raikaai.keystore.storePassword")
+                ?: signingProp("litechat.keystore.storePassword")
             val ksKeyPw = System.getenv("RAIKAAI_KEYSTORE_KEY_PASSWORD")?.takeIf { it.isNotBlank() }
                 ?: System.getenv("LITECHAT_KEYSTORE_KEY_PASSWORD")?.takeIf { it.isNotBlank() }
-                ?: (project.findProperty("raikaai.keystore.keyPassword") as String?)?.takeIf { it.isNotBlank() }
-                ?: (project.findProperty("litechat.keystore.keyPassword") as String?)?.takeIf { it.isNotBlank() }
-                ?: "localgpt123"
+                ?: signingProp("raikaai.keystore.keyPassword")
+                ?: signingProp("litechat.keystore.keyPassword")
             if (ksStorePw.isNullOrEmpty() || ksKeyPw.isNullOrEmpty()) {
                 logger.warn(
                     "Keystore passwords not set (RAIKAAI_KEYSTORE_STORE_PASSWORD / " +
@@ -72,8 +84,8 @@ android {
             storePassword = ksStorePw
             keyAlias = System.getenv("RAIKAAI_KEYSTORE_KEY_ALIAS")
                 ?: System.getenv("LITECHAT_KEYSTORE_KEY_ALIAS")
-                ?: (project.findProperty("raikaai.keystore.keyAlias") as String?)
-                ?: (project.findProperty("litechat.keystore.keyAlias") as String?)
+                ?: signingProp("raikaai.keystore.keyAlias")
+                ?: signingProp("litechat.keystore.keyAlias")
                 ?: "localgpt"
             keyPassword = ksKeyPw
         }

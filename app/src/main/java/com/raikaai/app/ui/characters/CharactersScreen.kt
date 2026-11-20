@@ -1,4 +1,5 @@
 package com.raikaai.app.ui.characters
+import com.raikaai.app.ui.component.ScreenHeader
 import com.raikaai.app.data.ChatConstants
 
 import android.widget.Toast
@@ -25,23 +26,23 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Chat
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Code
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.automirrored.outlined.Chat
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.Code
+import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.FileUpload
+import androidx.compose.material.icons.outlined.Menu
+import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.Psychology
+import androidx.compose.material.icons.outlined.SmartToy
+import androidx.compose.material.icons.outlined.Speed
+import androidx.compose.material.icons.outlined.Terminal
+import androidx.compose.material.icons.outlined.Translate
 import androidx.compose.material.icons.filled.FileDownload
-import androidx.compose.material.icons.filled.FileUpload
-import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Psychology
-import androidx.compose.material.icons.filled.SmartToy
-import androidx.compose.material.icons.filled.Speed
-import androidx.compose.material.icons.filled.Terminal
-import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.outlined.EmojiEmotions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -99,6 +100,7 @@ fun CharactersScreen(
     viewModel: ChatViewModel,
     onOpenDrawer: () -> Unit = {},
     onStartChatWithCharacter: (PersonaPreset) -> Unit = {},
+    showHeader: Boolean = true,
 ) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
@@ -169,40 +171,17 @@ fun CharactersScreen(
             modifier =
                 Modifier
                     .fillMaxSize()
-                    .statusBarsPadding()
-                    .padding(top = 10.dp),
+                    .then(if (showHeader) Modifier.statusBarsPadding().padding(top = 10.dp) else Modifier),
         ) {
-            // ── 0. Top Header Row ──
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onOpenDrawer, modifier = Modifier.size(36.dp)) {
-                        Icon(
-                            Icons.Default.Menu,
-                            contentDescription = "Open Menu",
-                            tint = MaterialTheme.colorScheme.onSurface,
-                        )
-                    }
-                    Spacer(Modifier.width(10.dp))
-                    Column {
-                        Text(
-                            text = "Characters",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                        )
-                        Text(
-                            text = "${allPersonas.size} Personas & System Prompts",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
+            // ── 0. Top Header Row (the Characters hub draws its own) ──
+            if (showHeader) {
+                ScreenHeader(
+                    title = "Characters",
+                    subtitle = "${allPersonas.size} characters",
+                    onOpenDrawer = onOpenDrawer,
+                )
+                Spacer(Modifier.height(8.dp))
             }
-
-            Spacer(Modifier.height(8.dp))
 
             // ── 1. Secondary Tabs Row ──
             SecondaryTabRow(
@@ -214,7 +193,7 @@ fun CharactersScreen(
                     onClick = { selectedTab = 0 },
                     text = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Psychology, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Outlined.Psychology, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(6.dp))
                             Text("Personas (${allPersonas.size})", fontWeight = FontWeight.SemiBold)
                         }
@@ -225,7 +204,7 @@ fun CharactersScreen(
                     onClick = { selectedTab = 1 },
                     text = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Outlined.Add, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(6.dp))
                             Text("Create & Import", fontWeight = FontWeight.SemiBold)
                         }
@@ -241,8 +220,8 @@ fun CharactersScreen(
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 32.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
-                    // Search & Filter Card
-                    item(key = "search_card") {
+                    // Search & filters only help with a longer list.
+                    if (allPersonas.size > 5) item(key = "search_card") {
                         Card(
                             shape = RoundedCornerShape(16.dp),
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
@@ -450,7 +429,7 @@ fun CharactersScreen(
                                                 )
                                             } else {
                                                 Icon(
-                                                    imageVector = Icons.Default.Person,
+                                                    imageVector = Icons.Outlined.Person,
                                                     contentDescription = null,
                                                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                                     modifier = Modifier.size(26.dp),
@@ -514,7 +493,7 @@ fun CharactersScreen(
                                     shape = RoundedCornerShape(12.dp),
                                     modifier = Modifier.fillMaxWidth(),
                                 ) {
-                                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Icon(Icons.Outlined.Add, contentDescription = null, modifier = Modifier.size(16.dp))
                                     Spacer(Modifier.width(6.dp))
                                     Text("Save Persona")
                                 }
@@ -572,7 +551,7 @@ fun CharactersScreen(
                                     shape = RoundedCornerShape(12.dp),
                                     modifier = Modifier.fillMaxWidth(),
                                 ) {
-                                    Icon(Icons.Default.FileUpload, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Icon(Icons.Outlined.FileUpload, contentDescription = null, modifier = Modifier.size(16.dp))
                                     Spacer(Modifier.width(6.dp))
                                     Text("Import Character JSON")
                                 }
@@ -584,8 +563,47 @@ fun CharactersScreen(
         }
     }
 
+    // Raika AI's personality is SOUL.md (same file as Agent → Memory).
+    if (editingPersona?.id == "general") {
+        val config = remember { com.raikaai.app.core.agent.AgentConfig.get(context) }
+        var soul by remember { mutableStateOf(config.read(com.raikaai.app.core.agent.AgentConfig.Doc.SOUL)) }
+        AlertDialog(
+            onDismissRequest = { editingPersona = null },
+            icon = { com.raikaai.app.ui.component.RaikaLogo(size = 40.dp) },
+            title = { Text("Raika AI") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "Raika's personality lives in SOUL.md. It is also in Agent → Memory.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    OutlinedTextField(
+                        value = soul,
+                        onValueChange = { soul = it },
+                        textStyle = MaterialTheme.typography.bodySmall,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth().height(320.dp),
+                    )
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    config.write(com.raikaai.app.core.agent.AgentConfig.Doc.SOUL, soul)
+                    editingPersona = null
+                }) { Text("Save") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    config.resetToDefault(com.raikaai.app.core.agent.AgentConfig.Doc.SOUL)
+                    soul = config.read(com.raikaai.app.core.agent.AgentConfig.Doc.SOUL)
+                }) { Text("Reset") }
+                TextButton(onClick = { editingPersona = null }) { Text("Cancel") }
+            },
+        )
+    }
     // ── Edit Character Dialog ──
-    editingPersona?.let { persona ->
+    editingPersona?.takeIf { it.id != "general" }?.let { persona ->
         CharacterEditorDialog(
             viewModel = viewModel,
             initialPersona = persona,
@@ -666,7 +684,9 @@ private fun CharacterCardItem(
                     modifier = Modifier.weight(1f),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    if (persona.avatarUri.isNotBlank()) {
+                    if (persona.id == "general") {
+                        com.raikaai.app.ui.component.RaikaLogo(size = 46.dp)
+                    } else if (persona.avatarUri.isNotBlank()) {
                         com.raikaai.app.ui.chat.PersonaAvatar(
                             avatarUri = persona.avatarUri,
                             size = 46.dp,
@@ -718,7 +738,11 @@ private fun CharacterCardItem(
                         }
 
                         Text(
-                            if (isCustom) "Custom Character" else "Built-in Persona",
+                            when {
+                                persona.id == "general" -> "Built-in · personality in SOUL.md"
+                                isCustom -> "Custom character"
+                                else -> "Built-in"
+                            },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 11.sp,
@@ -728,9 +752,9 @@ private fun CharacterCardItem(
 
                 // Quick Export & Edit menu
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onExportJson, modifier = Modifier.size(32.dp)) {
+                    if (persona.id != "general") IconButton(onClick = onExportJson, modifier = Modifier.size(32.dp)) {
                         Icon(
-                            Icons.Default.ContentCopy,
+                            Icons.Outlined.ContentCopy,
                             contentDescription = "Copy JSON",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(16.dp),
@@ -738,7 +762,7 @@ private fun CharacterCardItem(
                     }
                     IconButton(onClick = onEdit, modifier = Modifier.size(32.dp)) {
                         Icon(
-                            Icons.Default.Edit,
+                            Icons.Outlined.Edit,
                             contentDescription = "Edit / Preview",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(16.dp),
@@ -747,7 +771,7 @@ private fun CharacterCardItem(
                     if (isCustom) {
                         IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
                             Icon(
-                                Icons.Default.Delete,
+                                Icons.Outlined.Delete,
                                 contentDescription = "Delete",
                                 tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
                                 modifier = Modifier.size(16.dp),
@@ -759,9 +783,9 @@ private fun CharacterCardItem(
 
             Spacer(Modifier.height(10.dp))
 
-            // System Prompt preview
+            // Short preview: the description for Raika AI, else the prompt.
             Text(
-                persona.systemPrompt,
+                if (persona.id == "general") persona.description else persona.systemPrompt,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 2,
@@ -839,7 +863,7 @@ private fun CharacterCardItem(
                     shape = RoundedCornerShape(12.dp),
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 6.dp),
                 ) {
-                    Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = null, modifier = Modifier.size(14.dp))
+                    Icon(Icons.AutoMirrored.Outlined.Chat, contentDescription = null, modifier = Modifier.size(14.dp))
                     Spacer(Modifier.width(6.dp))
                     Text(if (isActive) "Continue Chat" else "Chat Now", style = MaterialTheme.typography.labelMedium)
                 }
@@ -869,6 +893,13 @@ private fun CharacterEditorDialog(
     var useSpecificSampler by remember { mutableStateOf(initialPersona?.temperature != null) }
     var avatarPath by remember { mutableStateOf(initialPersona?.avatarUri.orEmpty()) }
     var isSavingAvatar by remember { mutableStateOf(false) }
+    // Optional roleplay fields stay folded unless they already hold something.
+    var showAdvanced by remember {
+        mutableStateOf(
+            !initialPersona?.personality.isNullOrBlank() || !initialPersona?.scenario.isNullOrBlank() ||
+                !initialPersona?.exampleDialogues.isNullOrBlank() || initialPersona?.temperature != null,
+        )
+    }
     val scope = rememberCoroutineScope()
     val avatarPicker =
         rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
@@ -882,13 +913,13 @@ private fun CharacterEditorDialog(
         }
 
     val iconOptions = listOf(
-        "custom" to Icons.Default.SmartToy,
-        ChatConstants.ROLE_ASSISTANT to Icons.Default.Person,
-        "coder" to Icons.Default.Code,
-        "writer" to Icons.Default.Description,
-        "translator" to Icons.Default.Translate,
-        "reasoning" to Icons.Default.Psychology,
-        "shell" to Icons.Default.Terminal,
+        "custom" to Icons.Outlined.SmartToy,
+        ChatConstants.ROLE_ASSISTANT to Icons.Outlined.Person,
+        "coder" to Icons.Outlined.Code,
+        "writer" to Icons.Outlined.Description,
+        "translator" to Icons.Outlined.Translate,
+        "reasoning" to Icons.Outlined.Psychology,
+        "shell" to Icons.Outlined.Terminal,
     )
 
     AlertDialog(
@@ -911,27 +942,28 @@ private fun CharacterEditorDialog(
                 }
 
                 item {
-                    Text("Profile Photo (Optional)", style = MaterialTheme.typography.labelMedium)
+                    Text("Avatar", style = MaterialTheme.typography.labelMedium)
+                    Spacer(Modifier.height(6.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        Surface(
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                            modifier = Modifier.size(52.dp),
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                if (avatarPath.isNotBlank()) {
-                                    com.raikaai.app.ui.chat.PersonaAvatar(
-                                        avatarUri = avatarPath,
-                                        size = 52.dp,
-                                        contentDescription = "Profile photo preview",
-                                    )
-                                } else {
+                        if (avatarPath.isNotBlank()) {
+                            com.raikaai.app.ui.chat.PersonaAvatar(
+                                avatarUri = avatarPath,
+                                size = 52.dp,
+                                contentDescription = "Profile photo preview",
+                            )
+                        } else {
+                            Surface(
+                                shape = RoundedCornerShape(14.dp),
+                                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                modifier = Modifier.size(52.dp),
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
                                     Icon(
-                                        imageVector = Icons.Default.Person,
+                                        imageVector = iconOptions.firstOrNull { it.first == iconType }?.second ?: Icons.Outlined.SmartToy,
                                         contentDescription = null,
                                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier.size(26.dp),
@@ -939,67 +971,49 @@ private fun CharacterEditorDialog(
                                 }
                             }
                         }
-                        Column(
-                            modifier = Modifier.weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                        OutlinedButton(
+                            onClick = { avatarPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                            enabled = !isSavingAvatar,
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                OutlinedButton(
-                                    onClick = { avatarPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-                                    enabled = !isSavingAvatar,
-                                    shape = RoundedCornerShape(10.dp),
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                                ) {
-                                    Text(
-                                        if (isSavingAvatar) "Saving…" else if (avatarPath.isBlank()) "Choose photo" else "Change photo",
-                                        style = MaterialTheme.typography.labelMedium,
-                                    )
-                                }
-                                if (avatarPath.isNotBlank()) {
-                                    TextButton(
-                                        onClick = { avatarPath = "" },
-                                        contentPadding = PaddingValues(horizontal = 4.dp),
-                                    ) {
-                                        Text("Remove", style = MaterialTheme.typography.labelMedium)
-                                    }
-                                }
-                            }
                             Text(
-                                "Square photos work best",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                if (isSavingAvatar) "Saving…" else if (avatarPath.isBlank()) "Choose photo" else "Change photo",
+                                style = MaterialTheme.typography.labelMedium,
                             )
                         }
+                        if (avatarPath.isNotBlank()) {
+                            TextButton(onClick = { avatarPath = "" }, contentPadding = PaddingValues(horizontal = 4.dp)) {
+                                Text("Remove", style = MaterialTheme.typography.labelMedium)
+                            }
+                        }
                     }
-                }
-
-                item {
-                    Text("Avatar Icon", style = MaterialTheme.typography.labelMedium)
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        iconOptions.forEach { (type, icon) ->
-                            val isSelected = iconType == type
-                            Surface(
-                                shape = RoundedCornerShape(10.dp),
-                                color = if (isSelected) MaterialTheme.colorScheme.surfaceContainerHigh else Color.Transparent,
-                                modifier =
-                                    Modifier
-                                        .size(36.dp)
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .clickable { iconType = type },
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        imageVector = icon,
-                                        contentDescription = null,
-                                        tint = if (isSelected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.size(18.dp),
-                                    )
+                    // Without a photo, pick an icon instead.
+                    if (avatarPath.isBlank()) {
+                        Spacer(Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            iconOptions.forEach { (type, icon) ->
+                                val isSelected = iconType == type
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = if (isSelected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
+                                    modifier =
+                                        Modifier
+                                            .size(36.dp)
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .clickable { iconType = type },
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = icon,
+                                            contentDescription = null,
+                                            tint = if (isSelected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(18.dp),
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -1010,7 +1024,7 @@ private fun CharacterEditorDialog(
                     OutlinedTextField(
                         value = greeting,
                         onValueChange = { greeting = it },
-                        label = { Text("First Message / Greeting (Optional)") },
+                        label = { Text("Greeting (optional)") },
                         placeholder = { Text("e.g. Hello! How can I assist you today?") },
                         minLines = 2,
                         maxLines = 4,
@@ -1023,7 +1037,7 @@ private fun CharacterEditorDialog(
                     OutlinedTextField(
                         value = prompt,
                         onValueChange = { prompt = it },
-                        label = { Text("System Instructions / Persona Description") },
+                        label = { Text("Instructions") },
                         placeholder = { Text("Describe the character's personality, style, and rules...") },
                         minLines = 4,
                         maxLines = 8,
@@ -1033,6 +1047,18 @@ private fun CharacterEditorDialog(
                 }
 
                 item {
+                    TextButton(
+                        onClick = { showAdvanced = !showAdvanced },
+                        contentPadding = PaddingValues(horizontal = 4.dp),
+                    ) {
+                        Text(
+                            if (showAdvanced) "Hide roleplay details & sampler" else "Roleplay details & sampler…",
+                            style = MaterialTheme.typography.labelLarge,
+                        )
+                    }
+                }
+
+                if (showAdvanced) item {
                     OutlinedTextField(
                         value = personality,
                         onValueChange = { personality = it },
@@ -1045,7 +1071,7 @@ private fun CharacterEditorDialog(
                     )
                 }
 
-                item {
+                if (showAdvanced) item {
                     OutlinedTextField(
                         value = scenario,
                         onValueChange = { scenario = it },
@@ -1058,7 +1084,7 @@ private fun CharacterEditorDialog(
                     )
                 }
 
-                item {
+                if (showAdvanced) item {
                     OutlinedTextField(
                         value = examples,
                         onValueChange = { examples = it },
@@ -1071,7 +1097,7 @@ private fun CharacterEditorDialog(
                     )
                 }
 
-                item {
+                if (showAdvanced) item {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
@@ -1127,14 +1153,14 @@ private fun CharacterEditorDialog(
 
 private fun getIconVector(iconType: String): ImageVector =
     when (iconType) {
-        ChatConstants.ROLE_ASSISTANT -> Icons.Default.Person
-        "coder" -> Icons.Default.Code
-        "writer" -> Icons.Default.Description
-        "translator" -> Icons.Default.Translate
-        "reasoning" -> Icons.Default.Psychology
-        "speed" -> Icons.Default.Speed
-        "shell" -> Icons.Default.Terminal
+        ChatConstants.ROLE_ASSISTANT -> Icons.Outlined.Person
+        "coder" -> Icons.Outlined.Code
+        "writer" -> Icons.Outlined.Description
+        "translator" -> Icons.Outlined.Translate
+        "reasoning" -> Icons.Outlined.Psychology
+        "speed" -> Icons.Outlined.Speed
+        "shell" -> Icons.Outlined.Terminal
         "roleplay" -> Icons.Outlined.EmojiEmotions
-        "general" -> Icons.Default.AutoAwesome
-        else -> Icons.Default.AutoAwesome
+        "general" -> Icons.Outlined.AutoAwesome
+        else -> Icons.Outlined.AutoAwesome
     }

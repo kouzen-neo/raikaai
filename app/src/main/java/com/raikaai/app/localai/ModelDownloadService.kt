@@ -507,9 +507,7 @@ class ModelDownloadService : Service() {
                 throw IllegalArgumentException("Cannot resolve download host: $host")
             }
         for (addr in addresses) {
-            if (addr.isLoopbackAddress || addr.isLinkLocalAddress || addr.isSiteLocalAddress ||
-                addr.isMulticastAddress || addr.isAnyLocalAddress
-            ) {
+            if (com.raikaai.app.util.NetworkUtils.isNonPublicAddress(addr)) {
                 throw IllegalArgumentException("Download host resolves to a non-public IP address: $host")
             }
         }

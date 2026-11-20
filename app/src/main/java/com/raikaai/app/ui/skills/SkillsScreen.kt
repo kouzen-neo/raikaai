@@ -1,10 +1,17 @@
 package com.raikaai.app.ui.skills
 
+import com.raikaai.app.ui.component.ScreenHeader
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
+import androidx.compose.material.icons.automirrored.outlined.ShortText
+import androidx.compose.material.icons.outlined.*
+import com.raikaai.app.skills.toMarkdown
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,21 +29,21 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.FileDownload
+import androidx.compose.material.icons.outlined.FileUpload
+import androidx.compose.material.icons.outlined.Menu
+import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.automirrored.filled.MenuBook
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Compress
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Extension
-import androidx.compose.material.icons.filled.FileDownload
-import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.Functions
 import androidx.compose.material.icons.filled.Lightbulb
-import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Search
@@ -61,6 +68,7 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -91,17 +99,23 @@ import java.util.UUID
 fun SkillsScreen(
     viewModel: ChatViewModel,
     onOpenDrawer: () -> Unit = {},
+    embeddedTab: Int? = null,
+    createRequests: Int = 0,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val settings by viewModel.settings.collectAsState()
     val skills by viewModel.skills.collectAsState()
 
-    var selectedTab by remember { mutableIntStateOf(0) }
+    var selectedTabState by remember { mutableIntStateOf(0) }
+    // Inside the Agent hub the hub owns the header and tabs.
+    val selectedTab = embeddedTab ?: selectedTabState
     var showCreateDialog by remember { mutableStateOf(false) }
+    LaunchedEffect(createRequests) { if (createRequests > 0) showCreateDialog = true }
     var editingSkill by remember { mutableStateOf<Skill?>(null) }
     var deleteCandidate by remember { mutableStateOf<Skill?>(null) }
     var pendingImportReview by remember { mutableStateOf<Skill?>(null) }
+    var viewingSkill by remember { mutableStateOf<Skill?>(null) }
 
     val filePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -131,40 +145,19 @@ fun SkillsScreen(
                     .statusBarsPadding()
                     .padding(top = 10.dp),
         ) {
+            if (embeddedTab == null) {
             // ── 0. Top Header ──
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
+            ScreenHeader(
+                title = "Skills & Plugins",
+                subtitle = "Plugins add abilities · Skills add instructions",
+                onOpenDrawer = onOpenDrawer,
             ) {
                 IconButton(
-                    onClick = onOpenDrawer,
-                    modifier = Modifier.size(36.dp),
-                ) {
-                    Icon(
-                        Icons.Default.Menu,
-                        contentDescription = "Open Menu",
-                        tint = MaterialTheme.colorScheme.onSurface,
-                    )
-                }
-                Spacer(Modifier.width(10.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "Skills Hub",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Text(
-                        text = "AI Capabilities, Tools & Specialized Instructions",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                IconButton(
                     onClick = { showCreateDialog = true },
-                    modifier = Modifier.size(36.dp),
+                    modifier = Modifier.size(40.dp),
                 ) {
                     Icon(
-                        Icons.Default.Add,
+                        Icons.Outlined.Add,
                         contentDescription = "Create Skill",
                         tint = MaterialTheme.colorScheme.primary,
                     )
@@ -180,26 +173,28 @@ fun SkillsScreen(
             ) {
                 Tab(
                     selected = selectedTab == 0,
-                    onClick = { selectedTab = 0 },
+                    onClick = { selectedTabState = 0 },
                     text = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Extension, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Outlined.Extension, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(6.dp))
-                            Text("System Tools (7)", fontWeight = FontWeight.SemiBold)
+                            Text("Plugins", fontWeight = FontWeight.SemiBold)
                         }
                     },
                 )
                 Tab(
                     selected = selectedTab == 1,
-                    onClick = { selectedTab = 1 },
+                    onClick = { selectedTabState = 1 },
                     text = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Outlined.Description, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(6.dp))
-                            Text("Custom Skills (${skills.size})", fontWeight = FontWeight.SemiBold)
+                            Text("Skills (${skills.count { it.isEnabled }}/${skills.size})", fontWeight = FontWeight.SemiBold)
                         }
                     },
                 )
+            }
+
             }
 
             // ── 2. Content Views ──
@@ -213,30 +208,6 @@ fun SkillsScreen(
             ) {
 
             if (selectedTab == 0) {
-                // ── 2. System Capabilities Section ──
-                item(key = "sys_info") {
-                    Card(
-                        shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Text(
-                                "ON-DEVICE SYSTEM CAPABILITIES",
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            Spacer(Modifier.height(4.dp))
-                            Text(
-                                "Core execution tools built into RaikaAI. Toggled features are automatically active during prompt processing.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                }
-
                 // ── Group 1: Knowledge & Retrieval ──
                 item(key = "group_knowledge") {
                     Card(
@@ -246,7 +217,7 @@ fun SkillsScreen(
                     ) {
                         Column(modifier = Modifier.padding(16.dp)) {
                             Text(
-                                "KNOWLEDGE & RETRIEVAL",
+                                "KNOWLEDGE",
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -254,9 +225,9 @@ fun SkillsScreen(
                             Spacer(Modifier.height(14.dp))
 
                             SkillItemRow(
-                                title = "Live Web Search (Internet)",
-                                description = "Real-time on-device search (DuckDuckGo, Wikipedia, URLs) with factual citations. Privacy: fetching full page content sends the URL through the r.jina.ai proxy.",
-                                icon = Icons.Default.Search,
+                                title = "Web Search",
+                                description = "Searches the web, reads the top pages, and answers to the point with tappable [1] citations.",
+                                icon = Icons.Outlined.TravelExplore,
                                 isEnabled = settings.enableWebSearch,
                                 onToggle = { viewModel.setEnableWebSearch(it) },
                             )
@@ -267,9 +238,9 @@ fun SkillsScreen(
                             )
 
                             SkillItemRow(
-                                title = "Document Knowledge (RAG)",
-                                description = "On-device BM25 document indexing and semantic excerpt retrieval ([Doc1], [Doc2]).",
-                                icon = Icons.AutoMirrored.Filled.MenuBook,
+                                title = "Documents",
+                                description = "Answers from files you add, fully on-device. Cites them as [Doc1].",
+                                icon = Icons.Outlined.FolderOpen,
                                 isEnabled = settings.ragEnabled,
                                 onToggle = { viewModel.setRagEnabled(it) },
                             )
@@ -280,9 +251,9 @@ fun SkillsScreen(
                             )
 
                             SkillItemRow(
-                                title = "Chat Memory (Long-term Recall)",
-                                description = "Archives evicted conversation turns into persistent searchable memory ([Mem1]).",
-                                icon = Icons.Default.Psychology,
+                                title = "Chat Memory",
+                                description = "Remembers older turns of long chats and recalls them when relevant.",
+                                icon = Icons.Outlined.History,
                                 isEnabled = settings.useChatMemory,
                                 onToggle = { viewModel.setUseChatMemory(it) },
                             )
@@ -299,7 +270,7 @@ fun SkillsScreen(
                     ) {
                         Column(modifier = Modifier.padding(16.dp)) {
                             Text(
-                                "CODE & CONTEXT MANAGEMENT",
+                                "CODE & CONTEXT",
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -307,9 +278,9 @@ fun SkillsScreen(
                             Spacer(Modifier.height(14.dp))
 
                             SkillItemRow(
-                                title = "Code Artifacts & HTML Preview",
-                                description = "Extracts multi-file projects, derives smart file names, and provides Live Web Previews.",
-                                icon = Icons.Default.Code,
+                                title = "Code Artifacts",
+                                description = "Collects code from replies into projects you can save, export, and preview as web pages.",
+                                icon = Icons.Outlined.DataObject,
                                 isEnabled = settings.captureArtifacts,
                                 onToggle = { viewModel.setCaptureArtifacts(it) },
                             )
@@ -320,9 +291,9 @@ fun SkillsScreen(
                             )
 
                             SkillItemRow(
-                                title = "Context Auto-Compression",
-                                description = "Summarizes earlier turns before the token limit is reached, preventing generation cutoff.",
-                                icon = Icons.Default.Compress,
+                                title = "Auto-Compact",
+                                description = "Summarizes earlier turns before the context fills up, so long chats keep working.",
+                                icon = Icons.Outlined.Compress,
                                 isEnabled = settings.autoCompress,
                                 onToggle = { viewModel.setAutoCompress(it) },
                             )
@@ -339,7 +310,7 @@ fun SkillsScreen(
                     ) {
                         Column(modifier = Modifier.padding(16.dp)) {
                             Text(
-                                "REASONING & MULTIMODAL",
+                                "MODEL",
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -347,9 +318,9 @@ fun SkillsScreen(
                             Spacer(Modifier.height(14.dp))
 
                             SkillItemRow(
-                                title = "Deep Thinking & Reasoning",
-                                description = "Enables structured <think>...</think> reasoning process with collapsible UI cards.",
-                                icon = Icons.Default.Lightbulb,
+                                title = "Thinking",
+                                description = "Lets reasoning models think first. Thoughts show as collapsible cards.",
+                                icon = Icons.Outlined.Psychology,
                                 isEnabled = settings.enableThinking,
                                 onToggle = { viewModel.setEnableThinking(it) },
                             )
@@ -360,9 +331,9 @@ fun SkillsScreen(
                             )
 
                             SkillItemRow(
-                                title = "Multimodal Vision Input",
-                                description = "Enables camera and photo attachments for models with SigLIP vision encoders (Gemma 4 E2B/E4B).",
-                                icon = Icons.Default.AddPhotoAlternate,
+                                title = "Vision",
+                                description = "Photo and camera input for models that can see (e.g. Gemma 4 E2B/E4B).",
+                                icon = Icons.Outlined.Visibility,
                                 isEnabled = settings.enableVision,
                                 onToggle = { viewModel.setEnableVision(it) },
                             )
@@ -370,50 +341,35 @@ fun SkillsScreen(
                     }
                 }
             } else {
-                // ── 3. Custom Skills Section ──
+                // ── Skills: Markdown instructions added to the prompt ──
                 item(key = "custom_actions") {
-                    Card(
-                        shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Text(
-                                "CUSTOM & IMPORTED SKILLS",
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            Spacer(Modifier.height(6.dp))
-                            Text(
-                                "Modular prompt directives injected automatically before inferencing. Add specialized knowledge domains anytime.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            Spacer(Modifier.height(14.dp))
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            "Skills are short Markdown instructions added to the prompt while on. Tap one to read its SKILL.md. Toggle from chat with /skills <name>.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Button(
+                                onClick = { showCreateDialog = true },
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.weight(1f),
                             ) {
-                                Button(
-                                    onClick = { showCreateDialog = true },
-                                    shape = RoundedCornerShape(12.dp),
-                                    modifier = Modifier.weight(1f),
-                                ) {
-                                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(Modifier.width(6.dp))
-                                    Text("Create Skill")
-                                }
-
-                                OutlinedButton(
-                                    onClick = { filePicker.launch("*/*") },
-                                    shape = RoundedCornerShape(12.dp),
-                                    modifier = Modifier.weight(1f),
-                                ) {
-                                    Icon(Icons.Default.FileUpload, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(Modifier.width(6.dp))
-                                    Text("Import File")
-                                }
+                                Icon(Icons.Outlined.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("New skill")
+                            }
+                            OutlinedButton(
+                                onClick = { filePicker.launch("*/*") },
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                Icon(Icons.Outlined.FileUpload, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Import .md")
                             }
                         }
                     }
@@ -424,7 +380,7 @@ fun SkillsScreen(
                 if (presets.isNotEmpty()) {
                     item(key = "header_presets") {
                         Text(
-                            "BUILT-IN PRESET SKILLS",
+                            "BUILT-IN",
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -434,6 +390,7 @@ fun SkillsScreen(
                     items(presets, key = { it.id }) { skill ->
                         PromptSkillCard(
                             skill = skill,
+                            onOpen = { viewingSkill = skill },
                             onToggle = { isEnabled ->
                                 scope.launch { SkillsManager.getInstance(context).toggleSkill(skill.id, isEnabled) }
                             },
@@ -458,7 +415,7 @@ fun SkillsScreen(
                 if (customOnly.isNotEmpty()) {
                     item(key = "header_custom") {
                         Text(
-                            "USER CREATED & IMPORTED SKILLS",
+                            "YOURS",
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -468,6 +425,7 @@ fun SkillsScreen(
                     items(customOnly, key = { it.id }) { skill ->
                         PromptSkillCard(
                             skill = skill,
+                            onOpen = { viewingSkill = skill },
                             onToggle = { isEnabled ->
                                 scope.launch { SkillsManager.getInstance(context).toggleSkill(skill.id, isEnabled) }
                             },
@@ -545,6 +503,29 @@ fun SkillsScreen(
         )
     }
 
+    // ── SKILL.md viewer ──
+    viewingSkill?.let { shown ->
+        // Read the live copy so the switch reflects toggles made here.
+        val skill = skills.firstOrNull { it.id == shown.id } ?: shown
+        SkillDetailSheet(
+            skill = skill,
+            onDismiss = { viewingSkill = null },
+            onToggle = { on -> scope.launch { SkillsManager.getInstance(context).toggleSkill(skill.id, on) } },
+            onEdit = { viewingSkill = null; editingSkill = skill },
+            onDelete = if (skill.isBuiltIn) null else ({ viewingSkill = null; deleteCandidate = skill }),
+            onExport = {
+                scope.launch {
+                    val exported = SkillsManager.getInstance(context).exportSkill(skill)
+                    Toast.makeText(
+                        context,
+                        if (exported != null) "Saved to Downloads/RaikaAI/Skills/${exported.name}" else "Failed to export skill",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
+            },
+        )
+    }
+
     // ── Import Review Dialog (B9): preview instructions before enabling ──
     pendingImportReview?.let { skill ->
         SkillImportReviewDialog(
@@ -570,12 +551,7 @@ private fun SkillItemRow(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = if (isEnabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(24.dp),
-        )
+        IconTile(icon, active = isEnabled)
 
         Spacer(Modifier.width(14.dp))
 
@@ -607,6 +583,7 @@ private fun SkillItemRow(
 @Composable
 private fun PromptSkillCard(
     skill: Skill,
+    onOpen: () -> Unit,
     onToggle: (Boolean) -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
@@ -614,22 +591,14 @@ private fun PromptSkillCard(
 ) {
     var showMenu by remember { mutableStateOf(false) }
 
-    val iconVector = when (skill.iconCategory.lowercase()) {
-        "code" -> Icons.Default.Code
-        "terminal" -> Icons.Default.Terminal
-        "palette" -> Icons.Default.Palette
-        "math" -> Icons.Default.Functions
-        "write" -> Icons.Default.Edit
-        "search" -> Icons.Default.Search
-        else -> Icons.Default.AutoAwesome
-    }
+    val iconVector = skillIcon(skill.iconCategory)
 
     Card(
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow
         ),
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).clickable(onClick = onOpen),
     ) {
         Column(
             modifier = Modifier
@@ -640,12 +609,7 @@ private fun PromptSkillCard(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(
-                    imageVector = iconVector,
-                    contentDescription = null,
-                    tint = if (skill.isEnabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(24.dp),
-                )
+                IconTile(iconVector, active = skill.isEnabled)
 
                 Spacer(Modifier.width(12.dp))
 
@@ -681,7 +645,7 @@ private fun PromptSkillCard(
                                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
                             ) {
                                 Text(
-                                    text = "Built-in Preset",
+                                    text = "Built-in",
                                     style = MaterialTheme.typography.labelSmall,
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.SemiBold,
@@ -708,7 +672,7 @@ private fun PromptSkillCard(
                             onClick = { showMenu = true },
                             modifier = Modifier.size(32.dp),
                         ) {
-                            Icon(Icons.Default.MoreVert, contentDescription = "Options", modifier = Modifier.size(18.dp))
+                            Icon(Icons.Outlined.MoreVert, contentDescription = "Options", modifier = Modifier.size(18.dp))
                         }
                         DropdownMenu(
                             expanded = showMenu,
@@ -716,7 +680,7 @@ private fun PromptSkillCard(
                         ) {
                             DropdownMenuItem(
                                 text = { Text("Export to Markdown") },
-                                leadingIcon = { Icon(Icons.Default.FileDownload, contentDescription = null) },
+                                leadingIcon = { Icon(Icons.Outlined.FileDownload, contentDescription = null) },
                                 onClick = {
                                     showMenu = false
                                     onExport()
@@ -724,7 +688,7 @@ private fun PromptSkillCard(
                             )
                             DropdownMenuItem(
                                 text = { Text("Edit Skill") },
-                                leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
+                                leadingIcon = { Icon(Icons.Outlined.Edit, contentDescription = null) },
                                 onClick = {
                                     showMenu = false
                                     onEdit()
@@ -732,7 +696,7 @@ private fun PromptSkillCard(
                             )
                             DropdownMenuItem(
                                 text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
-                                leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+                                leadingIcon = { Icon(Icons.Outlined.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
                                 onClick = {
                                     showMenu = false
                                     onDelete()
@@ -746,7 +710,7 @@ private fun PromptSkillCard(
                         modifier = Modifier.size(32.dp),
                     ) {
                         Icon(
-                            imageVector = Icons.Default.FileDownload,
+                            imageVector = Icons.Outlined.FileDownload,
                             contentDescription = "Export",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(18.dp),
@@ -819,14 +783,29 @@ private fun SkillFormDialog(
                         modifier = Modifier.weight(1f),
                     )
 
-                    OutlinedTextField(
-                        value = iconCategory,
-                        onValueChange = { iconCategory = it },
-                        label = { Text("Icon Type") },
-                        placeholder = { Text("code/math/write/search") },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f),
-                    )
+                }
+
+                Text("Icon", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    items(SKILL_ICON_KEYS.size) { i ->
+                        val key = SKILL_ICON_KEYS[i]
+                        val selected = iconCategory.equals(key, ignoreCase = true)
+                        Surface(
+                            onClick = { iconCategory = key },
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
+                            modifier = Modifier.size(40.dp),
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    skillIcon(key),
+                                    contentDescription = key,
+                                    tint = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(20.dp),
+                                )
+                            }
+                        }
+                    }
                 }
 
                 OutlinedTextField(
@@ -854,4 +833,158 @@ private fun SkillFormDialog(
             }
         },
     )
+}
+
+/** Bottom sheet that shows a skill's SKILL.md, rendered or as source. */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+private fun SkillDetailSheet(
+    skill: Skill,
+    onDismiss: () -> Unit,
+    onToggle: (Boolean) -> Unit,
+    onEdit: () -> Unit,
+    onDelete: (() -> Unit)?,
+    onExport: () -> Unit,
+) {
+    var showSource by remember(skill.id) { mutableStateOf(false) }
+    val markdown = remember(skill) { skill.toMarkdown() }
+    androidx.compose.material3.ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true),
+    ) {
+        Column(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
+                    .padding(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconTile(skillIcon(skill.iconCategory), active = skill.isEnabled)
+                Spacer(Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(skill.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text(
+                        "${skill.category}${if (skill.isBuiltIn) " · Built-in" else ""} · SKILL.md",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(checked = skill.isEnabled, onCheckedChange = onToggle)
+            }
+            if (skill.description.isNotBlank()) {
+                Text(skill.description, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                androidx.compose.material3.FilterChip(
+                    selected = !showSource,
+                    onClick = { showSource = false },
+                    label = { Text("Preview") },
+                )
+                androidx.compose.material3.FilterChip(
+                    selected = showSource,
+                    onClick = { showSource = true },
+                    label = { Text("Source") },
+                )
+            }
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerLow,
+                modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp),
+            ) {
+                Box(
+                    modifier =
+                        Modifier
+                            .verticalScroll(androidx.compose.foundation.rememberScrollState())
+                            .padding(14.dp),
+                ) {
+                    if (showSource) {
+                        Text(
+                            markdown,
+                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                            fontSize = 12.sp,
+                            lineHeight = 17.sp,
+                        )
+                    } else {
+                        com.raikaai.app.ui.component.MarkdownText(
+                            markdown = skill.instructions.ifBlank { "_No instructions._" },
+                            enableThinking = false,
+                        )
+                    }
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(onClick = onEdit, modifier = Modifier.weight(1f)) {
+                    Icon(Icons.Outlined.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Edit")
+                }
+                OutlinedButton(onClick = onExport, modifier = Modifier.weight(1f)) {
+                    Icon(Icons.Outlined.FileDownload, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Export")
+                }
+                if (onDelete != null) {
+                    OutlinedButton(onClick = onDelete, modifier = Modifier.weight(1f)) {
+                        Icon(Icons.Outlined.Delete, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.error)
+                        Spacer(Modifier.width(6.dp))
+                        Text("Delete", color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Icon keys a skill can use (stored as Skill.iconCategory). */
+private val SKILL_ICON_KEYS =
+    listOf(
+        "code", "terminal", "write", "short", "translate", "math", "school", "search",
+        "palette", "theater", "book", "chat", "science", "work", "music", "health", "sparkles",
+    )
+
+/** Material icon for a skill icon key; unknown keys fall back to a neutral one. */
+private fun skillIcon(key: String): ImageVector =
+    when (key.lowercase()) {
+        "code" -> Icons.Outlined.Code
+        "terminal" -> Icons.Outlined.Terminal
+        "write" -> Icons.Outlined.EditNote
+        "short" -> Icons.AutoMirrored.Outlined.ShortText
+        "translate" -> Icons.Outlined.Translate
+        "math" -> Icons.Outlined.Functions
+        "school" -> Icons.Outlined.School
+        "search" -> Icons.Outlined.ManageSearch
+        "palette" -> Icons.Outlined.Palette
+        "theater" -> Icons.Outlined.TheaterComedy
+        "book" -> Icons.Outlined.AutoStories
+        "chat" -> Icons.Outlined.Forum
+        "science" -> Icons.Outlined.Science
+        "work" -> Icons.Outlined.WorkOutline
+        "music" -> Icons.Outlined.MusicNote
+        "health" -> Icons.Outlined.FavoriteBorder
+        "sparkles" -> Icons.Outlined.AutoAwesome
+        else -> Icons.Outlined.Extension
+    }
+
+/** Material You tonal icon tile: primary container when active. */
+@Composable
+private fun IconTile(
+    icon: ImageVector,
+    active: Boolean,
+) {
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = if (active) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
+        modifier = Modifier.size(40.dp),
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(
+                icon,
+                contentDescription = null,
+                tint = if (active) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(22.dp),
+            )
+        }
+    }
 }

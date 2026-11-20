@@ -139,4 +139,14 @@ class ContainerManifestTest {
         )
         assertTrue(dedupKeyOf("ls /a") != dedupKeyOf("ls /b"))
     }
+
+    @Test
+    fun redirectionsAreNotBackgrounding() {
+        assertFalse(containsBackgroundOp("curl -Iv https://github.com 2>&1 | head -n 30"))
+        assertFalse(containsBackgroundOp("echo hi >&2"))
+        assertFalse(containsBackgroundOp("make &>build.log"))
+        assertFalse(containsBackgroundOp("cmd |& tee log"))
+        assertTrue(containsBackgroundOp("python3 -m http.server 8000 &"))
+        assertTrue(containsBackgroundOp("npm run dev & sleep 2"))
+    }
 }

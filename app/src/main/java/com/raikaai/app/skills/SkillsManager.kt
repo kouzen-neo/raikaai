@@ -47,45 +47,86 @@ class SkillsManager private constructor(private val context: Context) {
         private const val MAX_IMPORT_CHARS = 200_000
         private const val MAX_IMPORTED_INSTRUCTIONS_CHARS = 20_000
 
+        /** Skills in this category apply only in roleplay chats (and only there). */
+        const val CATEGORY_ROLEPLAY = "Roleplay"
+
+        /**
+         * Bundled skills. Instructions are deliberately short: they are added
+         * to the system prompt of small on-device models with a few thousand
+         * tokens of context. All start disabled; toggle in the Skills screen
+         * or with `/skills <name>` in chat.
+         */
         val BUILTIN_SKILLS = listOf(
             Skill(
-                id = "builtin_android_kotlin",
-                name = "Android Kotlin & Compose Architect",
-                description = "Expert in Kotlin 2.x, Jetpack Compose Material 3, Coroutines, Flow, and MVVM Architecture.",
+                id = "builtin_concise",
+                name = "Concise",
+                description = "Short, direct answers. No filler, no repeated question.",
+                category = "Writing",
+                iconCategory = "short",
+                instructions = "Answer directly in as few words as the question needs. Lead with the answer, then only the details that matter. No greetings, no restating the question, no closing offers.",
+                isBuiltIn = true,
+            ),
+            Skill(
+                id = "builtin_bahasa",
+                name = "Bahasa Indonesia",
+                description = "Always reply in natural, casual Indonesian.",
+                category = "Writing",
+                iconCategory = "translate",
+                instructions = "Always reply in natural, conversational Indonesian (not stiff textbook language), even if the question is in another language. Keep technical terms, code, and names in their original form.",
+                isBuiltIn = true,
+            ),
+            Skill(
+                id = "builtin_coder",
+                name = "Coding",
+                description = "Complete, runnable code with a short explanation.",
                 category = "Coding",
                 iconCategory = "code",
-                instructions = "You are an expert Android Architect specializing in Kotlin 2.x, Jetpack Compose Material 3, Coroutines, StateFlow, and modern MVVM architecture. Always write clean, production-ready, type-safe, idiomatic code with full implementations. Avoid omitting required imports or leaving placeholder comments.",
-                isEnabled = false,
+                instructions = "When writing code: give complete, runnable code with all imports, no placeholders. State assumptions in one line. Explain briefly after the code. When fixing a bug, name the cause first, then show only the changed parts unless asked for the full file.",
                 isBuiltIn = true,
             ),
             Skill(
-                id = "builtin_web_dev",
-                name = "Modern Web UI Developer",
-                description = "Produces standalone, elegant single-file web applications (HTML5/CSS3/ES6+ JavaScript).",
-                category = "Coding",
-                iconCategory = "palette",
-                instructions = "You are a senior frontend developer who crafts modern, responsive, visually stunning single-file web applications. Use semantic HTML5, beautiful CSS3 (dark modes, glassmorphism, responsive grid/flexbox, smooth transitions), and clean vanilla JavaScript ES6+. Always return complete, self-contained, runnable code blocks.",
-                isEnabled = false,
-                isBuiltIn = true,
-            ),
-            Skill(
-                id = "builtin_logic_solver",
-                name = "Deep Problem Solver & Logic Analyst",
-                description = "Step-by-step mathematical, algorithmic, and logical breakdown with constraint verification.",
+                id = "builtin_reasoning",
+                name = "Step by step",
+                description = "Works through math and logic problems carefully.",
                 category = "Reasoning",
                 iconCategory = "math",
-                instructions = "You are a rigorous analytical thinker and problem solver. When presented with a problem, break it down systematically step-by-step: analyze preconditions, identify edge cases, formulate mathematical or logical proofs, verify constraints, and conclude with concise clarity.",
-                isEnabled = false,
+                instructions = "For math, logic, and planning questions: work step by step, check each step, and verify the final answer against the question before stating it. Put the final answer on its own line, starting with \"Answer:\".",
                 isBuiltIn = true,
             ),
             Skill(
-                id = "builtin_technical_writer",
-                name = "Technical Writer & Multilingual Translator",
-                description = "Specialist in technical documentation, Markdown structure, and fluent English/Indonesian translations.",
-                category = "Writing",
-                iconCategory = "write",
-                instructions = "You are a professional technical communicator and translator. Structure content with clear Markdown hierarchies, clean bullet points, and tables. When translating between English, Indonesian, or other languages, ensure natural fluency while preserving technical terminology and precise meaning.",
-                isEnabled = false,
+                id = "builtin_tutor",
+                name = "Tutor",
+                description = "Teaches instead of just answering.",
+                category = "General",
+                iconCategory = "school",
+                instructions = "Act as a patient tutor. Explain the idea with a simple example, then ask one short question to check understanding. If the learner is wrong, give a hint before the answer.",
+                isBuiltIn = true,
+            ),
+            Skill(
+                id = "builtin_linux_agent",
+                name = "Linux agent",
+                description = "Careful use of the Linux environment tools.",
+                category = "Coding",
+                iconCategory = "terminal",
+                instructions = "When using the Linux environment: look before acting (ls / cat), work inside /workspace, prefer small commands, and verify each change by running it. Never repeat a command that already succeeded. Finish with a short summary of what changed.",
+                isBuiltIn = true,
+            ),
+            Skill(
+                id = "builtin_rp_immersive",
+                name = "Immersive roleplay",
+                description = "Vivid, in-character replies that never speak for you.",
+                category = CATEGORY_ROLEPLAY,
+                iconCategory = "theater",
+                instructions = "Stay in character at all times. Write actions in *asterisks* and speech in quotes. Show feelings through actions and senses instead of naming them. Never write the user's actions, words, or thoughts. Keep replies 1-3 paragraphs and end on something the user can react to.",
+                isBuiltIn = true,
+            ),
+            Skill(
+                id = "builtin_rp_slowburn",
+                name = "Slow-burn story",
+                description = "Paces the plot slowly with consistent world details.",
+                category = CATEGORY_ROLEPLAY,
+                iconCategory = "book",
+                instructions = "Pace the story slowly: let scenes breathe, build tension gradually, and keep names, places, and past events consistent. Introduce small complications instead of resolving everything at once.",
                 isBuiltIn = true,
             ),
         )
@@ -251,8 +292,12 @@ class SkillsManager private constructor(private val context: Context) {
      * that no longer fit are omitted (with a warning log) so the conversation
      * itself keeps most of the context window.
      */
-    fun getActivePromptInstructions(): String {
-        val active = _skills.value.filter { it.isEnabled && it.instructions.isNotBlank() }
+    fun getActivePromptInstructions(roleplay: Boolean = false): String {
+        // Roleplay chats get only roleplay skills; normal chats never get them.
+        val active = _skills.value.filter {
+            it.isEnabled && it.instructions.isNotBlank() &&
+                (it.category.equals(CATEGORY_ROLEPLAY, ignoreCase = true) == roleplay)
+        }
         if (active.isEmpty()) return ""
         val sb = StringBuilder()
         sb.append("\n\n[ACTIVE SKILLS & SPECIALIZED DIRECTIVES]\n")
@@ -403,16 +448,7 @@ class SkillsManager private constructor(private val context: Context) {
             if (!baseDir.exists()) baseDir.mkdirs()
             val safeName = skill.name.replace(Regex("[^a-zA-Z0-9_-]"), "_").lowercase()
             val file = File(baseDir, "$safeName.md")
-            val content = buildString {
-                appendLine("---")
-                appendLine("name: \"${skill.name}\"")
-                appendLine("description: \"${skill.description}\"")
-                appendLine("category: \"${skill.category}\"")
-                appendLine("icon: \"${skill.iconCategory}\"")
-                appendLine("---")
-                appendLine()
-                appendLine(skill.instructions.trim())
-            }
+            val content = skill.toMarkdown()
             file.writeText(content)
             file
         } catch (e: Exception) {

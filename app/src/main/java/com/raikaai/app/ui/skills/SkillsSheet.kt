@@ -20,20 +20,20 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.MenuBook
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.AddPhotoAlternate
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Code
-import androidx.compose.material.icons.filled.Compress
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.FileUpload
-import androidx.compose.material.icons.filled.Functions
-import androidx.compose.material.icons.filled.Lightbulb
-import androidx.compose.material.icons.filled.Palette
-import androidx.compose.material.icons.filled.Psychology
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Terminal
+import androidx.compose.material.icons.automirrored.outlined.MenuBook
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.AddPhotoAlternate
+import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.Code
+import androidx.compose.material.icons.outlined.Compress
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.FileUpload
+import androidx.compose.material.icons.outlined.Functions
+import androidx.compose.material.icons.outlined.Lightbulb
+import androidx.compose.material.icons.outlined.Palette
+import androidx.compose.material.icons.outlined.Psychology
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -119,7 +119,7 @@ fun SkillsSheet(
             // ── Top Title ──
             Column(modifier = Modifier.padding(bottom = 12.dp)) {
                 Text(
-                    "AI Skills Hub",
+                    "Skills",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                 )
@@ -191,7 +191,7 @@ fun SkillsSheet(
                                 SheetSkillItemRow(
                                     title = "Live Web Search (Internet)",
                                     description = "Live on-device search (DuckDuckGo, Wikipedia, URLs).",
-                                    icon = Icons.Default.Search,
+                                    icon = Icons.Outlined.Search,
                                     isEnabled = settings.enableWebSearch,
                                     onToggle = { viewModel.setEnableWebSearch(it) },
                                 )
@@ -204,7 +204,7 @@ fun SkillsSheet(
                                 SheetSkillItemRow(
                                     title = "Document Knowledge (RAG)",
                                     description = "BM25 retrieval from imported text/PDF files.",
-                                    icon = Icons.AutoMirrored.Filled.MenuBook,
+                                    icon = Icons.AutoMirrored.Outlined.MenuBook,
                                     isEnabled = settings.ragEnabled,
                                     onToggle = { viewModel.setRagEnabled(it) },
                                 )
@@ -217,7 +217,7 @@ fun SkillsSheet(
                                 SheetSkillItemRow(
                                     title = "Chat Memory (Long-term Recall)",
                                     description = "Searchable long-term context memory ([Mem1]).",
-                                    icon = Icons.Default.Psychology,
+                                    icon = Icons.Outlined.Psychology,
                                     isEnabled = settings.useChatMemory,
                                     onToggle = { viewModel.setUseChatMemory(it) },
                                 )
@@ -244,7 +244,7 @@ fun SkillsSheet(
                                 SheetSkillItemRow(
                                     title = "Code Artifacts & HTML Preview",
                                     description = "Multi-file detection and instant in-app web preview.",
-                                    icon = Icons.Default.Code,
+                                    icon = Icons.Outlined.Code,
                                     isEnabled = settings.captureArtifacts,
                                     onToggle = { viewModel.setCaptureArtifacts(it) },
                                 )
@@ -257,7 +257,7 @@ fun SkillsSheet(
                                 SheetSkillItemRow(
                                     title = "Context Auto-Compression",
                                     description = "Automatic rolling summary near token limits.",
-                                    icon = Icons.Default.Compress,
+                                    icon = Icons.Outlined.Compress,
                                     isEnabled = settings.autoCompress,
                                     onToggle = { viewModel.setAutoCompress(it) },
                                 )
@@ -284,7 +284,7 @@ fun SkillsSheet(
                                 SheetSkillItemRow(
                                     title = "Deep Thinking & Reasoning",
                                     description = "Collapsible reasoning block (<think> tags).",
-                                    icon = Icons.Default.Lightbulb,
+                                    icon = Icons.Outlined.Lightbulb,
                                     isEnabled = settings.enableThinking,
                                     onToggle = { viewModel.setEnableThinking(it) },
                                 )
@@ -297,7 +297,7 @@ fun SkillsSheet(
                                 SheetSkillItemRow(
                                     title = "Multimodal Vision Input",
                                     description = "Camera & photo understanding for vision models.",
-                                    icon = Icons.Default.AddPhotoAlternate,
+                                    icon = Icons.Outlined.AddPhotoAlternate,
                                     isEnabled = settings.enableVision,
                                     onToggle = { viewModel.setEnableVision(it) },
                                 )
@@ -320,7 +320,7 @@ fun SkillsSheet(
                                 shape = RoundedCornerShape(12.dp),
                                 modifier = Modifier.weight(1f),
                             ) {
-                                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Icon(Icons.Outlined.Add, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(Modifier.width(6.dp))
                                 Text("New Skill")
                             }
@@ -330,7 +330,7 @@ fun SkillsSheet(
                                 shape = RoundedCornerShape(12.dp),
                                 modifier = Modifier.weight(1f),
                             ) {
-                                Icon(Icons.Default.FileUpload, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Icon(Icons.Outlined.FileUpload, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(Modifier.width(6.dp))
                                 Text("Import")
                             }
@@ -416,13 +416,13 @@ private fun SheetPromptSkillCard(
     onToggle: (Boolean) -> Unit,
 ) {
     val iconVector = when (skill.iconCategory.lowercase()) {
-        "code" -> Icons.Default.Code
-        "terminal" -> Icons.Default.Terminal
-        "palette" -> Icons.Default.Palette
-        "math" -> Icons.Default.Functions
-        "write" -> Icons.Default.Edit
-        "search" -> Icons.Default.Search
-        else -> Icons.Default.AutoAwesome
+        "code" -> Icons.Outlined.Code
+        "terminal" -> Icons.Outlined.Terminal
+        "palette" -> Icons.Outlined.Palette
+        "math" -> Icons.Outlined.Functions
+        "write" -> Icons.Outlined.Edit
+        "search" -> Icons.Outlined.Search
+        else -> Icons.Outlined.AutoAwesome
     }
 
     Card(

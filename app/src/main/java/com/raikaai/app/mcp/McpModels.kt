@@ -26,12 +26,24 @@ data class McpServerConfig(
     val authToken: String = "",
     val enabled: Boolean = true,
     /**
+     * Stdio server: shell command run inside the Alpine environment
+     * (e.g. `npx -y @upstash/context7-mcp`). When set, [url] is unused.
+     */
+    val command: String = "",
+    /** Added by Raika itself (add_mcp_server) rather than by hand. */
+    val addedByAgent: Boolean = false,
+    /**
      * True when a token is stored for this server. Never serialized
      * ([Transient]) — used by the UI to show "token saved" without
      * revealing the secret.
      */
     @Transient var hasToken: Boolean = false,
 ) {
+    val isStdio: Boolean get() = (command as String?).orEmpty().isNotBlank()
+
+    /** Where the server runs, for display. */
+    val location: String get() = if (isStdio) "Linux · $command" else url
+
     /** Normalized endpoint URL, or null when blank/malformed. */
     fun endpoint(): String? {
         var u = (url as String?).orEmpty().trim()
@@ -54,6 +66,8 @@ internal fun McpServerConfig.normalized(): McpServerConfig {
         url = safeUrl,
         authToken = (authToken as String?).orEmpty(),
         enabled = (enabled as Boolean?) ?: true,
+        command = (command as String?).orEmpty(),
+        addedByAgent = (addedByAgent as Boolean?) ?: false,
     ).also {
         it.hasToken = this.hasToken
     }

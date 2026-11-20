@@ -7,6 +7,11 @@ import com.raikaai.app.data.ChatConstants
  * Supports automatic template detection as well as manual format overrides (Gemma, ChatML, Llama 3, Raw).
  */
 object PromptBuilder {
+    private val THINK_BLOCK =
+        Regex("<(?:think|thought|thinking)(?:\\s+[^>]*)?>[\\s\\S]*?</(?:think|thought|thinking)>", RegexOption.IGNORE_CASE)
+    private val THINK_UNCLOSED =
+        Regex("<(?:think|thought|thinking)(?:\\s+[^>]*)?>[\\s\\S]*", RegexOption.IGNORE_CASE)
+
     data class ChatMessage(
         val role: String = "",
         val content: String = "",
@@ -41,8 +46,15 @@ object PromptBuilder {
             }
         val dialogue = rawDialogue.map { msg ->
             var content = msg.content
-            if (!enableThinking && msg.role.equals(ChatConstants.ROLE_ASSISTANT, ignoreCase = true)) {
-                content = content.replace(Regex("<(think|thought)>[\\s\\S]*?</(think|thought)>"), "").trim()
+            if (msg.role.equals(ChatConstants.ROLE_ASSISTANT, ignoreCase = true)) {
+                // Previous turns' reasoning is never fed back (thinking models
+                // such as Qwen3 / Gemma / DeepSeek expect it dropped), even with
+                // thinking enabled: it only burns the small on-device context
+                // window. Covers attributes, <thinking>, and unclosed blocks.
+                content = content
+                    .replace(THINK_BLOCK, "")
+                    .replace(THINK_UNCLOSED, "")
+                    .trim()
             }
             if (msg.role.equals(ChatConstants.ROLE_USER, ignoreCase = true)) {
                 // Strip a leading /search or /web command prefix (case-insensitive,

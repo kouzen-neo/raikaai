@@ -1,0 +1,16 @@
+[package]
+name = "raikapty"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-only"
+description = "Runs a command on a pseudo-terminal and relays it over stdin/stdout (RaikaAI terminal PTY mode)."
+
+[dependencies]
+libc = "0.2"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

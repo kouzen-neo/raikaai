@@ -45,6 +45,11 @@ class BenchmarkRunner(
         )
     val remoteModels: State<List<RemoteModelItem>> = _remoteModels
 
+    /** Forgets the fetched list (another provider was selected). */
+    fun clearRemoteModels() {
+        _remoteModels.value = emptyList()
+    }
+
     private val _isFetchingRemoteModels = mutableStateOf(false)
     val isFetchingRemoteModels: State<Boolean> = _isFetchingRemoteModels
 
@@ -82,7 +87,7 @@ class BenchmarkRunner(
                 if (detected != null) {
                     settingsRepo.setRemoteModelContextWindow(modelId, detected)
                 } else {
-                    onError("Could not detect the context window for this provider — set it manually below.")
+                    onError("This provider doesn't report the context window for $modelId. The default is used; set it manually below if needed.")
                 }
             } finally {
                 _isDetectingContextWindow.value = false
@@ -108,6 +113,11 @@ class BenchmarkRunner(
         _isFetchingRemoteModels.value = true
         scope.launch {
             val res = RemoteAiClient.fetchModels(baseUrl, apiKey)
+            // The user may have switched provider meanwhile: drop stale lists.
+            if (settings.value.remoteBaseUrl.trimEnd('/') != baseUrl.trimEnd('/')) {
+                _isFetchingRemoteModels.value = false
+                return@launch
+            }
             res.onSuccess {
                 _remoteModels.value = it
                 settingsRepo.setCachedRemoteModelsJson(com.raikaai.app.data.cachedRemoteModelsToJson(it))

@@ -16,8 +16,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -73,7 +73,7 @@ fun RoleplaySearchScreen(
     Column(modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back")
             }
             Text("Search characters", style = MaterialTheme.typography.headlineSmall)
         }
@@ -89,7 +89,7 @@ fun RoleplaySearchScreen(
             placeholder = { Text("find character") },
             trailingIcon = {
                 IconButton(onClick = ::search, enabled = !loading) {
-                    Icon(Icons.Default.Search, contentDescription = "Search")
+                    Icon(Icons.Outlined.Search, contentDescription = "Search")
                 }
             },
         )

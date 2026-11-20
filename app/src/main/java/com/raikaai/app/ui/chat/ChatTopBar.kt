@@ -11,10 +11,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.Psychology
+import androidx.compose.material.icons.outlined.TheaterComedy
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -92,9 +93,9 @@ fun ChatTopBar(
                 ) {
                     Icon(
                         imageVector = if (isRolePlay) {
-                            Icons.AutoMirrored.Filled.ArrowBack
+                            Icons.AutoMirrored.Outlined.ArrowBack
                         } else {
-                            Icons.Default.Menu
+                            Icons.Outlined.Menu
                         },
                         contentDescription = stringResource(R.string.chat_menu),
                         tint = MaterialTheme.colorScheme.onSurface,
@@ -104,14 +105,14 @@ fun ChatTopBar(
             actions = {
                 IconButton(onClick = onNewChat) {
                     Icon(
-                        Icons.Default.Add,
+                        Icons.Outlined.Add,
                         contentDescription = stringResource(R.string.chat_new_chat),
                         tint = MaterialTheme.colorScheme.onSurface,
                     )
                 }
                 IconButton(onClick = onOpenRightDrawer) {
                     Icon(
-                        Icons.Outlined.Psychology,
+                        Icons.Outlined.TheaterComedy,
                         contentDescription = "Characters",
                         tint = MaterialTheme.colorScheme.onSurface,
                     )

@@ -134,7 +134,14 @@ fi
     }
 
     enum class TermKind { CMD, OUT, ERR, SYS }
-    data class TermLine(val kind: TermKind, val text: String)
+    data class TermLine(
+        val kind: TermKind,
+        val text: String,
+        /** Styled text from the ANSI screen; null for plain lines. */
+        val rich: androidx.compose.ui.text.AnnotatedString? = null,
+        /** Working directory shown in the prompt of a CMD line. */
+        val cwd: String? = null,
+    )
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val runMutex = Mutex()
@@ -244,6 +251,12 @@ fi
     ): FileEditResult =
         ContainerFileOps.editFile(relativePath, oldString, newString, replaceAll, workspaceDir)
 
+    /** Several disjoint exact replacements in one call (see [ContainerFileOps.multiEdit]). */
+    fun multiEditFile(
+        relativePath: String,
+        edits: List<Pair<String, String>>,
+    ): FileEditResult = ContainerFileOps.multiEdit(relativePath, edits, workspaceDir)
+
     fun readFile(
         relativePath: String,
         offset: Int = 1,
@@ -271,13 +284,17 @@ fi
                 verifyBundledLibs(bundled)
                 _installState.value = InstallState.Downloading("proot engine", 1f)
 
-                _installState.value = InstallState.Downloading("alpine-minirootfs", 0f)
                 val tmpTar = File(app.cacheDir, "alpine-minirootfs.tar.gz")
-                downloadToFile(manifest.rootfsUrl, tmpTar, expectedSha256 = manifest.rootfsSha256.ifBlank { null }) { done, total ->
-                    _installState.value = InstallState.Downloading(
-                        "alpine-minirootfs",
-                        if (total > 0) done.toFloat() / total else 0f,
-                    )
+                if (abi == "arm64-v8a" && copyBundledRootfs(tmpTar)) {
+                    KLog.d(TAG, "Using the rootfs bundled in the APK")
+                } else {
+                    _installState.value = InstallState.Downloading("alpine-minirootfs", 0f)
+                    downloadToFile(manifest.rootfsUrl, tmpTar, expectedSha256 = manifest.rootfsSha256.ifBlank { null }) { done, total ->
+                        _installState.value = InstallState.Downloading(
+                            "alpine-minirootfs",
+                            if (total > 0) done.toFloat() / total else 0f,
+                        )
+                    }
                 }
 
                 _installState.value = InstallState.Extracting("alpine-minirootfs")
@@ -319,6 +336,55 @@ fi
                 _installState.value = InstallState.Error(t.message ?: t.javaClass.simpleName)
             }
         }
+    }
+
+    /** True when this build carries the rootfs (no download needed). */
+    fun hasBundledRootfs(): Boolean =
+        android.os.Build.SUPPORTED_ABIS.firstOrNull() == "arm64-v8a" &&
+            runCatching { app.assets.open(BUNDLED_ROOTFS_ASSET).use { true } }.getOrDefault(false)
+
+    /**
+     * Copies the rootfs shipped in the APK to [dest] and checks its SHA-256.
+     * False when the asset is missing or damaged (the caller downloads instead).
+     */
+    private suspend fun copyBundledRootfs(dest: File): Boolean =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                _installState.value = InstallState.Extracting("alpine-minirootfs")
+                val digest = java.security.MessageDigest.getInstance("SHA-256")
+                app.assets.open(BUNDLED_ROOTFS_ASSET).use { input ->
+                    dest.outputStream().use { out ->
+                        val buf = ByteArray(64 * 1024)
+                        while (true) {
+                            val n = input.read(buf)
+                            if (n < 0) break
+                            digest.update(buf, 0, n)
+                            out.write(buf, 0, n)
+                        }
+                    }
+                }
+                val hex = digest.digest().joinToString("") { "%02x".format(it) }
+                if (hex != BUNDLED_ROOTFS_SHA256) {
+                    dest.delete()
+                    KLog.w(TAG, "Bundled rootfs checksum mismatch; downloading instead")
+                    false
+                } else {
+                    true
+                }
+            }.getOrElse {
+                dest.delete()
+                false
+            }
+        }
+
+    /**
+     * Installs the environment on first launch when the rootfs is bundled,
+     * so the terminal is ready without a download or an Install tap.
+     */
+    fun autoInstallIfBundled() {
+        if (isInstalled() || isOutdated() || installJob?.isActive == true) return
+        if (!hasBundledRootfs()) return
+        install()
     }
 
     fun cancelInstall() {
@@ -375,11 +441,42 @@ fi
     }
 
     /** Shared proot invocation prefix: rootfs + binds + fake root + workdir. */
+    /**
+     * Raika's home (SOUL/AGENTS/MEMORY.md, mcp.json, chats/) lives in app
+     * storage and is mounted at /root/.raika, so it survives a rootfs reset
+     * and the agent can read and edit it from the terminal.
+     */
+    val raikaHomeDir: File get() = File(app.filesDir, "agent")
+
+    /** True when the user turned on phone storage and granted all-files access. */
+    fun phoneStorageMounted(): Boolean =
+        runCatching {
+            android.os.Build.VERSION.SDK_INT >= 30 &&
+                android.os.Environment.isExternalStorageManager() &&
+                app.getSharedPreferences("container", android.content.Context.MODE_PRIVATE).getBoolean("phone_storage", false)
+        }.getOrDefault(false)
+
+    fun setPhoneStorageEnabled(on: Boolean) {
+        app.getSharedPreferences("container", android.content.Context.MODE_PRIVATE).edit().putBoolean("phone_storage", on).apply()
+    }
+
+    fun phoneStorageWanted(): Boolean =
+        app.getSharedPreferences("container", android.content.Context.MODE_PRIVATE).getBoolean("phone_storage", false)
+
+    private fun phoneStorageArgs(): List<String> {
+        if (!phoneStorageMounted()) return emptyList()
+        val root = android.os.Environment.getExternalStorageDirectory().absolutePath
+        return listOf("-b", "$root:/sdcard", "-b", "$root:/storage/emulated/0")
+    }
+
     private fun baseArgs(): List<String> {
         workspaceDir.mkdirs()
+        raikaHomeDir.mkdirs()
         return listOf(
             "-r", alpineDir.absolutePath,
             "-b", "${workspaceDir.absolutePath}:/workspace",
+            "-b", "${raikaHomeDir.absolutePath}:/root/.raika",
+        ) + phoneStorageArgs() + listOf(
             "-b", "/dev",
             "-b", "/proc",
             "-0",
@@ -519,6 +616,179 @@ fi
     }
 
     /**
+     * Like [runStreaming] but delivers raw output chunks (not lines), so the
+     * terminal can interpret carriage returns, cursor moves and colors.
+     */
+    suspend fun runStreamingRaw(
+        command: String,
+        timeoutSec: Long = 600,
+        onChunk: (TermKind, String) -> Unit,
+    ): Int {
+        if (!isInstalled()) {
+            onChunk(TermKind.ERR, "Linux Environment is not installed. Press Install Alpine first.\n")
+            return -1
+        }
+        return withContext(Dispatchers.IO) {
+            var proc: Process? = null
+            try {
+                workspaceDir.mkdirs()
+                val pb = ProcessBuilder(
+                    listOf(prootBin.absolutePath) + baseArgs() + listOf("/bin/sh", "-c", command),
+                )
+                pb.redirectErrorStream(false)
+                withContainerEnv(pb)
+                proc = pb.start()
+                activeProcs.add(proc)
+
+                val outJob = scope.launch(Dispatchers.IO) {
+                    try {
+                        val reader = java.io.InputStreamReader(proc.inputStream, Charsets.UTF_8)
+                        val buf = CharArray(4096)
+                        while (isActive) {
+                            val n = reader.read(buf)
+                            if (n < 0) break
+                            val chunk = String(buf, 0, n)
+                            withContext(Dispatchers.Main) { onChunk(TermKind.OUT, chunk) }
+                        }
+                    } catch (_: Throwable) {}
+                }
+
+                val errJob = scope.launch(Dispatchers.IO) {
+                    try {
+                        val reader = java.io.InputStreamReader(proc.errorStream, Charsets.UTF_8)
+                        val buf = CharArray(4096)
+                        while (isActive) {
+                            val n = reader.read(buf)
+                            if (n < 0) break
+                            val chunk = String(buf, 0, n)
+                            withContext(Dispatchers.Main) { onChunk(TermKind.ERR, chunk) }
+                        }
+                    } catch (_: Throwable) {}
+                }
+
+                val finished = try {
+                    proc.waitFor(timeoutSec, TimeUnit.SECONDS)
+                } finally {
+                    activeProcs.remove(proc)
+                }
+
+                try {
+                    kotlinx.coroutines.withTimeoutOrNull(800) {
+                        outJob.join()
+                        errJob.join()
+                    }
+                } catch (_: Throwable) {}
+
+                if (!finished) {
+                    proc.destroyForcibly()
+                    withContext(Dispatchers.Main) {
+                        onChunk(TermKind.SYS, "\n[timed out after ${timeoutSec}s]\n")
+                    }
+                    return@withContext -1
+                }
+                proc.exitValue()
+            } catch (c: kotlinx.coroutines.CancellationException) {
+                try { proc?.destroyForcibly() } catch (_: Throwable) {}
+                throw c
+            } catch (t: Throwable) {
+                try { proc?.destroyForcibly() } catch (_: Throwable) {}
+                withContext(Dispatchers.Main) {
+                    onChunk(TermKind.ERR, "run failed: ${t.message ?: t.javaClass.simpleName}\n")
+                }
+                -1
+            }
+        }
+    }
+
+    /** PTY helper (native/raikapty), shipped next to the proot engine. */
+    val ptyBin: File get() = File(nativeLibDir, "libraikapty.so")
+
+    fun ptyAvailable(): Boolean = ptyBin.isFile
+
+    /**
+     * Runs [command] on a real pseudo-terminal (PTY mode of the terminal):
+     * programs see a tty, so full-screen apps (opencode, vim, htop), colors,
+     * and line editing work. Output arrives as one stream on [onChunk] (on
+     * Main); [onStdin] gets the stream for keystrokes and resize messages
+     * (see [resizeMessage]). No timeout: interactive programs run until they
+     * exit or the job is cancelled.
+     */
+    suspend fun runPty(
+        command: String,
+        rows: Int,
+        cols: Int,
+        onStdin: (java.io.OutputStream?) -> Unit,
+        onKill: ((() -> Unit)?) -> Unit = {},
+        onChunk: (String) -> Unit,
+    ): Int {
+        if (!isInstalled()) {
+            onChunk("Linux Environment is not installed. Press Install Alpine first.\r\n")
+            return -1
+        }
+        if (!ptyAvailable()) {
+            onChunk("Terminal helper missing from this build (libraikapty.so).\r\n")
+            return -1
+        }
+        return withContext(Dispatchers.IO) {
+            var proc: Process? = null
+            try {
+                workspaceDir.mkdirs()
+                val pb = ProcessBuilder(
+                    listOf(ptyBin.absolutePath, rows.coerceIn(2, 300).toString(), cols.coerceIn(10, 400).toString(), prootBin.absolutePath) +
+                        baseArgs() + listOf("/bin/sh", "-c", command),
+                )
+                pb.redirectErrorStream(true)
+                withContainerEnv(pb)
+                val started = pb.start()
+                proc = started
+                activeProcs.add(started)
+                // The read below blocks while an interactive program waits for
+                // keys, so cancellation (Stop, closing the tab) kills it directly.
+                kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job]?.invokeOnCompletion { cause ->
+                    if (cause != null) runCatching { started.destroyForcibly() }
+                }
+                val stdin = started.outputStream
+                withContext(Dispatchers.Main) {
+                    onStdin(stdin)
+                    // Ends the whole tree (proot keeps running while a program's
+                    // background helpers are alive, e.g. opencode's server).
+                    onKill { runCatching { started.destroyForcibly() } }
+                }
+                try {
+                    val reader = java.io.InputStreamReader(proc.inputStream, Charsets.UTF_8)
+                    val buf = CharArray(8192)
+                    while (true) {
+                        val n = reader.read(buf)
+                        if (n < 0) break
+                        val chunk = String(buf, 0, n)
+                        withContext(Dispatchers.Main) { onChunk(chunk) }
+                    }
+                } catch (_: java.io.IOException) {
+                }
+                proc.waitFor()
+                proc.exitValue()
+            } catch (c: kotlinx.coroutines.CancellationException) {
+                try { proc?.destroyForcibly() } catch (_: Throwable) {}
+                throw c
+            } catch (t: Throwable) {
+                try { proc?.destroyForcibly() } catch (_: Throwable) {}
+                withContext(Dispatchers.Main) { onChunk("run failed: ${t.message ?: t.javaClass.simpleName}\r\n") }
+                -1
+            } finally {
+                proc?.let { activeProcs.remove(it) }
+                withContext(kotlinx.coroutines.NonCancellable + Dispatchers.Main) {
+                    onStdin(null)
+                    onKill(null)
+                }
+            }
+        }
+    }
+
+    /** In-band resize message understood by the PTY helper. */
+    fun resizeMessage(rows: Int, cols: Int): ByteArray =
+        "\u001B]9999;${rows.coerceIn(2, 300)};${cols.coerceIn(10, 400)}\u0007".toByteArray()
+
+    /**
      * Engine self-test probes (no install gate). Distinguishes engine/linker
      * failure (P0), rootfs access failure (P1), and shell lookup failure (P2).
      */
@@ -565,6 +835,12 @@ fi
         )
         sb.appendLine("P6 rename test: exit=${p6.exitCode} out=${(p6.stdout.ifBlank { p6.stderr }).take(300)}")
         return sb.toString()
+    }
+
+    /** Stops every background server started with `&` (used before a reset). */
+    fun stopAllDaemons() {
+        daemons.values.forEach { runCatching { it.destroyForcibly() } }
+        daemons.clear()
     }
 
     /** Forcibly stops all currently running foreground commands, if any (terminal Ctrl+C). */
@@ -837,7 +1113,34 @@ fi
     // ── Internals ─────────────────────────────────────────────────────
 
     /** Points proot at its bundled engine: lib dir first on the search path. */
+    /**
+     * Gives the rootfs its own /etc/machine-id. The Alpine minirootfs ships
+     * without one, so tools that identify the device by it (opencode's free
+     * tier, dbus) saw every install as the same machine and shared one quota.
+     */
+    private fun ensureMachineId() {
+        runCatching {
+            val f = File(alpineDir, "etc/machine-id")
+            if (!f.parentFile!!.isDirectory) return
+            if (f.isFile && f.readText().trim().length >= 32) return
+            f.writeText(java.util.UUID.randomUUID().toString().replace("-", "") + "\n")
+        }
+    }
+
+    /**
+     * Starts a long-lived shell command inside Alpine with open stdin/stdout
+     * (stdio MCP servers). The caller owns the process and must destroy it.
+     */
+    fun startShellProcess(command: String): Process {
+        check(isInstalled()) { "Linux environment is not installed" }
+        val pb = ProcessBuilder(listOf(prootBin.absolutePath) + baseArgs() + listOf("/bin/sh", "-c", command))
+        pb.redirectErrorStream(false)
+        withContainerEnv(pb)
+        return pb.start().also { activeProcs.add(it) }
+    }
+
     private fun withContainerEnv(pb: ProcessBuilder) {
+        ensureMachineId()
         val libDir = nativeLibDir.absolutePath
         val env = pb.environment()
         val existing = env["LD_LIBRARY_PATH"].orEmpty()
@@ -1085,7 +1388,9 @@ fi
                 }
                 val target = File(destDir, name)
                 // Zip-slip guard
-                if (!target.canonicalPath.startsWith(destDir.canonicalPath)) {
+                val destCanonical = destDir.canonicalPath
+                val targetCanonical = target.canonicalPath
+                if (targetCanonical != destCanonical && !targetCanonical.startsWith(destCanonical + File.separator)) {
                     throw IllegalStateException("Tar entry escapes destination: $name")
                 }
                 // Guest-relative name (tar uses ./ prefix): needed to rewrite
@@ -1176,41 +1481,51 @@ fi
         }
     }
 
+    /**
+     * Reads [stream] to the END and keeps at most [OUTPUT_CAP] bytes: the
+     * head by default, the tail with [keepTail]. Draining matters: the old
+     * head mode stopped reading at the cap, so a chatty command (npm install,
+     * apk add, a build) filled the pipe, blocked, and was killed at timeout.
+     */
     private fun readCapped(stream: java.io.InputStream, keepTail: Boolean = false): String {
         return try {
+            val buf = ByteArray(8192)
             if (!keepTail) {
-                val buf = ByteArray(OUTPUT_CAP + 1)
-                var total = 0
-                while (total <= OUTPUT_CAP) {
-                    val n = stream.read(buf, total, minOf(buf.size - total, 8192))
+                val head = java.io.ByteArrayOutputStream()
+                var total = 0L
+                while (true) {
+                    val n = stream.read(buf)
                     if (n < 0) break
+                    val room = OUTPUT_CAP - head.size()
+                    if (room > 0) head.write(buf, 0, minOf(n, room))
                     total += n
-                    if (total > OUTPUT_CAP) break
                 }
-                var text = String(buf, 0, minOf(total, OUTPUT_CAP), Charsets.UTF_8)
-                if (total > OUTPUT_CAP) text += "\n…(output truncated)"
+                var text = head.toString(Charsets.UTF_8.name())
+                if (total > OUTPUT_CAP) text += "\n…(${(total - OUTPUT_CAP) / 1024} KB more output not shown)"
                 text
             } else {
                 // Verbose traces: the failure is at the END. Keep the tail.
                 val chunks = ArrayDeque<ByteArray>()
-                var total = 0
-                val buf = ByteArray(8192)
+                var kept = 0
+                var total = 0L
                 while (true) {
                     val n = stream.read(buf)
                     if (n < 0) break
                     chunks.addLast(buf.copyOf(n))
+                    kept += n
                     total += n
-                    while (total > OUTPUT_CAP) {
-                        total -= chunks.removeFirst().size
+                    while (kept > OUTPUT_CAP && chunks.size > 1) {
+                        kept -= chunks.removeFirst().size
                     }
                 }
-                val out = ByteArray(total)
+                val out = ByteArray(kept)
                 var off = 0
                 for (c in chunks) {
                     c.copyInto(out, off)
                     off += c.size
                 }
-                "…(showing last ${total / 1024}KB)\n" + String(out, Charsets.UTF_8)
+                val text = String(out, Charsets.UTF_8)
+                if (total > kept) "…(earlier output truncated, showing last ${kept / 1024} KB)\n$text" else text
             }
         } catch (_: Throwable) {
             ""

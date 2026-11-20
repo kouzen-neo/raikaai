@@ -1,5 +1,6 @@
 package com.raikaai.app.ui.logs
 
+import com.raikaai.app.ui.component.ScreenHeader
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -19,11 +20,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Clear
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Terminal
+import androidx.compose.material.icons.outlined.Clear
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Menu
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -104,65 +105,38 @@ fun LogsScreen(
                     .padding(top = 10.dp, start = 16.dp, end = 16.dp),
         ) {
             // ── 0. Top Header ──
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
+            ScreenHeader(
+                title = "Logs",
+                subtitle = "${filteredLogs.size} entries",
+                onOpenDrawer = onOpenDrawer,
+                insideHorizontalPadding = true,
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(
-                        onClick = onOpenDrawer,
-                        modifier = Modifier.size(36.dp),
-                    ) {
-                        Icon(
-                            Icons.Default.Menu,
-                            contentDescription = "Open Menu",
-                            tint = MaterialTheme.colorScheme.onSurface,
-                        )
-                    }
-                    Spacer(Modifier.width(10.dp))
-                    Column {
-                        Text(
-                            text = "Telemetry Logs",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                        )
-                        Text(
-                            text = "${filteredLogs.size} Telemetry Records",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+                IconButton(
+                    onClick = {
+                        val allText = engineLogs.joinToString("\n")
+                        clipboard.setText(AnnotatedString(allText))
+                        Toast.makeText(context, "Logs copied to clipboard", Toast.LENGTH_SHORT).show()
+                    },
+                    modifier = Modifier.size(40.dp),
+                ) {
+                    Icon(
+                        Icons.Outlined.ContentCopy,
+                        contentDescription = "Copy all logs",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
-
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    IconButton(
-                        onClick = {
-                            val allText = engineLogs.joinToString("\n")
-                            clipboard.setText(AnnotatedString(allText))
-                            Toast.makeText(context, "Logs copied to clipboard", Toast.LENGTH_SHORT).show()
-                        },
-                        modifier = Modifier.size(36.dp),
-                    ) {
-                        Icon(
-                            Icons.Outlined.ContentCopy,
-                            contentDescription = "Copy all logs",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    IconButton(
-                        onClick = {
-                            viewModel.clearLogs()
-                            Toast.makeText(context, "Logs cleared", Toast.LENGTH_SHORT).show()
-                        },
-                        modifier = Modifier.size(36.dp),
-                    ) {
-                        Icon(
-                            Icons.Default.Delete,
-                            contentDescription = "Clear logs",
-                            tint = MaterialTheme.colorScheme.error,
-                        )
-                    }
+                IconButton(
+                    onClick = {
+                        viewModel.clearLogs()
+                        Toast.makeText(context, "Logs cleared", Toast.LENGTH_SHORT).show()
+                    },
+                    modifier = Modifier.size(40.dp),
+                ) {
+                    Icon(
+                        Icons.Outlined.Delete,
+                        contentDescription = "Clear logs",
+                        tint = MaterialTheme.colorScheme.error,
+                    )
                 }
             }
 
@@ -171,11 +145,11 @@ fun LogsScreen(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
                 placeholder = { Text("Filter logs…") },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null, modifier = Modifier.size(18.dp)) },
                 trailingIcon = {
                     if (searchQuery.isNotBlank()) {
                         IconButton(onClick = { searchQuery = "" }) {
-                            Icon(Icons.Default.Clear, contentDescription = "Clear search")
+                            Icon(Icons.Outlined.Clear, contentDescription = "Clear search")
                         }
                     }
                 },
@@ -238,7 +212,7 @@ fun LogsScreen(
             ) {
                 if (filteredLogs.isEmpty()) {
                     EmptyState(
-                        icon = Icons.Default.Terminal,
+                        icon = Icons.Outlined.Terminal,
                         title = "No log records found",
                         message = "Engine telemetry will appear here once the model runs.",
                     )

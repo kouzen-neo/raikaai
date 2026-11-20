@@ -34,3 +34,16 @@ internal fun Skill.normalize(): Skill {
         createdAt = (createdAt as Long?)?.takeIf { it > 0 } ?: System.currentTimeMillis(),
     )
 }
+
+/** The skill as a SKILL.md document (YAML frontmatter + instructions). */
+fun Skill.toMarkdown(): String =
+    buildString {
+        appendLine("---")
+        appendLine("name: \"$name\"")
+        appendLine("description: \"$description\"")
+        appendLine("category: \"$category\"")
+        appendLine("icon: \"$iconCategory\"")
+        appendLine("---")
+        appendLine()
+        appendLine(instructions.trim())
+    }

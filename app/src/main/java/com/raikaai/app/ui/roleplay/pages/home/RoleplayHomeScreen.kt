@@ -10,7 +10,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -79,7 +79,7 @@ fun RoleplayHomeScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text("find character", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Icon(Icons.Default.Search, contentDescription = "Search")
+                    Icon(Icons.Outlined.Search, contentDescription = "Search")
                 }
             }
             Spacer(Modifier.height(14.dp))

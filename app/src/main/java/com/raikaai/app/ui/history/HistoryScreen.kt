@@ -1,5 +1,6 @@
 package com.raikaai.app.ui.history
 
+import com.raikaai.app.ui.component.ScreenHeader
 import android.content.Intent
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -20,24 +21,21 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Backup
-import androidx.compose.material.icons.filled.Clear
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.DeleteSweep
-import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.outlined.Backup
+import androidx.compose.material.icons.outlined.Clear
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.DeleteSweep
+import androidx.compose.material.icons.outlined.Menu
+import androidx.compose.material.icons.outlined.Share
+import androidx.compose.material.icons.outlined.Tag
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.filled.FileUpload
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Tag
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -192,40 +190,15 @@ fun HistoryScreen(
                     .padding(top = 10.dp),
         ) {
             // ── 0. Top Header ──
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
+            ScreenHeader(
+                title = "All chats",
+                subtitle = "${conversations.size} conversations",
+                onOpenDrawer = onOpenDrawer,
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(
-                        onClick = onOpenDrawer,
-                        modifier = Modifier.size(36.dp),
-                    ) {
-                        Icon(
-                            Icons.Default.Menu,
-                            contentDescription = "Open Menu",
-                            tint = MaterialTheme.colorScheme.onSurface,
-                        )
-                    }
-                    Spacer(Modifier.width(10.dp))
-                    Column {
-                        Text(
-                            text = "Chat History",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                        )
-                        Text(
-                            text = "${conversations.size} Saved Conversations",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
                 if (conversations.isNotEmpty()) {
                     IconButton(onClick = { showClearAllConfirm = true }) {
                         Icon(
-                            Icons.Default.DeleteSweep,
+                            Icons.Outlined.DeleteSweep,
                             contentDescription = "Clear All",
                             tint = MaterialTheme.colorScheme.error,
                         )
@@ -256,7 +229,7 @@ fun HistoryScreen(
                     onClick = { selectedTab = 1 },
                     text = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Backup, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Outlined.Backup, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(6.dp))
                             Text("Backup & Storage", fontWeight = FontWeight.SemiBold)
                         }
@@ -304,7 +277,7 @@ fun HistoryScreen(
                                     trailingIcon = {
                                         if (query.isNotEmpty()) {
                                             IconButton(onClick = { query = "" }) {
-                                                Icon(Icons.Default.Clear, contentDescription = "Clear search")
+                                                Icon(Icons.Outlined.Clear, contentDescription = "Clear search")
                                             }
                                         }
                                     },
@@ -426,7 +399,7 @@ fun HistoryScreen(
                                         label = { Text(tag) },
                                         leadingIcon = {
                                             Icon(
-                                                Icons.Default.Tag,
+                                                Icons.Outlined.Tag,
                                                 contentDescription = null,
                                                 modifier = Modifier.size(14.dp),
                                             )
@@ -440,7 +413,7 @@ fun HistoryScreen(
                     if (filteredList.isEmpty()) {
                         item(key = "empty_state") {
                             EmptyState(
-                                icon = Icons.Default.History,
+                                icon = Icons.Outlined.History,
                                 title = if (query.isBlank()) "No conversation history" else "No matching chats found",
                                 message = if (query.isBlank()) "Start a new chat and it will show up here." else "Try a different search term or filter.",
                             )
@@ -587,7 +560,7 @@ fun HistoryScreen(
                                     modifier = Modifier.size(32.dp),
                                 ) {
                                     Icon(
-                                        Icons.Default.Folder,
+                                        Icons.Outlined.Folder,
                                         contentDescription = "Move to folder",
                                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier.size(18.dp),
@@ -602,7 +575,7 @@ fun HistoryScreen(
                                     modifier = Modifier.size(32.dp),
                                 ) {
                                     Icon(
-                                        Icons.Default.Tag,
+                                        Icons.Outlined.Tag,
                                         contentDescription = "Edit tags",
                                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier.size(18.dp),
@@ -625,7 +598,7 @@ fun HistoryScreen(
                                     modifier = Modifier.size(32.dp),
                                 ) {
                                     Icon(
-                                        Icons.Default.Share,
+                                        Icons.Outlined.Share,
                                         contentDescription = "Export",
                                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier.size(18.dp),
@@ -640,7 +613,7 @@ fun HistoryScreen(
                                     modifier = Modifier.size(32.dp),
                                 ) {
                                     Icon(
-                                        Icons.Default.Edit,
+                                        Icons.Outlined.Edit,
                                         contentDescription = "Rename",
                                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier.size(18.dp),
@@ -652,7 +625,7 @@ fun HistoryScreen(
                                     modifier = Modifier.size(32.dp),
                                 ) {
                                     Icon(
-                                        Icons.Default.Delete,
+                                        Icons.Outlined.Delete,
                                         contentDescription = "Delete",
                                         tint = MaterialTheme.colorScheme.error,
                                         modifier = Modifier.size(18.dp),
@@ -712,7 +685,7 @@ fun HistoryScreen(
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.fillMaxWidth(),
                         ) {
-                            Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Outlined.Share, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(6.dp))
                             Text("Export All Conversations (${conversations.size})")
                         }
@@ -767,7 +740,7 @@ fun HistoryScreen(
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.fillMaxWidth(),
                         ) {
-                            Icon(Icons.Default.DeleteSweep, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Outlined.DeleteSweep, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(6.dp))
                             Text("Clear All Conversation History")
                         }
@@ -786,7 +759,7 @@ fun HistoryScreen(
         }
         AlertDialog(
             onDismissRequest = { folderTarget = null },
-            icon = { Icon(Icons.Default.Folder, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+            icon = { Icon(Icons.Outlined.Folder, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
             title = { Text("Move to Folder") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -836,7 +809,7 @@ fun HistoryScreen(
         }
         AlertDialog(
             onDismissRequest = { tagTarget = null },
-            icon = { Icon(Icons.Default.Tag, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+            icon = { Icon(Icons.Outlined.Tag, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
             title = { Text("Edit Tags") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -925,7 +898,7 @@ fun HistoryScreen(
     if (deleteTarget != null) {
         AlertDialog(
             onDismissRequest = { deleteTarget = null },
-            icon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+            icon = { Icon(Icons.Outlined.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
             title = { Text("Delete Conversation?") },
             text = { Text("This will permanently delete '${deleteTarget?.title}'.") },
             confirmButton = {
@@ -948,7 +921,7 @@ fun HistoryScreen(
     if (showClearAllConfirm) {
         AlertDialog(
             onDismissRequest = { showClearAllConfirm = false },
-            icon = { Icon(Icons.Default.DeleteSweep, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+            icon = { Icon(Icons.Outlined.DeleteSweep, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
             title = { Text("Clear All History?") },
             text = { Text("This will delete all saved conversation transcripts. This action cannot be undone.") },
             confirmButton = {

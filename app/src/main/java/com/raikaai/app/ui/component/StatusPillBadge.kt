@@ -8,11 +8,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Dns
+import androidx.compose.material.icons.outlined.HourglassEmpty
+import androidx.compose.material.icons.outlined.Memory
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Error
-import androidx.compose.material.icons.filled.HourglassEmpty
-import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.StopCircle
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -88,7 +88,7 @@ fun EngineStatusBadge(
     when {
         isLoading -> {
             StatusChip(
-                icon = Icons.Default.HourglassEmpty,
+                icon = Icons.Outlined.HourglassEmpty,
                 text = "Loading Model...",
                 container = MaterialTheme.colorScheme.surfaceContainerHigh,
                 content = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -122,7 +122,7 @@ fun EngineStatusBadge(
         }
         else -> {
             StatusChip(
-                icon = Icons.Default.Memory,
+                icon = Icons.Outlined.Memory,
                 text = "No Model Loaded",
                 container = MaterialTheme.colorScheme.surfaceContainerHigh,
                 content = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -145,7 +145,7 @@ fun ServerStatusBadge(
     when (serverStatus) {
         is OpenAiServer.Status.Running -> {
             StatusChip(
-                icon = Icons.Default.Dns,
+                icon = Icons.Outlined.Dns,
                 text = "Server :${serverStatus.port}",
                 container = MaterialTheme.colorScheme.success.copy(alpha = 0.20f),
                 content = MaterialTheme.colorScheme.success,
@@ -155,7 +155,7 @@ fun ServerStatusBadge(
         }
         is OpenAiServer.Status.Starting -> {
             StatusChip(
-                icon = Icons.Default.HourglassEmpty,
+                icon = Icons.Outlined.HourglassEmpty,
                 text = "Starting Server…",
                 container = MaterialTheme.colorScheme.surfaceContainerHigh,
                 content = MaterialTheme.colorScheme.onSurfaceVariant,

@@ -16,12 +16,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Clear
+import androidx.compose.material.icons.outlined.ContentPaste
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Memory
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Clear
-import androidx.compose.material.icons.filled.CloudDownload
-import androidx.compose.material.icons.filled.ContentPaste
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.StopCircle
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -378,7 +377,7 @@ fun InstalledModelCard(
             ) {
                 IconButton(onClick = onDelete) {
                     Icon(
-                        Icons.Default.Delete,
+                        Icons.Outlined.Delete,
                         contentDescription = "Delete Model",
                         tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
                     )
@@ -406,7 +405,7 @@ fun InstalledModelCard(
                                     Spacer(Modifier.width(6.dp))
                                     Text("Loading…", style = MaterialTheme.typography.labelMedium)
                                 } else {
-                                    Icon(Icons.Default.Memory, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Icon(Icons.Outlined.Memory, contentDescription = null, modifier = Modifier.size(16.dp))
                                     Spacer(Modifier.width(4.dp))
                                     Text("Load into Memory", style = MaterialTheme.typography.labelMedium)
                                 }
@@ -593,7 +592,7 @@ fun PresetModelCard(
                         if (isDownloaded) {
                             IconButton(onClick = onDelete) {
                                 Icon(
-                                    Icons.Default.Delete,
+                                    Icons.Outlined.Delete,
                                     contentDescription = "Delete",
                                     tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
                                 )
@@ -620,7 +619,7 @@ fun PresetModelCard(
                                 onClick = onDownload,
                                 shape = RoundedCornerShape(50),
                             ) {
-                                Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Icon(Icons.Outlined.CloudDownload, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text("Download (${model.sizeDisplay})", style = MaterialTheme.typography.labelMedium)
                             }
@@ -707,7 +706,7 @@ fun CustomUrlDownloadCard(
                             onUrlInputChange("")
                             resolveError = null
                         }) {
-                            Icon(Icons.Default.Clear, contentDescription = "Clear", modifier = Modifier.size(18.dp))
+                            Icon(Icons.Outlined.Clear, contentDescription = "Clear", modifier = Modifier.size(18.dp))
                         }
                     } else {
                         IconButton(onClick = {
@@ -718,7 +717,7 @@ fun CustomUrlDownloadCard(
                                 }
                             }
                         }) {
-                            Icon(Icons.Default.ContentPaste, contentDescription = "Paste", modifier = Modifier.size(18.dp))
+                            Icon(Icons.Outlined.ContentPaste, contentDescription = "Paste", modifier = Modifier.size(18.dp))
                         }
                     }
                 },

@@ -43,12 +43,15 @@ class McpManager private constructor(private val appContext: Context) {
                 if (json.isBlank()) return emptyList()
                 (McpJson.gson.fromJson<List<McpServerConfig>>(json, SERVER_LIST_TYPE) ?: emptyList())
                     .map { it.normalized() }
-                    .filter { it.url.isNotBlank() }
+                    .filter { it.url.isNotBlank() || it.isStdio }
             }.getOrElse {
                 KLog.w("McpManager", "Failed to parse MCP servers JSON: ${it.message}")
                 emptyList()
             }
     }
+
+    /** Starts a stdio server's command inside Alpine; set by the app. */
+    @Volatile var stdioLauncher: ((String) -> Process)? = null
 
     private val mutex = Mutex()
     private val clients = mutableMapOf<String, McpClient>()
@@ -60,6 +63,10 @@ class McpManager private constructor(private val appContext: Context) {
     private val _toolsByServer = MutableStateFlow<Map<String, List<McpTool>>>(emptyMap())
     val toolsByServer: StateFlow<Map<String, List<McpTool>>> = _toolsByServer.asStateFlow()
 
+    /** Servers currently connecting / listing tools. */
+    private val _busy = MutableStateFlow<Set<String>>(emptySet())
+    val busy: StateFlow<Set<String>> = _busy.asStateFlow()
+
     /** Last discovery error per server id (null = no error). */
     private val _errors = MutableStateFlow<Map<String, String>>(emptyMap())
     val errors: StateFlow<Map<String, String>> = _errors.asStateFlow()
@@ -69,12 +76,12 @@ class McpManager private constructor(private val appContext: Context) {
         mutex.withLock {
             synchronized(clientLock) {
                 val removed = _servers.value.map { it.id }.toSet() - servers.map { it.id }.toSet()
-                removed.forEach { clients.remove(it) }
+                removed.forEach { clients.remove(it)?.close() }
                 // Drop clients whose endpoint/auth changed so the next call re-handshakes.
                 servers.forEach { s ->
                     val cur = _servers.value.find { it.id == s.id }
-                    if (cur != null && (cur.url != s.url || cur.authToken != s.authToken)) {
-                        clients.remove(s.id)
+                    if (cur != null && (cur.url != s.url || cur.authToken != s.authToken || cur.command != s.command || (cur.enabled && !s.enabled))) {
+                        clients.remove(s.id)?.close()
                     }
                 }
             }
@@ -89,7 +96,7 @@ class McpManager private constructor(private val appContext: Context) {
             val existing = clients[server.id]
             if (existing != null) return existing
             // Rebuild if the endpoint/auth changed since the client was cached.
-            McpClient(server).also { clients[server.id] = it }
+            McpClient(server, stdioLauncher).also { clients[server.id] = it }
         }
 
     /** All tools from enabled servers that have been discovered so far. */
@@ -104,6 +111,7 @@ class McpManager private constructor(private val appContext: Context) {
     /** Discovers tools on one server, updating cache + error state. */
     suspend fun refreshTools(server: McpServerConfig): List<McpTool> =
         withContext(Dispatchers.IO) {
+            _busy.value = _busy.value + server.id
             try {
                 val tools = clientFor(server).listTools()
                 mutex.withLock {
@@ -116,6 +124,8 @@ class McpManager private constructor(private val appContext: Context) {
                 KLog.w("McpManager", "tools/list failed for '${server.name}': $msg")
                 mutex.withLock { _errors.value = _errors.value + (server.id to msg) }
                 throw e
+            } finally {
+                _busy.value = _busy.value - server.id
             }
         }
 

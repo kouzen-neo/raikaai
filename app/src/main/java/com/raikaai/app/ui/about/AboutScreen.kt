@@ -1,5 +1,6 @@
 package com.raikaai.app.ui.about
 
+import com.raikaai.app.ui.component.ScreenHeader
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
@@ -17,8 +18,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Code
-import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.outlined.Code
+import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -68,34 +69,12 @@ fun AboutScreen(
         ) {
             // ── 0. Top Header ──
             item(key = "header") {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    IconButton(
-                        onClick = onOpenDrawer,
-                        modifier = Modifier.size(36.dp),
-                    ) {
-                        Icon(
-                            Icons.Default.Menu,
-                            contentDescription = "Open Menu",
-                            tint = MaterialTheme.colorScheme.onSurface,
-                        )
-                    }
-                    Spacer(Modifier.width(10.dp))
-                    Column {
-                        Text(
-                            text = "About",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                        )
-                        Text(
-                            text = "RaikaAI Version ${BuildConfig.VERSION_NAME}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
+                ScreenHeader(
+                    title = "About",
+                    subtitle = "RaikaAI ${BuildConfig.VERSION_NAME}",
+                    onOpenDrawer = onOpenDrawer,
+                    insideHorizontalPadding = true,
+                )
             }
 
             // ── 1. App Hero Card ──
@@ -198,7 +177,7 @@ fun AboutScreen(
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.fillMaxWidth(),
                         ) {
-                            Icon(Icons.Default.Code, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Outlined.Code, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(8.dp))
                             Text("Google AI Edge LiteRT")
                         }

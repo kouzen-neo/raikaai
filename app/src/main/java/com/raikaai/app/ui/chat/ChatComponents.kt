@@ -1,5 +1,9 @@
 package com.raikaai.app.ui.chat
 
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.ui.focus.focusRequester
 import com.raikaai.app.R
 
 import android.content.Intent
@@ -8,7 +12,6 @@ import android.graphics.BitmapFactory
 import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.window.Dialog
@@ -55,23 +58,23 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.CallSplit
-import androidx.compose.material.icons.automirrored.filled.NavigateBefore
-import androidx.compose.material.icons.automirrored.filled.NavigateNext
+import androidx.compose.material.icons.automirrored.outlined.CallSplit
+import androidx.compose.material.icons.automirrored.outlined.NavigateBefore
+import androidx.compose.material.icons.automirrored.outlined.NavigateNext
+import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Code
+import androidx.compose.material.icons.outlined.GraphicEq
+import androidx.compose.material.icons.outlined.KeyboardArrowDown
+import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.Psychology
+import androidx.compose.material.icons.outlined.Speed
+import androidx.compose.material.icons.outlined.Terminal
+import androidx.compose.material.icons.outlined.Translate
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Code
-import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.GraphicEq
-import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Psychology
-import androidx.compose.material.icons.filled.Speed
-import androidx.compose.material.icons.filled.Terminal
-import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Description
@@ -161,7 +164,7 @@ internal fun BranchNavRow(
             modifier = Modifier.size(18.dp),
         ) {
             Icon(
-                Icons.AutoMirrored.Filled.NavigateBefore,
+                Icons.AutoMirrored.Outlined.NavigateBefore,
                 contentDescription = stringResource(R.string.chat_branch_prev),
                 modifier = Modifier.size(14.dp),
             )
@@ -178,7 +181,7 @@ internal fun BranchNavRow(
             modifier = Modifier.size(18.dp),
         ) {
             Icon(
-                Icons.AutoMirrored.Filled.NavigateNext,
+                Icons.AutoMirrored.Outlined.NavigateNext,
                 contentDescription = stringResource(R.string.chat_branch_next),
                 modifier = Modifier.size(14.dp),
             )
@@ -190,7 +193,7 @@ internal fun BranchNavRow(
                 modifier = Modifier.size(18.dp),
             ) {
                 Icon(
-                    Icons.AutoMirrored.Filled.CallSplit,
+                    Icons.AutoMirrored.Outlined.CallSplit,
                     contentDescription = stringResource(R.string.chat_branch_to_new_chat),
                     modifier = Modifier.size(12.dp),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -296,10 +299,11 @@ internal fun EmptyChatHero(
     modelName: String,
     onPromptSelected: (String) -> Unit,
     onOpenCharacters: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     Column(
         modifier =
-            Modifier
+            modifier
                 .fillMaxSize()
                 .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -336,6 +340,8 @@ internal fun MessageList(
     audioPlayerHelper: AudioPlayerHelper? = null,
     onPreviewHtml: (String) -> Unit = {},
     onPreviewImage: (String) -> Unit = {},
+    /** Room for the composer, which floats over the list. */
+    bottomPadding: androidx.compose.ui.unit.Dp = 0.dp,
 ) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -364,9 +370,16 @@ internal fun MessageList(
             state = listState,
             reverseLayout = true,
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+            contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 12.dp + bottomPadding),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            // Bottom of the reversed list: shows that Raika is still working,
+            // also between agent steps when no new text is arriving.
+            if (isGenerating) {
+                item(key = "working_indicator", contentType = "working") {
+                    WorkingIndicator(viewModel.messages.lastOrNull()?.content.orEmpty())
+                }
+            }
             items(
                 count = messageCount,
                 key = { i ->
@@ -417,7 +430,7 @@ internal fun MessageList(
             visible = isScrolledUp,
             enter = fadeIn() + slideInVertically { it / 2 },
             exit = fadeOut() + slideOutVertically { it / 2 },
-            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 10.dp),
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 10.dp + bottomPadding),
         ) {
             Surface(
                 onClick = {
@@ -433,7 +446,7 @@ internal fun MessageList(
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
-                        Icons.Default.KeyboardArrowDown,
+                        Icons.Outlined.KeyboardArrowDown,
                         contentDescription = stringResource(R.string.chat_scroll_bottom),
                         tint = MaterialTheme.colorScheme.onPrimaryContainer,
                         modifier = Modifier.size(20.dp),
@@ -675,14 +688,8 @@ internal fun MessageBubble(
             }
             // Edit via long-press on the bubble or card
         } else {
-            MarkdownText(
-                markdown = message.content.ifBlank { "…" },
-                enableThinking = enableThinking,
-                onPreviewHtml = onPreviewHtml,
-                modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
-            )
-
-            // Web Search Clickable & Collapsible Sources Card
+            // Harness-style: the search step is shown BEFORE the answer, and
+            // inline [n] citations in the answer open the matching source.
             val webCitations = remember(message.sources) {
                 message.sources.orEmpty().mapNotNull { raw ->
                     WebSourceCitation.parse(raw)
@@ -692,6 +699,18 @@ internal fun MessageBubble(
                 SearchSourcesCard(
                     sources = webCitations,
                     modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                )
+            }
+            val citationUrls = remember(webCitations) { webCitations.associate { it.index to it.url } }
+            androidx.compose.runtime.CompositionLocalProvider(
+                com.raikaai.app.ui.component.LocalCitationUrls provides citationUrls,
+            ) {
+                MarkdownText(
+                    // Hide "[ran `cmd`: exit 0]" lines a model wrote itself: no command ran.
+                    markdown = message.content.replace(FAKE_RAN_LINE, "").ifBlank { "…" },
+                    enableThinking = enableThinking,
+                    onPreviewHtml = onPreviewHtml,
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
                 )
             }
 
@@ -739,6 +758,37 @@ internal fun MessageBubble(
                 }
             }
 
+            // A reply that stopped after thinking: say so plainly and offer a real Retry button.
+            val stoppedEarly = message.stats?.let { it.contains("thinking only") || it.contains("incomplete") || it.contains("provider limit") } == true
+            if (isLastMessage && !isGenerating && stoppedEarly) {
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(start = 14.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            when {
+                                message.stats?.contains("thinking only") == true -> "The model stopped after thinking and gave no answer."
+                                message.stats?.contains("provider limit") == true -> "The provider cut the reply at its length limit."
+                                else -> "The reply stopped early (connection ended before it finished)."
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f),
+                        )
+                        androidx.compose.material3.FilledTonalButton(onClick = onRegenerate) {
+                            Icon(Icons.Outlined.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Retry")
+                        }
+                    }
+                }
+            }
+
             // Footer Row: Telemetry Stats + Swipes Pagination + Quick Actions.
             // Hidden for greeting messages (no stats, single variant, not regenerable).
             if (!message.stats.isNullOrBlank() || message.variants.size > 1 || (isLastMessage && !isGenerating)) {
@@ -750,13 +800,18 @@ internal fun MessageBubble(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                // Stats take the space left over and ellipsize, so the action
+                // buttons always keep their full size.
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
                     if (!message.stats.isNullOrBlank()) {
                         Text(
                             text = message.stats,
                             fontSize = 11.sp,
                             color = MaterialTheme.colorScheme.primary,
                             fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
                         )
                     }
                     if (message.variants.size > 1) {
@@ -775,7 +830,7 @@ internal fun MessageBubble(
                                 modifier = Modifier.size(18.dp),
                             ) {
                                 Icon(
-                                    Icons.AutoMirrored.Filled.NavigateBefore,
+                                    Icons.AutoMirrored.Outlined.NavigateBefore,
                                     contentDescription = stringResource(R.string.chat_variant_prev),
                                     modifier = Modifier.size(14.dp),
                                 )
@@ -796,7 +851,7 @@ internal fun MessageBubble(
                                 modifier = Modifier.size(18.dp),
                             ) {
                                 Icon(
-                                    Icons.AutoMirrored.Filled.NavigateNext,
+                                    Icons.AutoMirrored.Outlined.NavigateNext,
                                     contentDescription = stringResource(R.string.chat_variant_next),
                                     modifier = Modifier.size(14.dp),
                                 )
@@ -816,12 +871,12 @@ internal fun MessageBubble(
                                 copied = false
                             }
                         },
-                        modifier = Modifier.size(26.dp),
+                        modifier = Modifier.size(32.dp),
                     ) {
                         Icon(
                             if (copied) Icons.Outlined.Check else Icons.Outlined.ContentCopy,
                             contentDescription = stringResource(R.string.chat_copy_message),
-                            modifier = Modifier.size(13.dp),
+                            modifier = Modifier.size(16.dp),
                             tint = if (copied) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
@@ -837,12 +892,12 @@ internal fun MessageBubble(
                                 ttsHelper.speak(msgId, message.content)
                             }
                         },
-                        modifier = Modifier.size(26.dp),
+                        modifier = Modifier.size(32.dp),
                     ) {
                         Icon(
                             imageVector = if (isSpeaking) Icons.AutoMirrored.Outlined.VolumeOff else Icons.AutoMirrored.Outlined.VolumeUp,
                             contentDescription = if (isSpeaking) stringResource(R.string.chat_stop_reading) else stringResource(R.string.chat_read_aloud),
-                            modifier = Modifier.size(14.dp),
+                            modifier = Modifier.size(17.dp),
                             tint = if (isSpeaking) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
@@ -858,12 +913,12 @@ internal fun MessageBubble(
                                 }
                             context.startActivity(Intent.createChooser(sendIntent, "Share Message"))
                         },
-                        modifier = Modifier.size(26.dp),
+                        modifier = Modifier.size(32.dp),
                     ) {
                         Icon(
                             Icons.Outlined.Share,
                             contentDescription = stringResource(R.string.chat_share_message),
-                            modifier = Modifier.size(13.dp),
+                            modifier = Modifier.size(16.dp),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
@@ -871,12 +926,12 @@ internal fun MessageBubble(
                     // Branch in New Chat Action
                     IconButton(
                         onClick = onBranchToNewChat,
-                        modifier = Modifier.size(26.dp),
+                        modifier = Modifier.size(32.dp),
                     ) {
                         Icon(
-                            Icons.AutoMirrored.Filled.CallSplit,
+                            Icons.AutoMirrored.Outlined.CallSplit,
                             contentDescription = stringResource(R.string.chat_branch_to_new_chat),
-                            modifier = Modifier.size(13.dp),
+                            modifier = Modifier.size(16.dp),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
@@ -885,12 +940,12 @@ internal fun MessageBubble(
                     if (isLastMessage && !isGenerating) {
                         IconButton(
                             onClick = onRegenerate,
-                            modifier = Modifier.size(26.dp),
+                            modifier = Modifier.size(32.dp),
                         ) {
                             Icon(
                                 Icons.Outlined.Refresh,
                                 contentDescription = stringResource(R.string.chat_regenerate),
-                                modifier = Modifier.size(14.dp),
+                                modifier = Modifier.size(17.dp),
                                 tint = MaterialTheme.colorScheme.primary,
                             )
                         }
@@ -916,46 +971,19 @@ internal fun MessageBubble(
             AttachmentPipeline.extractUserDisplayText(message.content)
         }
         var editInput by remember(initialPrompt) { mutableStateOf(initialPrompt) }
-        AlertDialog(
-            onDismissRequest = { showEditDialog = false },
-            icon = { Icon(Icons.Outlined.Edit, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-            title = { Text(stringResource(R.string.chat_edit_title)) },
-            text = {
-                OutlinedTextField(
-                    value = editInput,
-                    onValueChange = { editInput = it },
-                    label = { Text(stringResource(R.string.chat_edit_prompt_label)) },
-                    minLines = 3,
-                    maxLines = 8,
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        if (editInput.isNotBlank()) {
-                            onEditUserMessage(editInput)
-                            showEditDialog = false
-                        }
-                    },
-                    enabled = editInput.isNotBlank(),
-                ) {
-                    Text(stringResource(R.string.chat_edit_save_regenerate))
+        EditMessageSheet(
+            text = editInput,
+            onTextChange = { editInput = it },
+            onDismiss = { showEditDialog = false },
+            onSend = {
+                if (editInput.isNotBlank()) {
+                    onEditUserMessage(editInput)
+                    showEditDialog = false
                 }
             },
-            dismissButton = {
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    TextButton(onClick = {
-                        onBranchToNewChat()
-                        showEditDialog = false
-                    }) {
-                        Text(stringResource(R.string.chat_branch_to_new_chat))
-                    }
-                    TextButton(onClick = { showEditDialog = false }) {
-                        Text(stringResource(R.string.chat_action_cancel))
-                    }
-                }
+            onBranch = {
+                onBranchToNewChat()
+                showEditDialog = false
             },
         )
     }
@@ -1018,15 +1046,15 @@ internal fun MessageBubble(
  */
 internal fun getIconVector(iconType: String): ImageVector =
     when (iconType) {
-        "assistant" -> Icons.Default.Person
-        "coder" -> Icons.Default.Code
-        "writer" -> Icons.Default.Description
-        "translator" -> Icons.Default.Translate
-        "reasoning" -> Icons.Default.Psychology
-        "speed" -> Icons.Default.Speed
-        "shell" -> Icons.Default.Terminal
-        "general" -> Icons.Default.AutoAwesome
-        else -> Icons.Default.AutoAwesome
+        "assistant" -> Icons.Outlined.Person
+        "coder" -> Icons.Outlined.Code
+        "writer" -> Icons.Outlined.Description
+        "translator" -> Icons.Outlined.Translate
+        "reasoning" -> Icons.Outlined.Psychology
+        "speed" -> Icons.Outlined.Speed
+        "shell" -> Icons.Outlined.Terminal
+        "general" -> Icons.Outlined.AutoAwesome
+        else -> Icons.Outlined.AutoAwesome
     }
 
 /**
@@ -1118,7 +1146,7 @@ fun AudioMessagePlayer(
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     Icon(
-                        imageVector = Icons.Default.GraphicEq,
+                        imageVector = Icons.Outlined.GraphicEq,
                         contentDescription = null,
                         tint = if (isPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(15.dp),
@@ -1251,7 +1279,7 @@ fun ImageViewerDialog(
                 ) {
                     IconButton(onClick = onDismiss) {
                         Icon(
-                            Icons.Default.Close,
+                            Icons.Outlined.Close,
                             contentDescription = stringResource(R.string.chat_action_close),
                             tint = Color.White,
                         )
@@ -1312,5 +1340,123 @@ fun ImageViewerDialog(
                 }
             }
         }
+    }
+}
+
+
+/** Edit a sent message: a sheet with the text and two clear actions. */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+private fun EditMessageSheet(
+    text: String,
+    onTextChange: (String) -> Unit,
+    onDismiss: () -> Unit,
+    onSend: () -> Unit,
+    onBranch: () -> Unit,
+) {
+    val focus = remember { androidx.compose.ui.focus.FocusRequester() }
+    LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
+    androidx.compose.material3.ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .imePadding()
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Box(Modifier.fillMaxWidth()) {
+                IconButton(onClick = onDismiss, modifier = Modifier.align(Alignment.CenterStart)) {
+                    Icon(Icons.Outlined.Close, contentDescription = stringResource(R.string.chat_action_cancel))
+                }
+                Text(
+                    stringResource(R.string.chat_edit_title),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.align(Alignment.Center),
+                )
+            }
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                androidx.compose.foundation.text.BasicTextField(
+                    value = text,
+                    onValueChange = onTextChange,
+                    textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+                    cursorBrush = androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.primary),
+                    minLines = 4,
+                    maxLines = 12,
+                    modifier = Modifier.fillMaxWidth().padding(16.dp).focusRequester(focus),
+                )
+            }
+            Text(
+                "Sending creates a new branch; the earlier reply stays available with the < > arrows.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                androidx.compose.material3.OutlinedButton(
+                    onClick = onBranch,
+                    modifier = Modifier.weight(1f).height(48.dp),
+                ) {
+                    Icon(Icons.AutoMirrored.Outlined.CallSplit, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("New chat")
+                }
+                Button(
+                    onClick = onSend,
+                    enabled = text.isNotBlank(),
+                    modifier = Modifier.weight(1f).height(48.dp),
+                ) {
+                    Icon(Icons.Default.ArrowUpward, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Send")
+                }
+            }
+        }
+    }
+}
+
+
+/** Spinner, what Raika is doing, and how long it has been going. */
+@Composable
+private fun WorkingIndicator(lastContent: String) {
+    var seconds by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.delay(1000)
+            seconds++
+        }
+    }
+    val tail = lastContent.takeLast(400)
+    val label =
+        when {
+            lastContent.isBlank() -> "Thinking…"
+            tail.contains("\npending\n") || tail.contains("Requesting approval") -> "Running command…"
+            tail.contains("Running `") || tail.contains("Searching the web") -> "Using a tool…"
+            tail.contains("<think>") && !tail.contains("</think>") -> "Thinking…"
+            else -> "Writing…"
+        }
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.padding(start = 4.dp, top = 2.dp, bottom = 2.dp),
+    ) {
+        androidx.compose.material3.CircularProgressIndicator(
+            strokeWidth = 2.dp,
+            modifier = Modifier.size(14.dp),
+            color = MaterialTheme.colorScheme.primary,
+        )
+        Spacer(Modifier.width(10.dp))
+        Text(
+            if (seconds > 0) "$label ${seconds}s" else label,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }

@@ -17,14 +17,20 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.ReceiptLong
+import androidx.compose.material.icons.outlined.Hub
+import androidx.compose.material.icons.outlined.Extension
+import androidx.compose.material.icons.outlined.Face
+import androidx.compose.material.icons.outlined.TheaterComedy
 import androidx.compose.material.icons.outlined.Build
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.Description
@@ -112,7 +118,7 @@ data class DrawerMenuItem(
     val icon: ImageVector,
 )
 
-private data class SafeDrawerConversation(val id: String, val title: String)
+private data class SafeDrawerConversation(val id: String, val title: String, val roleplay: Boolean = false)
 
 /**
  * Root Application Container with Swipeable Modal Navigation Drawer (Sidebar).
@@ -130,17 +136,19 @@ fun RaikaAIApp(
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route ?: NavRoute.CHAT
 
-    // The global drawer belongs to normal chat. Roleplay history is shown
-    // only inside the roleplay History tab.
-    // Persisted Gson data can contain JVM nulls in Kotlin non-null fields.
-    // Copy only validated values into a safe UI model before Compose renders it.
-    val conversations = viewModel.normalConversations.value.mapNotNull { conversation ->
-        runCatching {
-            val id = conversation.id.trim()
-            if (id.isBlank()) return@runCatching null
-            SafeDrawerConversation(id, conversation.title.trim().ifBlank { "New conversation" })
-        }.getOrNull()
-    }.distinctBy { it.id }
+    // Recent chats: normal and roleplay together (roleplay has its own icon
+    // and opens in the Characters hub). Persisted Gson data can contain JVM
+    // nulls in Kotlin non-null fields, so only validated values are copied.
+    val roleplayIds = viewModel.roleplayConversations.value.mapNotNull { runCatching { it.id }.getOrNull() }.toSet()
+    val conversations = (viewModel.normalConversations.value + viewModel.roleplayConversations.value)
+        .sortedByDescending { runCatching { it.updatedAt }.getOrDefault(0L) }
+        .mapNotNull { conversation ->
+            runCatching {
+                val id = conversation.id.trim()
+                if (id.isBlank()) return@runCatching null
+                SafeDrawerConversation(id, conversation.title.trim().ifBlank { "New conversation" }, id in roleplayIds)
+            }.getOrNull()
+        }.distinctBy { it.id }
 
     fun navigateTo(route: String) {
         scope.launch {
@@ -191,89 +199,107 @@ fun RaikaAIApp(
                             onClick = { scope.launch { drawerState.close() } },
                             modifier = Modifier.size(32.dp),
                         ) {
-                            Icon(Icons.Default.Close, contentDescription = "Close Drawer", modifier = Modifier.size(18.dp))
+                            Icon(Icons.Outlined.Close, contentDescription = "Close Drawer", modifier = Modifier.size(18.dp))
                         }
                     }
 
-                    // New chat
-                    OutlinedButton(
+                    // New chat: the most common action, as a tonal button.
+                    androidx.compose.material3.FilledTonalButton(
                         onClick = {
                             viewModel.newGeneralChat()
                             navigateTo(NavRoute.CHAT)
                         },
                         modifier = Modifier.fillMaxWidth().height(48.dp),
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(14.dp),
                     ) {
-                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Icon(Icons.Outlined.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
                         Text("New chat")
                     }
 
                     Spacer(Modifier.height(8.dp))
 
-                    var showMore by remember { mutableStateOf(false) }
+                    // Priority order: talk, then build/tune, then recent chats.
+                    // Settings / Logs / About live in the footer.
                     val mainItems =
                         listOf(
-                            DrawerMenuItem(NavRoute.CHARACTERS, "Characters", Icons.Outlined.Psychology),
-                            DrawerMenuItem(NavRoute.ROLEPLAY, "Roleplay", Icons.Outlined.EmojiEmotions),
-                            DrawerMenuItem(NavRoute.MODELS, "Models", Icons.Outlined.Memory),
-                            DrawerMenuItem(NavRoute.SAMPLER, "Generation Parameters", Icons.Outlined.Tune),
-                            DrawerMenuItem(NavRoute.HISTORY, "History", Icons.Outlined.History),
-                            DrawerMenuItem(NavRoute.SETTINGS, "Settings", Icons.Outlined.Settings),
+                            DrawerMenuItem(NavRoute.CHAT, "Chat", Icons.Outlined.ChatBubbleOutline),
+                            // Characters and Roleplay are one hub (Discover · Mine · History · Create · Profile).
+                            DrawerMenuItem(NavRoute.ROLEPLAY, "Characters", Icons.Outlined.TheaterComedy),
                         )
-                    val moreItems =
+                    val toolItems =
                         listOf(
-                            DrawerMenuItem(NavRoute.SERVER, "Server", Icons.Outlined.Dns),
-                            DrawerMenuItem(NavRoute.SKILLS, "Skills", Icons.Outlined.AutoAwesome),
-                            DrawerMenuItem(NavRoute.MCP, "MCP Servers", Icons.Outlined.Build),
-                            DrawerMenuItem(NavRoute.ENVIRONMENT, "Linux Env", Icons.Default.Terminal),
-                            DrawerMenuItem(NavRoute.LOGS, "Telemetry Logs", Icons.Outlined.Terminal),
-                            DrawerMenuItem(NavRoute.ABOUT, "About", Icons.Outlined.Info),
+                            DrawerMenuItem(NavRoute.MODELS, "Models", Icons.Outlined.Memory),
+                            DrawerMenuItem(NavRoute.SAMPLER, "Parameters", Icons.Outlined.Tune),
+                            // Plugins, Skills, MCP and Memory live in one Agent hub.
+                            DrawerMenuItem(NavRoute.SKILLS, "Agent", Icons.Outlined.Psychology),
+                            DrawerMenuItem(NavRoute.ENVIRONMENT, "Terminal", Icons.Outlined.Terminal),
+                            DrawerMenuItem(NavRoute.SERVER, "Local API", Icons.Outlined.Dns),
                         )
 
                     LazyColumn(
                         modifier = Modifier.weight(1f).padding(vertical = 2.dp),
                         verticalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
-                        items(conversations.take(10), key = { it.id }) { conv ->
-                            DrawerRow(
-                                icon = Icons.Outlined.ChatBubbleOutline,
-                                label = conv.title,
-                                selected = conv.id == viewModel.currentConversationId,
-                                onClick = {
-                                    viewModel.setRoleplayMode(false)
-                                    viewModel.loadConversation(conv.id)
-                                    navigateTo(NavRoute.CHAT)
-                                },
-                            )
-                        }
                         items(mainItems, key = { it.route }) { item ->
                             DrawerRow(
                                 icon = item.icon,
                                 label = item.label,
-                                selected = currentRoute == item.route,
+                                selected = currentRoute == item.route || (item.route == NavRoute.ROLEPLAY && currentRoute == NavRoute.CHARACTERS),
                                 onClick = { navigateTo(item.route) },
                             )
                         }
-                        item(key = "more_toggle") {
+                        item(key = "h_tools") { DrawerSectionHeader("Tools") }
+                        items(toolItems, key = { it.route }) { item ->
                             DrawerRow(
-                                icon = Icons.Outlined.MoreHoriz,
-                                label = if (showMore) "Less" else "More",
-                                selected = false,
-                                onClick = { showMore = !showMore },
+                                icon = item.icon,
+                                label = item.label,
+                                selected = currentRoute == item.route || (item.route == NavRoute.SKILLS && currentRoute == NavRoute.MCP),
+                                onClick = { navigateTo(item.route) },
                             )
                         }
-                        if (showMore) {
-                            items(moreItems, key = { it.route }) { item ->
+                        if (conversations.isNotEmpty()) {
+                            item(key = "h_recent") { DrawerSectionHeader("Recent") }
+                            items(conversations.take(8), key = { "c_" + it.id }) { conv ->
                                 DrawerRow(
-                                    icon = item.icon,
-                                    label = item.label,
-                                    selected = currentRoute == item.route,
-                                    onClick = { navigateTo(item.route) },
-                                    modifier = Modifier.padding(start = 12.dp),
+                                    icon = if (conv.roleplay) Icons.Outlined.TheaterComedy else null,
+                                    label = conv.title,
+                                    selected = conv.id == viewModel.currentConversationId &&
+                                        currentRoute == (if (conv.roleplay) NavRoute.ROLEPLAY else NavRoute.CHAT),
+                                    onClick = {
+                                        if (conv.roleplay) {
+                                            viewModel.pendingRoleplayChatId.value = conv.id
+                                            navigateTo(NavRoute.ROLEPLAY)
+                                        } else {
+                                            viewModel.setRoleplayMode(false)
+                                            viewModel.loadConversation(conv.id)
+                                            navigateTo(NavRoute.CHAT)
+                                        }
+                                    },
+                                    compact = true,
                                 )
                             }
                         }
+                        item(key = "all_chats") {
+                            DrawerRow(
+                                icon = Icons.Outlined.History,
+                                label = "All chats",
+                                selected = currentRoute == NavRoute.HISTORY,
+                                onClick = { navigateTo(NavRoute.HISTORY) },
+                                compact = true,
+                            )
+                        }
+                    }
+
+                    // Footer: rarely used destinations, one compact row.
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                    Row(
+                        modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(vertical = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                    ) {
+                        DrawerFooterItem(Icons.Outlined.Settings, "Settings", currentRoute == NavRoute.SETTINGS) { navigateTo(NavRoute.SETTINGS) }
+                        DrawerFooterItem(Icons.Outlined.ReceiptLong, "Logs", currentRoute == NavRoute.LOGS) { navigateTo(NavRoute.LOGS) }
+                        DrawerFooterItem(Icons.Outlined.Info, "About", currentRoute == NavRoute.ABOUT) { navigateTo(NavRoute.ABOUT) }
                     }
                 }
             }
@@ -328,16 +354,15 @@ fun RaikaAIApp(
                                 )
                             }
                             composable(NavRoute.CHARACTERS) {
-                                CharactersScreen(
+                                RolePlayHomeScreen(
                                     viewModel = viewModel,
                                     onOpenDrawer = { scope.launch { drawerState.open() } },
-                                    onStartChatWithCharacter = {
-                                        navController.navigate(NavRoute.CHAT) {
-                                            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                                            launchSingleTop = true
-                                            restoreState = true
-                                        }
+                                    onOpenRightDrawer = { scope.launch { rightDrawerState.open() } },
+                                    onOpenNormalChat = {
+                                        viewModel.setRoleplayMode(false)
+                                        navigateTo(NavRoute.CHAT)
                                     },
+                                    startTab = "mine",
                                 )
                             }
 
@@ -346,20 +371,26 @@ fun RaikaAIApp(
                                     viewModel = viewModel,
                                     onOpenDrawer = { scope.launch { drawerState.open() } },
                                     onOpenRightDrawer = { scope.launch { rightDrawerState.open() } },
+                                    onOpenNormalChat = {
+                                        viewModel.setRoleplayMode(false)
+                                        navigateTo(NavRoute.CHAT)
+                                    },
                                 )
                             }
 
                 composable(NavRoute.SKILLS) {
-                    com.raikaai.app.ui.skills.SkillsScreen(
-                        viewModel = viewModel,
-                        onOpenDrawer = { scope.launch { drawerState.open() } },
-                    )
-                }
-                composable(NavRoute.MCP) {
-                    com.raikaai.app.ui.mcp.McpScreen(
+                    com.raikaai.app.ui.agent.AgentScreen(
                         viewModel = viewModel,
                         onOpenDrawer = { scope.launch { drawerState.open() } },
                         onBack = { navController.popBackStack() },
+                    )
+                }
+                composable(NavRoute.MCP) {
+                    com.raikaai.app.ui.agent.AgentScreen(
+                        viewModel = viewModel,
+                        onOpenDrawer = { scope.launch { drawerState.open() } },
+                        onBack = { navController.popBackStack() },
+                        startTab = 2,
                     )
                 }
                 composable(NavRoute.ENVIRONMENT) {
@@ -492,7 +523,7 @@ private fun CharacterRightDrawerSheet(
                     onClick = onClose,
                     modifier = Modifier.size(32.dp),
                 ) {
-                    Icon(Icons.Default.Close, contentDescription = "Close", modifier = Modifier.size(18.dp))
+                    Icon(Icons.Outlined.Close, contentDescription = "Close", modifier = Modifier.size(18.dp))
                 }
             }
 
@@ -512,7 +543,7 @@ private fun CharacterRightDrawerSheet(
                 trailingIcon = {
                     if (query.isNotBlank()) {
                         IconButton(onClick = { query = "" }, modifier = Modifier.size(24.dp)) {
-                            Icon(Icons.Default.Close, contentDescription = "Clear", modifier = Modifier.size(14.dp))
+                            Icon(Icons.Outlined.Close, contentDescription = "Clear", modifier = Modifier.size(14.dp))
                         }
                     }
                 },
@@ -573,7 +604,9 @@ private fun CharacterDrawerRow(
                 .padding(horizontal = 10.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (persona.avatarUri.isNotBlank()) {
+            if (persona.id == "general") {
+                com.raikaai.app.ui.component.RaikaLogo(size = 40.dp, shape = CircleShape)
+            } else if (persona.avatarUri.isNotBlank()) {
                 PersonaAvatar(
                     avatarUri = persona.avatarUri,
                     size = 40.dp,
@@ -587,7 +620,7 @@ private fun CharacterDrawerRow(
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
-                            imageVector = if (persona.id == "general") Icons.Default.AutoAwesome else Icons.Default.Person,
+                            imageVector = if (persona.id == "general") Icons.Outlined.AutoAwesome else Icons.Outlined.Person,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(20.dp),
@@ -619,7 +652,7 @@ private fun CharacterDrawerRow(
             if (isActive) {
                 Spacer(Modifier.width(6.dp))
                 Icon(
-                    imageVector = Icons.Default.Check,
+                    imageVector = Icons.Outlined.Check,
                     contentDescription = "Active",
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(18.dp),
@@ -635,36 +668,74 @@ private fun CharacterDrawerRow(
  */
 @Composable
 private fun DrawerRow(
-    icon: ImageVector,
+    icon: ImageVector?,
     label: String,
     selected: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    compact: Boolean = false,
 ) {
+    val scheme = MaterialTheme.colorScheme
     Surface(
         onClick = onClick,
-        shape = RoundedCornerShape(12.dp),
-        color = if (selected) MaterialTheme.colorScheme.surfaceContainerHigh else Color.Transparent,
-        modifier = modifier.fillMaxWidth().height(48.dp),
+        shape = RoundedCornerShape(50),
+        color = if (selected) scheme.secondaryContainer else Color.Transparent,
+        modifier = modifier.fillMaxWidth().height(if (compact) 40.dp else 48.dp),
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 12.dp),
+            modifier = Modifier.padding(horizontal = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(20.dp),
-            )
-            Spacer(Modifier.width(12.dp))
+            if (icon != null) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = if (selected) scheme.onSecondaryContainer else scheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp),
+                )
+                Spacer(Modifier.width(12.dp))
+            }
             Text(
                 text = label,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface,
+                style = if (compact) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.labelLarge,
+                fontWeight = if (selected) androidx.compose.ui.text.font.FontWeight.SemiBold else null,
+                color = if (selected) scheme.onSecondaryContainer else if (compact) scheme.onSurfaceVariant else scheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+        }
+    }
+}
+
+@Composable
+private fun DrawerSectionHeader(title: String) {
+    Text(
+        title,
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(start = 14.dp, top = 14.dp, bottom = 4.dp),
+    )
+}
+
+@Composable
+private fun DrawerFooterItem(
+    icon: ImageVector,
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val scheme = MaterialTheme.colorScheme
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(12.dp),
+        color = if (selected) scheme.secondaryContainer else Color.Transparent,
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Icon(icon, contentDescription = null, tint = scheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
+            Text(label, style = MaterialTheme.typography.labelSmall, color = scheme.onSurfaceVariant)
         }
     }
 }

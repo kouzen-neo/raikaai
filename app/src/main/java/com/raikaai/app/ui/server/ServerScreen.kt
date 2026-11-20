@@ -1,5 +1,6 @@
 package com.raikaai.app.ui.server
 
+import com.raikaai.app.ui.component.ScreenHeader
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -13,7 +14,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -48,37 +49,12 @@ fun ServerScreen(
                     .padding(top = 10.dp, start = 16.dp, end = 16.dp),
         ) {
             // ── 0. Top Header (same pattern as every other screen) ──
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(
-                        onClick = onOpenDrawer,
-                        modifier = Modifier.size(36.dp),
-                    ) {
-                        Icon(
-                            Icons.Default.Menu,
-                            contentDescription = "Open Menu",
-                            tint = MaterialTheme.colorScheme.onSurface,
-                        )
-                    }
-                    Spacer(Modifier.width(10.dp))
-                    Column {
-                        Text(
-                            text = "Server",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                        )
-                        Text(
-                            text = "OpenAI-Compatible Local Endpoint",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-            }
+            ScreenHeader(
+                title = "Local API",
+                subtitle = "Serve the on-device model to other apps (OpenAI-compatible)",
+                onOpenDrawer = onOpenDrawer,
+                insideHorizontalPadding = true,
+            )
 
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),

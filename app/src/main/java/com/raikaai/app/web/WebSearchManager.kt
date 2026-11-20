@@ -122,7 +122,9 @@ class WebSearchManager private constructor(private val context: Context) {
             }
 
             if (combinedItems.isNotEmpty()) {
-                val finalItems = combinedItems.distinctBy { it.url }.take(maxResults)
+                // Harness-style: read the top pages and keep the passages that
+                // actually answer the query, instead of title-only snippets.
+                val finalItems = enrichTopResults(cleanQuery, combinedItems.distinctBy { it.url }.take(maxResults))
                 val compressedPrompt = buildPromptContext(cleanQuery, finalItems, searchLang)
                 val result = WebSearchResult(
                     query = cleanQuery,
@@ -442,23 +444,60 @@ class WebSearchManager private constructor(private val context: Context) {
     fun buildPromptContext(query: String, items: List<WebSearchItem>, lang: String = "en"): String {
         val sb = StringBuilder()
         val seenSentences = mutableSetOf<String>()
+        val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
 
-        sb.append("\n\n[REAL-TIME WEB SEARCH RESULTS]\n")
-        sb.append("Topic: \"$query\"\n\n")
+        sb.append("\n\n[WEB SEARCH]\nQuery: \"$query\" · Today: $today\n\n")
         items.forEachIndexed { index, item ->
-            val compressedSnippet = deduplicateAndCompressSnippet(item.snippet, seenSentences)
-            sb.append("Source [${index + 1}]: ${item.title}\n")
-            sb.append("URL: ${item.url}\n")
-            sb.append("Summary: $compressedSnippet\n\n")
+            val excerpt = deduplicateAndCompressSnippet(item.snippet, seenSentences)
+            val host = runCatching { java.net.URI(item.url).host.orEmpty().removePrefix("www.") }.getOrDefault("")
+            sb.append("[${index + 1}] ${item.title}").append(if (host.isNotBlank()) " ($host)" else "").append("\n")
+            sb.append(excerpt).append("\n\n")
         }
-        sb.append("""
-[FACTUAL REASONING INSTRUCTIONS]:
-1. Prioritize currently active facts, winners, and officeholders from the references above.
-2. Answer factually and directly, citing references using [1], [2].
-""".trimIndent())
-
+        sb.append(
+            """
+            [HOW TO ANSWER]
+            - Answer the question directly in the user's language. Start with the answer itself in one or two sentences.
+            - Add only the details that matter (short bullets are fine). No introduction, no restating the question.
+            - Cite inline as [1], [2] right after the fact it supports. Do not list the sources at the end; the app shows them.
+            - Prefer the newest information. If the sources disagree or do not answer the question, say so in one sentence.
+            - Never mention "search results" or "according to the sources".
+            """.trimIndent(),
+        )
         return sb.toString().trimEnd()
     }
+
+    /**
+     * Fetches the top results whose snippet is too thin (news RSS often has
+     * only a headline) and replaces it with the page passages most relevant
+     * to [query]. Direct, SSRF-checked fetch; each page has a short timeout
+     * and failures keep the original snippet.
+     */
+    private suspend fun enrichTopResults(
+        query: String,
+        items: List<WebSearchItem>,
+    ): List<WebSearchItem> =
+        coroutineScope {
+            items.mapIndexed { i, item ->
+                async(Dispatchers.IO) {
+                    if (i >= 3 || item.snippet.length >= 400) return@async item
+                    val host = runCatching { java.net.URI(item.url).host.orEmpty() }.getOrDefault("")
+                    // Google News links are JS redirects; Wikipedia already has a good extract.
+                    if (host.contains("news.google.") || host.contains("wikipedia.org")) return@async item
+                    val html =
+                        kotlinx.coroutines.withTimeoutOrNull(5_000) {
+                            runCatching {
+                                NetworkUtils.fetchBodyStringValidated(
+                                    url = item.url,
+                                    headers = mapOf("User-Agent" to USER_AGENT, "Accept" to "text/html,application/xhtml+xml"),
+                                    maxChars = 300_000,
+                                )
+                            }.getOrNull()
+                        } ?: return@async item
+                    val passage = bestPassages(query, stripHtml(html), 700)
+                    if (passage.length > item.snippet.length) item.copy(snippet = passage) else item
+                }
+            }.map { it.await() }
+        }
 
     private fun deduplicateAndCompressSnippet(snippet: String, seenSentences: MutableSet<String>): String {
         val sentences = snippet.split(Regex("(?<=[.!?])\\s+"))
@@ -478,10 +517,42 @@ class WebSearchManager private constructor(private val context: Context) {
         }
 
         val result = if (kept.isNotEmpty()) kept.joinToString(" ") else snippet.trim()
-        return result.take(350)
+        return result.take(700)
     }
 
     fun clearCache() {
         searchCache.clear()
     }
+}
+
+/**
+ * Picks the sentences of [text] that share the most terms with [query]
+ * (kept in page order) up to [maxChars]. Pure function; unit-tested.
+ */
+internal fun bestPassages(
+    query: String,
+    text: String,
+    maxChars: Int,
+): String {
+    val terms =
+        query.lowercase().split(Regex("[^\\p{L}\\p{N}]+")).filter { it.length >= 3 }.toSet()
+    val sentences =
+        text.split(Regex("(?<=[.!?])\\s+|\\n+"))
+            .map { it.trim() }
+            .filter { it.length in 40..600 }
+    if (sentences.isEmpty()) return ""
+    val scored =
+        sentences.mapIndexed { i, sentence ->
+            val lower = sentence.lowercase()
+            Triple(i, sentence, terms.count { lower.contains(it) })
+        }
+    val picked = mutableListOf<Triple<Int, String, Int>>()
+    var used = 0
+    for (c in scored.filter { it.third > 0 }.sortedByDescending { it.third }) {
+        if (used + c.second.length > maxChars) continue
+        picked.add(c)
+        used += c.second.length + 1
+    }
+    if (picked.isEmpty()) return sentences.first().take(maxChars)
+    return picked.sortedBy { it.first }.joinToString(" ") { it.second }
 }

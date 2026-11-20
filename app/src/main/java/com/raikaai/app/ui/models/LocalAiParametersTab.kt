@@ -14,9 +14,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -151,7 +151,7 @@ fun LocalAiParametersTab(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(12.dp),
         ) {
-            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+            Icon(Icons.Outlined.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
             Spacer(modifier = Modifier.width(6.dp))
             Text("Reset All to Recommended Defaults", style = MaterialTheme.typography.labelMedium)
         }
@@ -489,7 +489,7 @@ private fun HuggingFaceTokenCard(
                 trailingIcon = {
                     IconButton(onClick = onToggleVisibility) {
                         Icon(
-                            if (showToken) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                            if (showToken) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
                             contentDescription = if (showToken) "Hide token" else "Show token",
                         )
                     }

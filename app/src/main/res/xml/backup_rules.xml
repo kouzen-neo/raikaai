@@ -1,13 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    Auto Backup rules: chat history and non-sensitive settings are backed up,
-    but the following are EXCLUDED:
+    Auto Backup rules: non-sensitive app data is backed up, but the following
+    are EXCLUDED:
     - EncryptedSharedPreferences files holding API tokens ("raikaai_secrets"
       and its "_fallback"; see SettingsRepository.SECURE_PREFS_NAME). Tokens
       must never leave the device via backup.
     - The DataStore settings file ("datastore/raikaai_settings.preferences_pb";
       see preferencesDataStore(name = "raikaai_settings")). Legacy token keys
       may still be present there on devices that migrated.
+    - Chat history ("chats/"), which is private conversation content.
     - Appended log files ("logs/"), which may contain sensitive text.
 -->
 <full-backup-content>

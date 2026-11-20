@@ -1,4 +1,5 @@
 package com.raikaai.app.ui.settings
+import com.raikaai.app.ui.component.ScreenHeader
 import com.raikaai.app.BuildConfig
 import com.raikaai.app.data.ChatConstants
 
@@ -18,15 +19,19 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.DeleteSweep
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.outlined.ChevronRight
+import androidx.compose.material.icons.outlined.DeleteSweep
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.Brightness4
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Keyboard
 import androidx.compose.material.icons.outlined.Share
+import androidx.compose.material.icons.outlined.RestartAlt
 import androidx.compose.material.icons.outlined.Speed
+import androidx.compose.material.icons.outlined.Terminal
+import androidx.compose.material.icons.outlined.Security
+import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.StayCurrentPortrait
 import androidx.compose.material.icons.outlined.SwapVert
 import androidx.compose.material3.AlertDialog
@@ -40,6 +45,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -72,10 +78,50 @@ fun SettingsScreen(
     onBack: () -> Unit = {},
 ) {
     val context = LocalContext.current
+    // Re-read after returning from the system "all files access" screen.
+    var phoneMounted by remember { mutableStateOf(false) }
+    var showStorageDialog by remember { mutableStateOf(false) }
+    if (showStorageDialog) {
+        AlertDialog(
+            onDismissRequest = { showStorageDialog = false },
+            icon = { Icon(Icons.Outlined.FolderOpen, contentDescription = null) },
+            title = { Text("Allow access to phone storage?") },
+            text = {
+                Text(
+                    "Android will open \"All files access\" for RaikaAI. Turn it on, then come back.\n\n" +
+                        "Your phone folders appear in Linux at /sdcard, so Raika can read and change files there " +
+                        "when you ask. Commands still follow your Permission setting. You can turn this off any time.",
+                )
+            },
+            confirmButton = {
+                Button(onClick = {
+                    showStorageDialog = false
+                    viewModel.containerManager.setPhoneStorageEnabled(true)
+                    runCatching {
+                        context.startActivity(
+                            android.content.Intent(
+                                android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                                android.net.Uri.parse("package:" + context.packageName),
+                            ),
+                        )
+                    }.onFailure {
+                        runCatching { context.startActivity(android.content.Intent(android.provider.Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)) }
+                    }
+                }) { Text("Open settings") }
+            },
+            dismissButton = { TextButton(onClick = { showStorageDialog = false }) { Text("Not now") } },
+        )
+    }
+    androidx.lifecycle.compose.LifecycleResumeEffect(Unit) {
+        phoneMounted = viewModel.containerManager.phoneStorageMounted()
+        onPauseOrDispose {}
+    }
     val settings by viewModel.settings.collectAsState()
     val scope = rememberCoroutineScope()
 
     var showClearHistoryDialog by remember { mutableStateOf(false) }
+
+    var showResetEnvDialog by remember { mutableStateOf(false) }
 
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -92,34 +138,12 @@ fun SettingsScreen(
         ) {
             // ── Top Header ──
             item(key = "header") {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    IconButton(
-                        onClick = onOpenDrawer,
-                        modifier = Modifier.size(36.dp),
-                    ) {
-                        Icon(
-                            Icons.Default.Menu,
-                            contentDescription = "Open Menu",
-                            tint = MaterialTheme.colorScheme.onSurface,
-                        )
-                    }
-                    Spacer(Modifier.width(10.dp))
-                    Column {
-                        Text(
-                            text = "Settings",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                        )
-                        Text(
-                            text = "Theme, Preferences & Storage",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
+                ScreenHeader(
+                    title = "Settings",
+                    subtitle = "Appearance, chat behavior and data",
+                    onOpenDrawer = onOpenDrawer,
+                    insideHorizontalPadding = true,
+                )
             }
 
             // ── 1. Appearance & Theme Group ──
@@ -218,6 +242,99 @@ fun SettingsScreen(
                 )
             }
 
+            // ── Terminal ──
+            item(key = "terminal_group") {
+                Material3SettingsGroup(
+                    title = "Terminal",
+                    items =
+                        listOf(
+                            createM3Item(
+                                icon = Icons.Outlined.FolderOpen,
+                                title = "Phone storage in Linux",
+                                description =
+                                    if (phoneMounted) "Your phone folders are at /sdcard (Download, Documents, DCIM…)"
+                                    else "Lets Raika work in your phone folders, not just /workspace. Needs all-files access.",
+                                trailingContent = {
+                                    Switch(
+                                        checked = phoneMounted,
+                                        onCheckedChange = { on ->
+                                            if (on && android.os.Build.VERSION.SDK_INT >= 30 &&
+                                                !android.os.Environment.isExternalStorageManager()
+                                            ) {
+                                                showStorageDialog = true
+                                            } else {
+                                                viewModel.containerManager.setPhoneStorageEnabled(on)
+                                                phoneMounted = viewModel.containerManager.phoneStorageMounted()
+                                            }
+                                        },
+                                    )
+                                },
+                            ),
+                            createM3Item(
+                                icon = Icons.Outlined.Security,
+                                title = "Permission",
+                                description = when {
+                                    settings.containerFullAccess -> "Full access: nothing is blocked; destructive commands still ask once"
+                                    settings.containerYolo -> "Auto: commands run without asking; destructive ones are blocked"
+                                    else -> "Ask: Raika asks before each Linux command"
+                                },
+                                bottomContent = {
+                                    val current = when {
+                                        settings.containerFullAccess -> 2
+                                        settings.containerYolo -> 1
+                                        else -> 0
+                                    }
+                                    androidx.compose.material3.SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                                        listOf("Ask", "Auto", "Full access").forEachIndexed { i, label ->
+                                            SegmentedButton(
+                                                selected = current == i,
+                                                onClick = { viewModel.setContainerPermission(i) },
+                                                shape = androidx.compose.material3.SegmentedButtonDefaults.itemShape(i, 3),
+                                                icon = {},
+                                            ) { Text(label, style = MaterialTheme.typography.labelMedium) }
+                                        }
+                                    }
+                                },
+                            ),
+                            createM3Item(
+                                icon = Icons.Outlined.Terminal,
+                                title = "Tool details in chat",
+                                description = when (settings.toolVerbosity) {
+                                    0 -> "Quiet: one line per command or file"
+                                    2 -> "Full: output and file contents shown open"
+                                    else -> "Normal: tap a card to see its output"
+                                },
+                                bottomContent = {
+                                    androidx.compose.material3.SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                                        listOf("Quiet", "Normal", "Full").forEachIndexed { i, label ->
+                                            SegmentedButton(
+                                                selected = settings.toolVerbosity == i,
+                                                onClick = { viewModel.setToolVerbosity(i) },
+                                                shape = androidx.compose.material3.SegmentedButtonDefaults.itemShape(i, 3),
+                                                icon = {},
+                                            ) { Text(label, style = MaterialTheme.typography.labelMedium) }
+                                        }
+                                    }
+                                },
+                            ),
+                            createM3Item(
+                                icon = Icons.Outlined.RestartAlt,
+                                title = "Reset Linux environment",
+                                description = "Reinstalls a fresh Alpine: removes installed packages and settings in the sandbox",
+                                trailingContent = {
+                                    Icon(
+                                        Icons.Outlined.ChevronRight,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(20.dp),
+                                    )
+                                },
+                                onClick = { showResetEnvDialog = true },
+                            ),
+                        ),
+                )
+            }
+
             // ── 3. Data & Storage Management ──
             item(key = "data_management_group") {
                 Material3SettingsGroup(
@@ -230,7 +347,7 @@ fun SettingsScreen(
                                 description = "Share and backup all conversations as JSON file",
                                 trailingContent = {
                                     Icon(
-                                        Icons.Default.ChevronRight,
+                                        Icons.Outlined.ChevronRight,
                                         contentDescription = null,
                                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier.size(20.dp),
@@ -255,7 +372,7 @@ fun SettingsScreen(
                                 description = "Permanently remove all chat sessions and saved messages",
                                 trailingContent = {
                                     Icon(
-                                        Icons.Default.ChevronRight,
+                                        Icons.Outlined.ChevronRight,
                                         contentDescription = null,
                                         tint = MaterialTheme.colorScheme.error,
                                         modifier = Modifier.size(20.dp),
@@ -285,7 +402,7 @@ fun SettingsScreen(
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(
-                                    Icons.Default.Info,
+                                    Icons.Outlined.Info,
                                     contentDescription = null,
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.size(20.dp),
@@ -339,10 +456,48 @@ fun SettingsScreen(
         }
     }
 
+    if (showResetEnvDialog) {
+        var alsoWorkspace by remember { mutableStateOf(false) }
+        AlertDialog(
+            onDismissRequest = { showResetEnvDialog = false },
+            icon = { Icon(Icons.Outlined.RestartAlt, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+            title = { Text("Reset Linux environment?") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        "Running commands and servers stop, and the sandbox is reinstalled from a fresh Alpine. " +
+                            "Installed packages (npm -g, apk) and files outside /workspace are deleted.",
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        androidx.compose.material3.Checkbox(checked = alsoWorkspace, onCheckedChange = { alsoWorkspace = it })
+                        Text("Also delete my files in /workspace")
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.resetLinuxEnvironment(deleteWorkspace = alsoWorkspace)
+                        showResetEnvDialog = false
+                        Toast.makeText(context, "Reinstalling the Linux environment…", Toast.LENGTH_SHORT).show()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                ) {
+                    Text("Reset")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showResetEnvDialog = false }) {
+                    Text("Cancel")
+                }
+            },
+        )
+    }
+
     if (showClearHistoryDialog) {
         AlertDialog(
             onDismissRequest = { showClearHistoryDialog = false },
-            icon = { Icon(Icons.Default.DeleteSweep, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+            icon = { Icon(Icons.Outlined.DeleteSweep, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
             title = { Text("Clear All History?") },
             text = { Text("This will permanently delete all saved conversations on your device. This action cannot be undone.") },
             confirmButton = {

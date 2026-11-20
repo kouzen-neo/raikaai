@@ -1,138 +1,114 @@
 package com.raikaai.app.ui.chat
 
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.CloudDownload
-import androidx.compose.material.icons.filled.Code
-import androidx.compose.material.icons.filled.Compress
-import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Language
-import androidx.compose.material.icons.filled.Psychology
-import androidx.compose.material.icons.filled.Terminal
-import androidx.compose.material.icons.filled.Translate
-import androidx.compose.ui.graphics.vector.ImageVector
+/** Where a command is offered. */
+enum class SlashScope { CHAT, ROLEPLAY, BOTH }
+
+/** Menu grouping, also used to order the list and the /help output. */
+enum class SlashGroup(val label: String) {
+    SESSION("Chat"),
+    ROLEPLAY("Roleplay"),
+    TOOLS("Tools"),
+    LINUX("Linux"),
+}
 
 /**
- * Slash command data class for quick prompt templates.
+ * A slash command.
+ *
+ * @property promptTemplate text placed in the composer when picked from the menu.
+ * @property runsImmediately picking it from the menu executes it right away.
+ * @property requiresLinux only offered when the Linux environment is installed.
  */
 data class SlashCommand(
     val command: String,
-    val title: String,
     val description: String,
     val promptTemplate: String,
-    val icon: ImageVector,
+    val group: SlashGroup,
+    val scope: SlashScope = SlashScope.BOTH,
+    val runsImmediately: Boolean = false,
+    val requiresLinux: Boolean = false,
+    val usage: String = command,
 )
 
 /**
- * Default slash commands available in the chat input.
+ * Built-in slash commands: only the ones worth a shortcut. Writing
+ * templates are gone (just ask), and skills/MCP live in the Agent menu.
+ * Older spellings (/yolo, /daemons, /stop-serve, /fix-dns, /skills) still
+ * work when typed but are not listed.
  */
-val DEFAULT_SLASH_COMMANDS =
+val DEFAULT_SLASH_COMMANDS: List<SlashCommand> =
     listOf(
+        // ── Chat ──
+        SlashCommand("/new", "Start a fresh chat", "/new", SlashGroup.SESSION, runsImmediately = true),
+        SlashCommand("/btw", "Quick side question; not saved to the chat", "/btw ", SlashGroup.SESSION, usage = "/btw <question>"),
+        SlashCommand("/retry", "Regenerate the last reply", "/retry", SlashGroup.SESSION, runsImmediately = true),
+        SlashCommand("/compact", "Summarize earlier turns to free context", "/compact ", SlashGroup.SESSION, usage = "/compact [focus]"),
+        SlashCommand("/model", "Switch the model", "/model", SlashGroup.SESSION, runsImmediately = true),
         SlashCommand(
-            command = "/compact",
-            title = "Compact Context",
-            description = "Compact earlier dialogue into structured memory",
-            promptTemplate = "/compact ",
-            icon = Icons.Default.Compress,
+            "/remember", "Save a fact about you to Raika's memory", "/remember ", SlashGroup.SESSION,
+            scope = SlashScope.CHAT, usage = "/remember <fact>",
         ),
+        SlashCommand("/help", "List commands", "/help", SlashGroup.SESSION, runsImmediately = true),
+
+        // ── Roleplay ──
+        SlashCommand("/continue", "Let the character keep going", "/continue", SlashGroup.ROLEPLAY, scope = SlashScope.ROLEPLAY, runsImmediately = true),
+        SlashCommand("/ooc", "Talk to the narrator, out of character", "/ooc ", SlashGroup.ROLEPLAY, scope = SlashScope.ROLEPLAY, usage = "/ooc <note>"),
+        SlashCommand("/scene", "Direct what happens next", "/scene ", SlashGroup.ROLEPLAY, scope = SlashScope.ROLEPLAY, usage = "/scene <what happens>"),
+
+        // ── Tools ──
+        SlashCommand("/search", "Answer with fresh web results", "/search ", SlashGroup.TOOLS, scope = SlashScope.CHAT, usage = "/search <query>"),
+        SlashCommand("/image", "Generate an image", "/image ", SlashGroup.TOOLS, usage = "/image <prompt>"),
+        SlashCommand("/remind", "Schedule a notification", "/remind in 10 minutes to ", SlashGroup.TOOLS, scope = SlashScope.CHAT, usage = "/remind in <n> minutes to <note>"),
+
+        // ── Linux ──
+        SlashCommand("/run", "Run a shell command in /workspace", "/run ", SlashGroup.LINUX, scope = SlashScope.CHAT, requiresLinux = true, usage = "/run <command>"),
+        SlashCommand("/serve", "Preview /workspace in the browser", "/serve", SlashGroup.LINUX, scope = SlashScope.CHAT, requiresLinux = true, runsImmediately = true, usage = "/serve [port]"),
         SlashCommand(
-            command = "/summarize",
-            title = "Summarize",
-            description = "Condense text into concise key points",
-            promptTemplate = "Summarize the following text concisely, clearly, and in a well-structured format:\n\n",
-            icon = Icons.Default.Description,
+            "/permission", "Ask before commands, or run them automatically", "/permission", SlashGroup.LINUX,
+            scope = SlashScope.CHAT, requiresLinux = true, runsImmediately = true, usage = "/permission [ask | auto | full]",
         ),
-        SlashCommand(
-            command = "/fix-grammar",
-            title = "Fix Grammar",
-            description = "Correct grammar, spelling, and phrasing",
-            promptTemplate = "Fix the grammar, spelling, and punctuation of the following text without altering its core meaning:\n\n",
-            icon = Icons.Default.Edit,
-        ),
-        SlashCommand(
-            command = "/translate",
-            title = "Translate",
-            description = "Translate text accurately and naturally",
-            promptTemplate = "Translate the following text into fluent, natural English:\n\n",
-            icon = Icons.Default.Translate,
-        ),
-        SlashCommand(
-            command = "/explain",
-            title = "Explain (ELI5)",
-            description = "Explain concept with simple analogies",
-            promptTemplate = "Explain the following concept in very simple, accessible language with relatable analogies:\n\n",
-            icon = Icons.Default.Psychology,
-        ),
-        SlashCommand(
-            command = "/code",
-            title = "Write Code",
-            description = "Generate modular, clean, and tested code",
-            promptTemplate = "Write clean, idiomatic, efficient code for the following task, along with a brief explanation:\n\n",
-            icon = Icons.Default.Code,
-        ),
-        SlashCommand(
-            command = "/bullet-points",
-            title = "Bullet Points",
-            description = "Format into structured bullet points",
-            promptTemplate = "Convert the following content into a clean, structured bullet-point list:\n\n",
-            icon = Icons.AutoMirrored.Filled.FormatListBulleted,
-        ),
-        SlashCommand(
-            command = "/rewrite",
-            title = "Rewrite Pro",
-            description = "Rewrite in a professional and clear tone",
-            promptTemplate = "Rewrite the following text in a more professional, clear, and persuasive tone:\n\n",
-            icon = Icons.Default.AutoAwesome,
-        ),
-        SlashCommand(
-            command = "/run",
-            title = "Run in Linux",
-            description = "Execute shell command in Alpine sandbox",
-            promptTemplate = "/run ",
-            icon = Icons.Default.Terminal,
-        ),
-        SlashCommand(
-            command = "/serve",
-            title = "Serve Workspace",
-            description = "Preview /workspace on localhost",
-            promptTemplate = "/serve ",
-            icon = Icons.Default.Language,
-        ),
-        SlashCommand(
-            command = "/env",
-            title = "Linux Environment",
-            description = "Install or wipe Alpine environment",
-            promptTemplate = "/env ",
-            icon = Icons.Default.CloudDownload,
-        ),
-        SlashCommand(
-            command = "/yolo",
-            title = "YOLO Mode",
-            description = "Auto-approve sandbox commands",
-            promptTemplate = "/yolo ",
-            icon = Icons.Default.AutoAwesome,
-        ),
-        SlashCommand(
-            command = "/permission",
-            title = "Permissions",
-            description = "View and manage sandbox permissions",
-            promptTemplate = "/permission ",
-            icon = Icons.Default.AutoAwesome,
-        ),
-        SlashCommand(
-            command = "/fix-dns",
-            title = "Fix Guest DNS",
-            description = "Sync container DNS with current network",
-            promptTemplate = "/fix-dns",
-            icon = Icons.Default.Language,
-        ),
-        SlashCommand(
-            command = "/nettest",
-            title = "Network Test",
-            description = "Compare phone vs container connectivity",
-            promptTemplate = "/nettest",
-            icon = Icons.Default.Language,
-        ),
+        SlashCommand("/env", "Install or reset the Linux environment", "/env ", SlashGroup.LINUX, scope = SlashScope.CHAT, usage = "/env install | wipe"),
     )
+
+/** Commands offered in the current context, ordered by group. */
+fun availableSlashCommands(
+    isRoleplay: Boolean,
+    linuxInstalled: Boolean,
+): List<SlashCommand> =
+    DEFAULT_SLASH_COMMANDS
+        .filter { cmd ->
+            val scopeOk =
+                when (cmd.scope) {
+                    SlashScope.BOTH -> true
+                    SlashScope.CHAT -> !isRoleplay
+                    SlashScope.ROLEPLAY -> isRoleplay
+                }
+            scopeOk && (!cmd.requiresLinux || linuxInstalled)
+        }.sortedBy { it.group.ordinal }
+
+/** Filters [commands] by what the user typed after "/". */
+fun matchSlashCommands(
+    commands: List<SlashCommand>,
+    input: String,
+): List<SlashCommand> {
+    if (!input.startsWith("/")) return emptyList()
+    val q = input.removePrefix("/").substringBefore(' ').trim()
+    // Once an argument is being typed, the menu has done its job.
+    if (input.contains(' ')) return emptyList()
+    if (q.isEmpty()) return commands
+    val starts = commands.filter { it.command.removePrefix("/").startsWith(q, ignoreCase = true) }
+    val contains =
+        commands.filter {
+            it !in starts && (it.command.contains(q, ignoreCase = true) || it.description.contains(q, ignoreCase = true))
+        }
+    return starts + contains
+}
+
+/** Markdown help text for the current context. */
+fun slashHelpText(commands: List<SlashCommand>): String =
+    buildString {
+        append("**Commands**\n")
+        commands.groupBy { it.group }.forEach { (group, cmds) ->
+            append("\n**${group.label}**\n")
+            cmds.forEach { append("- `${it.usage}` — ${it.description}\n") }
+        }
+    }.trimEnd()

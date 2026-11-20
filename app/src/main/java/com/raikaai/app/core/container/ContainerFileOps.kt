@@ -44,7 +44,10 @@ object ContainerFileOps {
         baseDir.mkdirs()
         val target = File(baseDir, clean).canonicalFile
         val base = baseDir.canonicalFile
-        if (!target.path.startsWith(base.path)) {
+        // Compare on a path-segment boundary: a bare prefix check also accepted
+        // siblings such as "workspace2/" or "workspace_old/". The workspace
+        // root itself is not a valid file target either.
+        if (!target.path.startsWith(base.path + File.separator)) {
             throw SecurityException("Access denied: path escapes /workspace: $relativePath")
         }
         return target
@@ -109,6 +112,49 @@ object ContainerFileOps {
         target.writeText(updated, Charsets.UTF_8)
         val relPath = target.relativeTo(baseDir).path
         return FileEditResult(relPath, count)
+    }
+
+    /**
+     * Applies several (oldText -> newText) replacements in one call, pi-style:
+     * every oldText is matched against the ORIGINAL file, must occur exactly
+     * once, and must not overlap another edit. All or nothing.
+     */
+    fun multiEdit(
+        relativePath: String,
+        edits: List<Pair<String, String>>,
+        baseDir: File,
+    ): FileEditResult {
+        if (edits.isEmpty()) throw IllegalArgumentException("edits[] is empty")
+        val target = resolveWorkspaceFile(relativePath, baseDir)
+        if (!target.exists() || !target.isFile) {
+            throw FileNotFoundException("File not found: $relativePath")
+        }
+        val original = target.readText(Charsets.UTF_8)
+        val located = edits.mapIndexed { i, (old, new) ->
+            if (old.isEmpty()) throw IllegalArgumentException("edits[$i].oldText is empty")
+            val at = original.indexOf(old)
+            if (at < 0) {
+                throw IllegalArgumentException("edits[$i].oldText not found in $relativePath. Ensure exact indentation and whitespace match.")
+            }
+            if (original.indexOf(old, at + 1) >= 0) {
+                throw IllegalArgumentException("edits[$i].oldText occurs more than once in $relativePath. Add surrounding context to make it unique.")
+            }
+            Triple(at, at + old.length, new)
+        }.sortedBy { it.first }
+        for (k in 1 until located.size) {
+            if (located[k].first < located[k - 1].second) {
+                throw IllegalArgumentException("edits overlap in $relativePath. Merge nearby changes into one edit.")
+            }
+        }
+        val sb = StringBuilder()
+        var pos = 0
+        for ((start, end, new) in located) {
+            sb.append(original, pos, start).append(new)
+            pos = end
+        }
+        sb.append(original, pos, original.length)
+        target.writeText(sb.toString(), Charsets.UTF_8)
+        return FileEditResult(target.relativeTo(baseDir).path, located.size)
     }
 
     /**

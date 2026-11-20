@@ -13,7 +13,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -105,7 +105,7 @@ fun RoleplaySafeBooruScreen(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
         ) {
             IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back")
             }
             Text("Search Image", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(top = 12.dp))
         }

@@ -36,18 +36,42 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
+import kotlinx.coroutines.delay
+import androidx.compose.foundation.background
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.CloudDownload
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.InsertDriveFile
-import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.CloudDownload
+import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.ContentPaste
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.InsertDriveFile
+import androidx.compose.material.icons.outlined.Menu
+import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material.icons.outlined.Share
+import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material.icons.filled.Send
-import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -121,39 +145,120 @@ fun EnvironmentScreen(
     val fsInstalled = remember(settings.alpineInstalled, installState) { manager.isInstalled() }
     val scope = rememberCoroutineScope()
 
-    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-        Column(modifier = Modifier.fillMaxSize().statusBarsPadding().padding(top = 10.dp)) {
+    val onTerminal = tab == 0 && fsInstalled && !outdated
+    // Terminal look: the bar and the shell share one black surface (no card,
+    // no margins) so the screen reads as a real terminal; Files keeps the
+    // app theme.
+    val barColor = if (onTerminal) TermBg else MaterialTheme.colorScheme.background
+    val barContent = if (onTerminal) TermMuted else MaterialTheme.colorScheme.onSurfaceVariant
+    var menuOpen by remember { mutableStateOf(false) }
+
+    Surface(modifier = Modifier.fillMaxSize(), color = if (onTerminal) TermBg else MaterialTheme.colorScheme.background) {
+        Column(modifier = Modifier.fillMaxSize().background(barColor).statusBarsPadding()) {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                modifier = Modifier.fillMaxWidth().height(48.dp).padding(start = 4.dp, end = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                IconButton(onClick = onOpenDrawer, modifier = Modifier.size(36.dp)) {
-                    Icon(Icons.Default.Menu, contentDescription = "Open Menu")
+                IconButton(onClick = onOpenDrawer, modifier = Modifier.size(40.dp)) {
+                    Icon(Icons.Outlined.Menu, contentDescription = "Open Menu", tint = barContent)
                 }
-                Spacer(Modifier.width(10.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("Linux Environment", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                    Text(
-                        text = servedPort?.let { "Serving :$it · /workspace" }
-                            ?: if (fsInstalled) "Alpine ${settings.alpineVersion} · /workspace" else "Alpine via PRoot (no root)",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                if (onTerminal) {
+                    TerminalTabStrip(viewModel = viewModel, modifier = Modifier.weight(1f))
+                } else {
+                    Column(modifier = Modifier.weight(1f).padding(start = 4.dp)) {
+                        Text(
+                            if (tab == 1 && fsInstalled) "Files" else "Terminal",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            text = servedPort?.let { "Serving :$it · /workspace" }
+                                ?: if (fsInstalled) "Alpine ${settings.alpineVersion} · /workspace" else "Alpine via PRoot (no root)",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
-                IconButton(
-                    onClick = {
-                        scope.launch(Dispatchers.IO) {
-                            val text = manager.diagnostics()
-                            withContext(Dispatchers.Main) {
-                                val cm = context.getSystemService(android.content.ClipboardManager::class.java)
-                                cm?.setPrimaryClip(android.content.ClipData.newPlainText("env-diag", text))
-                                android.widget.Toast.makeText(context, "Diagnostics copied", android.widget.Toast.LENGTH_SHORT).show()
+                if (tab == 0 && viewModel.activeTerminalSession.ptyInput != null) {
+                    // Gboard hides its clipboard in the key-capture field, so paste here.
+                    IconButton(
+                        onClick = { viewModel.pasteToTerminal() },
+                        modifier = Modifier.size(40.dp),
+                    ) {
+                        Icon(Icons.Outlined.ContentPaste, contentDescription = "Paste", tint = barContent)
+                    }
+                }
+                if (fsInstalled && !outdated) {
+                    IconButton(
+                        onClick = {
+                            tab = if (tab == 0) 1 else 0
+                            if (tab == 1) filesTick++
+                        },
+                        modifier = Modifier.size(40.dp),
+                    ) {
+                        Icon(
+                            if (tab == 0) Icons.Outlined.Folder else Icons.Outlined.Terminal,
+                            contentDescription = if (tab == 0) "Files" else "Terminal",
+                            tint = barContent,
+                        )
+                    }
+                }
+                Box {
+                    IconButton(onClick = { menuOpen = true }, modifier = Modifier.size(40.dp)) {
+                        Icon(Icons.Outlined.MoreVert, contentDescription = "More", tint = barContent)
+                    }
+                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        Text(
+                            servedPort?.let { "Serving :$it" } ?: "Alpine ${settings.alpineVersion}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                        )
+                        if (fsInstalled && !outdated) {
+                            DropdownMenuItem(
+                                text = { Text("New tab") },
+                                leadingIcon = { Icon(Icons.Outlined.Add, null) },
+                                onClick = { menuOpen = false; tab = 0; viewModel.newTerminalSession() },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Clear screen") },
+                                leadingIcon = { Icon(Icons.Outlined.Delete, null) },
+                                onClick = { menuOpen = false; viewModel.clearTerminal(viewModel.activeTerminalSession.id) },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Copy output") },
+                                leadingIcon = { Icon(Icons.Outlined.ContentCopy, null) },
+                                onClick = { menuOpen = false; viewModel.copyTerminalOutput() },
+                            )
+                            if (viewModel.activeTerminalSession.isRunning) {
+                                DropdownMenuItem(
+                                    text = { Text("Stop program") },
+                                    leadingIcon = { Icon(Icons.Outlined.Close, null) },
+                                    onClick = { menuOpen = false; viewModel.cancelTerminal(viewModel.activeTerminalSession.id) },
+                                )
                             }
                         }
-                    },
-                    modifier = Modifier.size(36.dp),
-                ) {
-                    Icon(Icons.Default.Info, contentDescription = "Copy diagnostics")
+                        DropdownMenuItem(
+                            text = { Text("Copy diagnostics") },
+                            leadingIcon = { Icon(Icons.Outlined.Info, null) },
+                            onClick = {
+                                menuOpen = false
+                                scope.launch(Dispatchers.IO) {
+                                    val text = manager.diagnostics()
+                                    withContext(Dispatchers.Main) {
+                                        val cm = context.getSystemService(android.content.ClipboardManager::class.java)
+                                        cm?.setPrimaryClip(android.content.ClipData.newPlainText("env-diag", text))
+                                        android.widget.Toast.makeText(context, "Diagnostics copied", android.widget.Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Back to chat") },
+                            leadingIcon = { Icon(Icons.Default.Send, null) },
+                            onClick = { menuOpen = false; onNavigateToChat() },
+                        )
+                    }
                 }
             }
 
@@ -177,69 +282,42 @@ fun EnvironmentScreen(
             // terminal is discovered by port probe; open it in one tap.
             val previewUrl by viewModel.containerPreviewUrl.collectAsState()
             if (!previewUrl.isNullOrBlank()) {
-                Surface(
-                    shape = RoundedCornerShape(10.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
+                Row(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .background(if (onTerminal) Color(0xFF14261A) else MaterialTheme.colorScheme.primaryContainer)
+                            .padding(start = 12.dp, end = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        Icon(
-                            Icons.Default.Terminal,
-                            contentDescription = null,
-                            modifier = Modifier.size(14.dp),
-                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                        )
-                        Text(
-                            text = previewUrl.orEmpty(),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                            fontFamily = FontFamily.Monospace,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f),
-                        )
-                        TextButton(onClick = { viewModel.refreshContainerPreview() }) { Text("Re-check") }
-                        TextButton(
-                            onClick = {
-                                previewUrl?.let { url ->
-                                    runCatching {
-                                        context.startActivity(
-                                            Intent(Intent.ACTION_VIEW, Uri.parse(url)),
-                                        )
-                                    }.onFailure {
-                                        android.widget.Toast.makeText(
-                                            context, "No browser available", android.widget.Toast.LENGTH_SHORT,
-                                        ).show()
-                                    }
+                    Box(Modifier.size(6.dp).background(TermGreen, RoundedCornerShape(3.dp)))
+                    Text(
+                        text = previewUrl.orEmpty(),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (onTerminal) Color.White else MaterialTheme.colorScheme.onPrimaryContainer,
+                        fontFamily = FontFamily.Monospace,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = { viewModel.refreshContainerPreview() }) { Text("Re-check") }
+                    TextButton(
+                        onClick = {
+                            previewUrl?.let { url ->
+                                runCatching {
+                                    context.startActivity(
+                                        Intent(Intent.ACTION_VIEW, Uri.parse(url)),
+                                    )
+                                }.onFailure {
+                                    android.widget.Toast.makeText(
+                                        context, "No browser available", android.widget.Toast.LENGTH_SHORT,
+                                    ).show()
                                 }
-                            },
-                        ) { Text("Open", fontWeight = FontWeight.SemiBold) }
-                    }
+                            }
+                        },
+                    ) { Text("Open", fontWeight = FontWeight.SemiBold) }
                 }
-            }
-
-            SecondaryTabRow(
-                selectedTabIndex = tab,
-                containerColor = MaterialTheme.colorScheme.background,
-            ) {
-                Tab(selected = tab == 0, onClick = { tab = 0 }, text = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Terminal, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("Terminal", fontWeight = FontWeight.SemiBold)
-                    }
-                })
-                Tab(selected = tab == 1, onClick = { tab = 1; filesTick++ }, text = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Folder, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("Files", fontWeight = FontWeight.SemiBold)
-                    }
-                })
             }
 
             if (tab == 0) {
@@ -299,7 +377,7 @@ private fun NotInstalledCard(
                 }
                 else -> {
                     Button(onClick = onInstall) {
-                        Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Icon(Icons.Outlined.CloudDownload, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(6.dp))
                         Text(actionLabel)
                     }
@@ -310,6 +388,10 @@ private fun NotInstalledCard(
 }
 
 private val TermGreen = Color(0xFF4CAF50)
+private val TermBg = Color(0xFF000000)
+private const val MIN_FONT_SP = 7f
+private const val MAX_FONT_SP = 26f
+private val TermMuted = Color(0xFF9E9E9E)
 
 @Composable
 private fun TerminalTab(
@@ -322,6 +404,10 @@ private fun TerminalTab(
     val lines = activeSession.lines
     val history = activeSession.history
     val running = activeSession.isRunning
+    // PTY mode with a program running: keys go straight to the program.
+    val passThrough = activeSession.ptyInput != null
+    val grid = activeSession.grid
+    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     val scope = rememberCoroutineScope()
     var histPos by remember(activeSession.id) { mutableIntStateOf(activeSession.histPos) }
     var input by remember(activeSession.id) { mutableStateOf(activeSession.input) }
@@ -340,8 +426,23 @@ private fun TerminalTab(
     // a stale buffer and typed text appears to vanish.
     val fieldFocus = remember { FocusRequester() }
 
+    // The prompt is the last item of the stream (banner + lines + prompt):
+    // follow it when output arrives or the session changes, and bring it back
+    // into view as soon as the user types while scrolled up.
+    val lastIndex = (if (lines.isEmpty()) 1 else 0) + lines.size
     LaunchedEffect(lines.size, activeSession.id) {
-        if (lines.isNotEmpty()) listState.animateScrollToItem(lines.size - 1)
+        listState.animateScrollToItem(lastIndex)
+    }
+    LaunchedEffect(input.text) {
+        val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: return@LaunchedEffect
+        if (lastVisible < lastIndex) listState.scrollToItem(lastIndex)
+    }
+    // Keyboard opening shrinks the viewport; keep the prompt above it.
+    val latestLastIndex by rememberUpdatedState(lastIndex)
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.layoutInfo.viewportSize.height }
+            .distinctUntilChanged()
+            .collect { listState.scrollToItem(latestLastIndex) }
     }
 
     fun setInputText(text: String) {
@@ -516,255 +617,529 @@ private fun TerminalTab(
         selAnchor = -1
     }
 
-    Column(modifier = Modifier.fillMaxSize().imePadding().padding(horizontal = 16.dp, vertical = 8.dp)) {
-        // Chrome-style Horizontal Tabs for multiple Terminal sessions
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 6.dp)
-                .horizontalScroll(rememberScrollState()),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            sessions.forEach { s ->
-                val isSelected = s.id == activeSession.id
-                Surface(
-                    shape = RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp, bottomStart = 4.dp, bottomEnd = 4.dp),
-                    color = if (isSelected) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = 0.5f),
-                    border = if (isSelected) BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)) else null,
-                    modifier = Modifier.clickable { viewModel.selectTerminalSession(s.id) },
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    // ── Pass-through input (PTY mode) ──
+    // The IME needs a text field; it holds a fixed sentinel so typed text and
+    // backspaces (which an empty field never reports) can be told apart.
+    val sentinel = "  "
+    var ptyField by remember { mutableStateOf(TextFieldValue(sentinel, TextRange(sentinel.length))) }
+
+    fun sendKey(seq: String) {
+        viewModel.sendTerminalInput(seq, activeSession.id)
+        fieldFocus.requestFocus()
+    }
+
+    /** Applies the sticky CTRL/ALT/SHIFT to one typed character. */
+    fun keyFor(ch: Char): String {
+        val ctrl = ctrlActive
+        val alt = altActive
+        val shift = shiftActive
+        clearModifiers()
+        if (ch == '\n') return "\r"
+        var out =
+            if (ctrl) {
+                when (val l = ch.lowercaseChar()) {
+                    in 'a'..'z' -> (l.code - 96).toChar().toString()
+                    ' ', '@', '2' -> "\u0000"
+                    '[', '3' -> "\u001B"
+                    '\\', '4' -> "\u001C"
+                    ']', '5' -> "\u001D"
+                    '^', '6' -> "\u001E"
+                    '_', '-', '7' -> "\u001F"
+                    '?', '8' -> "\u007F"
+                    else -> ch.toString()
+                }
+            } else if (shift) {
+                ch.uppercaseChar().toString()
+            } else {
+                ch.toString()
+            }
+        if (alt) out = "\u001B" + out
+        return out
+    }
+
+    fun onPtyChange(v: TextFieldValue) {
+        val t = v.text
+        val common = t.commonPrefixWith(sentinel).length
+        val deleted = sentinel.length - common
+        val added = t.substring(common)
+        if (deleted > 0 || added.isNotEmpty()) {
+            val sb = StringBuilder()
+            repeat(deleted) { sb.append('\u007F') }
+            added.forEach { sb.append(keyFor(it)) }
+            viewModel.sendTerminalInput(sb.toString(), activeSession.id)
+        }
+        ptyField = TextFieldValue(sentinel, TextRange(sentinel.length))
+    }
+
+    /** Cursor/edit key with xterm modifier encoding (SHIFT=2, ALT=3, CTRL=5). */
+    fun csiKey(final: Char) {
+        val mod = when { ctrlActive -> 5; altActive -> 3; shiftActive -> 2; else -> 1 }
+        clearModifiers()
+        sendKey(if (mod == 1) "\u001B[$final" else "\u001B[1;$mod$final")
+    }
+
+    var symPage by remember { mutableStateOf(false) }
+    // Pinch-to-zoom font size, remembered across launches.
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val prefs = remember { context.getSharedPreferences("terminal", android.content.Context.MODE_PRIVATE) }
+    var fontSp by remember { mutableStateOf(prefs.getFloat("font_sp", 12f).coerceIn(MIN_FONT_SP, MAX_FONT_SP)) }
+    LaunchedEffect(fontSp) {
+        kotlinx.coroutines.delay(400)
+        prefs.edit().putFloat("font_sp", fontSp).apply()
+    }
+    val termText = MaterialTheme.typography.bodySmall.copy(
+        fontFamily = FontFamily.Monospace,
+        fontSize = fontSp.sp,
+        lineHeight = (fontSp * 1.3f).sp,
+        letterSpacing = 0.sp,
+    )
+    // Columns = usable width / one monospace cell, so programs format to fit.
+    val measurer = androidx.compose.ui.text.rememberTextMeasurer()
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val cellWidthF = remember(fontSp) { measurer.measure("MMMMMMMMMM", termText).size.width / 10f }
+    val cellWidthPx = cellWidthF.toInt().coerceAtLeast(1)
+    val cellHeightF = with(density) { (fontSp * 1.3f).sp.toPx() }
+    var areaSize by remember { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
+    LaunchedEffect(areaSize, cellWidthF, cellHeightF) {
+        if (areaSize.width > 0 && areaSize.height > 0) {
+            // The area has no padding of its own (a full-screen program paints
+            // edge to edge); the scrolling view keeps an 8dp/6dp inset.
+            val padX = with(density) { 8.dp.toPx() } * 2
+            val padY = with(density) { 6.dp.toPx() } * 2
+            val cols = ((areaSize.width - padX) / cellWidthF).toInt().coerceIn(20, 400)
+            val rows = ((areaSize.height - padY) / cellHeightF).toInt().coerceIn(4, 300)
+            viewModel.terminalCellPx = cellWidthPx to cellHeightF.toInt()
+            viewModel.resizeTerminal(cols, rows)
+        }
+    }
+    fun promptOf(cwd: String?) =
+        buildAnnotatedString {
+            withStyle(SpanStyle(color = TermGreen, fontWeight = FontWeight.Bold)) { append("root@raika") }
+            append(":")
+            withStyle(SpanStyle(color = Color(0xFF61AFEF), fontWeight = FontWeight.Bold)) {
+                append((cwd ?: "/workspace").replaceFirst(Regex("^/root(?=/|$)"), "~"))
+            }
+            append("# ")
+        }
+
+    Column(modifier = Modifier.fillMaxSize().background(TermBg).imePadding().navigationBarsPadding()) {
+        Column(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .clickable(
+                        interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                        indication = null,
                     ) {
-                        if (s.isRunning) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(10.dp),
-                                strokeWidth = 1.5.dp,
-                                color = MaterialTheme.colorScheme.primary,
-                            )
-                        } else {
-                            Icon(
-                                Icons.Default.Terminal,
-                                contentDescription = null,
-                                modifier = Modifier.size(12.dp),
-                                tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                            )
-                        }
-                        Text(
-                            text = s.title,
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                            color = if (isSelected) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                            maxLines = 1,
-                        )
-                        if (sessions.size > 1) {
-                            Box(
-                                modifier = Modifier
-                                    .size(16.dp)
-                                    .clickable { viewModel.closeTerminalSession(s.id) },
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Icon(
-                                    Icons.Default.Close,
-                                    contentDescription = "Close tab",
-                                    modifier = Modifier.size(11.dp),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                )
-                            }
-                        }
+                        fieldFocus.requestFocus()
+                        keyboard?.show()
                     }
-                }
-            }
-
-            // '+' New Tab button
-            Surface(
-                shape = RoundedCornerShape(6.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-                modifier = Modifier
-                    .size(28.dp)
-                    .clickable { viewModel.newTerminalSession() },
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        Icons.Default.Add,
-                        contentDescription = "New Tab",
-                        modifier = Modifier.size(16.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-        }
-
-        Card(
-            shape = RoundedCornerShape(12.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.Black),
-            modifier = Modifier.fillMaxWidth().weight(1f).clickable { fieldFocus.requestFocus() },
+                    .onSizeChanged { areaSize = it }
+                    .pointerInput(Unit) {
+                        // Two-finger pinch changes the font size; one finger
+                        // still scrolls (events are only consumed while pinching).
+                        awaitEachGesture {
+                            awaitFirstDown(requireUnconsumed = false)
+                            do {
+                                val event = awaitPointerEvent()
+                                if (event.changes.count { it.pressed } >= 2) {
+                                    val zoom = event.calculateZoom()
+                                    if (zoom != 1f) {
+                                        fontSp = (fontSp * zoom).coerceIn(MIN_FONT_SP, MAX_FONT_SP)
+                                        event.changes.forEach { it.consume() }
+                                    }
+                                }
+                            } while (event.changes.any { it.pressed })
+                        }
+                    },
         ) {
-            Column(modifier = Modifier.fillMaxSize().padding(12.dp)) {
+            // One scrolling stream like a real terminal: banner, output, and
+            // the prompt as the LAST line right under the latest output (not
+            // pinned to the bottom of the screen).
+            if (grid != null) {
+                // Full-screen program (alternate screen): fixed cell grid.
+                TerminalGridCanvas(
+                    grid = grid,
+                    version = { activeSession.gridVersion },
+                    style = termText.copy(lineHeight = (fontSp * 1.3f).sp),
+                    cellWidth = cellWidthF,
+                    cellHeight = cellHeightF,
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                            .pointerInput(grid, cellWidthF, cellHeightF) {
+                                // Touch as a mouse, for programs that ask for one:
+                                // tap = click, swipe = wheel, long press + drag =
+                                // drag (selects text; opencode copies it via OSC 52).
+                                val slop = viewConfiguration.touchSlop
+                                fun cellOf(pos: androidx.compose.ui.geometry.Offset): Pair<Int, Int> {
+                                    val ox = ((size.width - grid.cols * cellWidthF) / 2f).coerceAtLeast(0f)
+                                    val oy = ((size.height - grid.rows * cellHeightF) / 2f).coerceAtLeast(0f)
+                                    val col = ((pos.x - ox) / cellWidthF).toInt().coerceIn(0, grid.cols - 1)
+                                    val row = ((pos.y - oy) / cellHeightF).toInt().coerceIn(0, grid.rows - 1)
+                                    return col to row
+                                }
+                                fun send(seq: String?) {
+                                    if (seq != null) viewModel.sendTerminalInput(seq, activeSession.id)
+                                }
+                                awaitEachGesture {
+                                    val down = awaitFirstDown(requireUnconsumed = false)
+                                    val start = down.position
+                                    // 0 undecided, 1 wheel scroll, 2 drag, 3 multi-touch (pinch)
+                                    var mode = 0
+                                    var wheelY = start.y
+                                    var lastCell = cellOf(start)
+                                    while (true) {
+                                        val ev =
+                                            if (mode == 0) {
+                                                withTimeoutOrNull(450L) { awaitPointerEvent() }
+                                            } else {
+                                                awaitPointerEvent()
+                                            }
+                                        if (ev == null) {
+                                            // Held still: long press starts a drag.
+                                            if (grid.mouseTracking != 0) {
+                                                mode = 2
+                                                send(grid.mouseEvent(0, lastCell.first, lastCell.second, press = true))
+                                            } else {
+                                                mode = 1
+                                            }
+                                            continue
+                                        }
+                                        if (ev.changes.count { it.pressed } >= 2) mode = 3
+                                        if (mode == 3) {
+                                            if (ev.changes.none { it.pressed }) break
+                                            continue
+                                        }
+                                        val ch = ev.changes.firstOrNull { it.id == down.id } ?: break
+                                        if (!ch.pressed) {
+                                            when (mode) {
+                                                0 -> {
+                                                    send(grid.mouseEvent(0, lastCell.first, lastCell.second, press = true))
+                                                    send(grid.mouseEvent(0, lastCell.first, lastCell.second, press = false))
+                                                    fieldFocus.requestFocus()
+                                                    keyboard?.show()
+                                                }
+                                                2 -> {
+                                                    val (c, r) = cellOf(ch.position)
+                                                    send(grid.mouseEvent(0, c, r, press = false))
+                                                }
+                                            }
+                                            ch.consume()
+                                            break
+                                        }
+                                        val d = ch.position - start
+                                        if (mode == 0 && (kotlin.math.abs(d.x) > slop || kotlin.math.abs(d.y) > slop)) mode = 1
+                                        if (mode == 1) {
+                                            // Finger down shows earlier content (wheel up), like a touch list.
+                                            while (ch.position.y - wheelY > cellHeightF) {
+                                                send(grid.mouseEvent(64, lastCell.first, lastCell.second, press = true))
+                                                wheelY += cellHeightF
+                                            }
+                                            while (wheelY - ch.position.y > cellHeightF) {
+                                                send(grid.mouseEvent(65, lastCell.first, lastCell.second, press = true))
+                                                wheelY -= cellHeightF
+                                            }
+                                        } else if (mode == 2) {
+                                            val cell = cellOf(ch.position)
+                                            if (cell != lastCell) {
+                                                lastCell = cell
+                                                send(grid.mouseEvent(0, cell.first, cell.second, press = true, motion = true))
+                                            }
+                                        }
+                                        ch.consume()
+                                    }
+                                }
+                            },
+                )
+            } else LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxWidth().weight(1f).padding(horizontal = 8.dp, vertical = 6.dp),
+            ) {
                 if (lines.isEmpty()) {
-                    Text(
-                        "Alpine shell — type below. TAB completes, ↑↓ history, CTRL/ALT/SHIFT sticky.\nTip: add '&' for background servers (e.g. npm run dev &).",
-                        style = MaterialTheme.typography.bodySmall,
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 11.sp,
-                        lineHeight = 14.sp,
-                        color = Color.White.copy(alpha = 0.7f),
-                    )
-                } else {
-                    LazyColumn(state = listState, modifier = Modifier.fillMaxWidth().weight(1f)) {
-                        items(lines.size) { i ->
-                            val line = lines[i]
-                            when (line.kind) {
-                                TermKind.CMD -> Text(
-                                    "$ ${line.text}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontSize = 11.sp,
-                                    lineHeight = 14.sp,
-                                    color = TermGreen,
-                                )
-                                TermKind.ERR -> Text(
-                                    line.text,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontSize = 11.sp,
-                                    lineHeight = 14.sp,
-                                    color = MaterialTheme.colorScheme.error,
-                                )
-                                TermKind.SYS -> Text(
-                                    line.text,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontSize = 11.sp,
-                                    lineHeight = 14.sp,
-                                    color = Color.White.copy(alpha = 0.6f),
-                                )
-                                TermKind.OUT -> Text(
-                                    line.text,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontSize = 11.sp,
-                                    lineHeight = 14.sp,
-                                    color = Color.White,
-                                )
-                            }
-                        }
+                    item(key = "banner") {
+                        Text(
+                            "Alpine Linux · /workspace\n" +
+                                "TAB completes paths · ↑↓ history · CTRL+C stops · CTRL+L clears\n" +
+                                "Add '&' to keep a server running (npm run dev &)",
+                            style = termText,
+                            color = TermMuted,
+                            modifier = Modifier.padding(bottom = 6.dp),
+                        )
                     }
                 }
-                // Inline shell prompt (Termux-style: type directly in the shell).
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(
-                        if (running) "… " else "$ ",
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 11.sp,
-                        lineHeight = 14.sp,
-                        color = if (running) Color(0xFFFFC107) else TermGreen,
-                    )
-                    BasicTextField(
-                        value = input,
-                        onValueChange = ::onInputChange,
-                        modifier = Modifier.weight(1f).focusRequester(fieldFocus),
-                        textStyle = MaterialTheme.typography.bodySmall.copy(
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 11.sp,
-                            lineHeight = 14.sp,
+                items(lines.size) { i ->
+                    val line = lines[i]
+                    // Long press selects and copies a line.
+                    androidx.compose.foundation.text.selection.SelectionContainer {
+                    when (line.kind) {
+                        TermKind.CMD -> Text(
+                            promptOf(line.cwd) + AnnotatedString(line.text),
+                            style = termText,
                             color = Color.White,
-                        ),
-                        cursorBrush = SolidColor(Color.White),
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
-                        keyboardActions = KeyboardActions(onGo = { exec(input.text) }),
-                    )
-                    if (running) {
-                        IconButton(
-                            onClick = { viewModel.cancelTerminal(activeSession.id) },
-                            modifier = Modifier.size(22.dp),
-                        ) {
-                            Icon(
-                                Icons.Default.Close,
-                                contentDescription = "Stop (^C)",
-                                tint = Color(0xFFEF5350),
-                                modifier = Modifier.size(16.dp),
-                            )
-                        }
+                        )
+                        TermKind.ERR -> Text(line.rich ?: AnnotatedString(line.text), style = termText, color = Color(0xFFFF6B6B))
+                        TermKind.SYS -> Text(line.text, style = termText, color = TermMuted)
+                        TermKind.OUT -> Text(line.rich ?: AnnotatedString(line.text), style = termText, color = Color(0xFFE6E6E6))
+                    }
+                    }
+                }
+                if (!passThrough) item(key = "prompt") {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                if (running) {
+                    Text("… ", style = termText, fontWeight = FontWeight.Bold, color = Color(0xFFFFC107))
+                } else {
+                    Text(promptOf(activeSession.cwd), style = termText, color = Color.White)
+                }
+                BasicTextField(
+                    value = input,
+                    onValueChange = ::onInputChange,
+                    modifier = Modifier.weight(1f).focusRequester(fieldFocus),
+                    textStyle = termText.copy(color = Color.White),
+                    cursorBrush = SolidColor(TermGreen),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go, autoCorrectEnabled = false),
+                    keyboardActions = KeyboardActions(onGo = { exec(input.text) }),
+                )
+                if (running) {
+                    IconButton(
+                        onClick = { viewModel.cancelTerminal(activeSession.id) },
+                        modifier = Modifier.size(24.dp),
+                    ) {
+                        Icon(
+                            Icons.Outlined.Close,
+                            contentDescription = "Stop (^C)",
+                            tint = Color(0xFFEF5350),
+                            modifier = Modifier.size(16.dp),
+                        )
                     }
                 }
             }
-        }
-        Spacer(Modifier.height(8.dp))
-        // Termux-style extra keys in three compact rows (all fit without clipping).
-        // CTRL/ALT/SHIFT are sticky: tap one, then tap the target key.
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-            termKey("ESC") { input = TextFieldValue(""); clearModifiers(); fieldFocus.requestFocus() }
-            termKey("TAB") { tabComplete() }
-            termKey("CTRL", active = ctrlActive) {
-                val on = !ctrlActive
-                clearModifiers()
-                ctrlActive = on
-                fieldFocus.requestFocus()
+                }
             }
-            termKey("ALT", active = altActive) {
-                val on = !altActive
-                clearModifiers()
-                altActive = on
-                fieldFocus.requestFocus()
-            }
-            termKey("SHIFT", active = shiftActive) {
-                val on = !shiftActive
-                clearModifiers()
-                shiftActive = on
-                fieldFocus.requestFocus()
-            }
-            termKey("↑") { historyStep(1) }
-            termKey("↓") { historyStep(-1) }
         }
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-            termKey("←") { arrowLeft() }
-            termKey("→") { arrowRight() }
-            termKey("END") { goEnd() }
-            termKey("PGUP") { scope.launch { listState.animateScrollToItem(0) } }
-            termKey("PGDN") { scope.launch { if (lines.isNotEmpty()) listState.animateScrollToItem(lines.size - 1) } }
-            termKey("/") { insertAtCursor("/") }
-            termKey("|") { insertAtCursor("|") }
+
+        if (passThrough) {
+            // Invisible field that feeds keystrokes to the program.
+            BasicTextField(
+                value = ptyField,
+                onValueChange = ::onPtyChange,
+                modifier = Modifier.size(1.dp).alpha(0f).focusRequester(fieldFocus),
+                singleLine = true,
+                keyboardOptions =
+                    KeyboardOptions(
+                        keyboardType = androidx.compose.ui.text.input.KeyboardType.Password,
+                        imeAction = ImeAction.Send,
+                        autoCorrectEnabled = false,
+                    ),
+                keyboardActions = KeyboardActions(onSend = { sendKey("\r") }),
+            )
+            LaunchedEffect(Unit) { fieldFocus.requestFocus() }
         }
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-            termKey("~") { insertAtCursor("~") }
-            termKey("-") { insertAtCursor("-") }
-            termKey("_") { insertAtCursor("_") }
-            termKey(".") { insertAtCursor(".") }
-            termKey("*") { insertAtCursor("*") }
-            termKey("$") { insertAtCursor("$") }
-            termKey("\"") { insertAtCursor("\"") }
-            termKey("'") { insertAtCursor("'") }
+
+        // Extra keys: two rows of eight equal cells. SHIFT and SYM stay in
+        // the last column; SYM swaps the first seven columns for shell
+        // symbols. CTRL/ALT/SHIFT are one-shot: tap, then the next key.
+        HorizontalDivider(color = Color(0xFF1E1E1E))
+        val ctrlKey = ExtraKey("CTRL", active = ctrlActive) {
+            val on = !ctrlActive
+            clearModifiers()
+            ctrlActive = on
+            fieldFocus.requestFocus()
+        }
+        val altKey = ExtraKey("ALT", active = altActive) {
+            val on = !altActive
+            clearModifiers()
+            altActive = on
+            fieldFocus.requestFocus()
+        }
+        val shiftKey = ExtraKey("SHIFT", active = shiftActive) {
+            val on = !shiftActive
+            clearModifiers()
+            shiftActive = on
+            fieldFocus.requestFocus()
+        }
+        val symKey = ExtraKey("SYM", active = symPage) { symPage = !symPage; fieldFocus.requestFocus() }
+        fun sym(s: String) = ExtraKey(s) { if (passThrough) sendKey(keyFor(s.single())) else insertAtCursor(s) }
+        val rows =
+            if (!symPage) {
+                listOf(
+                    listOf(
+                        ExtraKey("ESC") {
+                            if (passThrough) { clearModifiers(); sendKey("\u001B") }
+                            else { input = TextFieldValue(""); clearModifiers(); fieldFocus.requestFocus() }
+                        },
+                        sym("/"),
+                        sym("-"),
+                        ExtraKey("HOME") {
+                            if (passThrough) { csiKey('H'); return@ExtraKey }
+                            clearModifiers()
+                            input = input.copy(selection = TextRange(0))
+                            fieldFocus.requestFocus()
+                        },
+                        ExtraKey("↑", repeats = true) { if (passThrough) csiKey('A') else historyStep(1) },
+                        ExtraKey("END") { if (passThrough) csiKey('F') else goEnd() },
+                        sym("|"),
+                        shiftKey,
+                    ),
+                    listOf(
+                        ExtraKey("TAB") {
+                            if (passThrough) {
+                                val back = shiftActive
+                                clearModifiers()
+                                sendKey(if (back) "\u001B[Z" else "\t")
+                            } else {
+                                tabComplete()
+                            }
+                        },
+                        ctrlKey,
+                        altKey,
+                        ExtraKey("←", repeats = true) { if (passThrough) csiKey('D') else arrowLeft() },
+                        ExtraKey("↓", repeats = true) { if (passThrough) csiKey('B') else historyStep(-1) },
+                        ExtraKey("→", repeats = true) { if (passThrough) csiKey('C') else arrowRight() },
+                        sym("~"),
+                        symKey,
+                    ),
+                )
+            } else {
+                listOf(
+                    listOf(sym("`"), sym("$"), sym("*"), sym("="), sym("^"), sym("\\"), sym("&"), sym("%")),
+                    listOf(sym("["), sym("]"), sym("{"), sym("}"), sym("<"), sym(">"), sym(";"), symKey),
+                )
+            }
+        rows.forEach { row ->
+            Row(modifier = Modifier.fillMaxWidth().height(40.dp)) {
+                row.forEach { key -> ExtraKeyCell(key, Modifier.weight(1f).fillMaxHeight()) }
+            }
         }
     }
 }
+
+/** One extra key: label, highlighted while its sticky modifier is on. */
+private class ExtraKey(
+    val label: String,
+    val active: Boolean = false,
+    val repeats: Boolean = false,
+    val onTap: () -> Unit,
+)
 
 @Composable
-private fun termKey(label: String, active: Boolean = false, onTap: () -> Unit) {
-    TextButton(
-        onClick = onTap,
-        modifier = Modifier.defaultMinSize(minWidth = 1.dp, minHeight = 32.dp),
-        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
-        colors = ButtonDefaults.textButtonColors(
-            contentColor = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-        ),
+private fun ExtraKeyCell(
+    key: ExtraKey,
+    modifier: Modifier,
+) {
+    val scope = rememberCoroutineScope()
+    val tapState = rememberUpdatedState(key.onTap)
+    Box(
+        modifier =
+            modifier.pointerInput(key.label, key.repeats) {
+                awaitEachGesture {
+                    awaitFirstDown()
+                    // Holding an arrow repeats it, like a hardware key.
+                    val repeatJob =
+                        if (key.repeats) {
+                            scope.launch {
+                                tapState.value()
+                                delay(400)
+                                while (true) {
+                                    tapState.value()
+                                    delay(60)
+                                }
+                            }
+                        } else {
+                            null
+                        }
+                    val up = waitForUpOrCancellation()
+                    repeatJob?.cancel()
+                    if (!key.repeats && up != null) tapState.value()
+                }
+            },
+        contentAlignment = Alignment.Center,
     ) {
         Text(
-            label,
+            key.label,
             fontFamily = FontFamily.Monospace,
-            fontSize = 11.sp,
-            fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
+            fontSize = if (key.label.length > 3) 11.sp else 13.sp,
+            fontWeight = if (key.active) FontWeight.Bold else FontWeight.Normal,
+            color = if (key.active) TermGreen else TermMuted,
             maxLines = 1,
         )
+        if (key.active) {
+            Box(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 5.dp)
+                    .size(width = 14.dp, height = 2.dp)
+                    .background(TermGreen, RoundedCornerShape(1.dp)),
+            )
+        }
     }
 }
+
+/** Numbered terminal tabs in the top bar (running dot, close on the active tab). */
+@Composable
+private fun TerminalTabStrip(
+    viewModel: ChatViewModel,
+    modifier: Modifier,
+) {
+    val sessions = viewModel.terminalSessions
+    val active = viewModel.activeTerminalSession
+    Row(
+        modifier = modifier.horizontalScroll(rememberScrollState()),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        sessions.forEachIndexed { index, s ->
+            val selected = s.id == active.id
+            Row(
+                modifier =
+                    Modifier
+                        .height(48.dp)
+                        .clickable { viewModel.selectTerminalSession(s.id) }
+                        .padding(horizontal = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "${index + 1}",
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 13.sp,
+                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                    color = if (selected) Color.White else TermMuted,
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    s.title,
+                    fontSize = 13.sp,
+                    color = if (selected) Color.White else TermMuted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.widthIn(max = 120.dp),
+                )
+                if (s.isRunning) {
+                    Spacer(Modifier.width(6.dp))
+                    Box(Modifier.size(6.dp).background(Color(0xFFFFC107), RoundedCornerShape(3.dp)))
+                }
+                if (selected && sessions.size > 1) {
+                    Spacer(Modifier.width(4.dp))
+                    Icon(
+                        Icons.Outlined.Close,
+                        contentDescription = "Close tab",
+                        tint = TermMuted,
+                        modifier = Modifier.size(16.dp).clickable { viewModel.closeTerminalSession(s.id) },
+                    )
+                }
+            }
+        }
+        IconButton(onClick = { viewModel.newTerminalSession() }, modifier = Modifier.size(40.dp)) {
+            Icon(Icons.Outlined.Add, contentDescription = "New tab", tint = TermMuted, modifier = Modifier.size(20.dp))
+        }
+    }
+}
+
 
 @Composable
 private fun FilesTab(
@@ -889,7 +1264,7 @@ private fun FilesTab(
                     ) {
                         Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                             Icon(
-                                if (isTextFile(f)) Icons.Default.InsertDriveFile else Icons.Default.Folder,
+                                if (isTextFile(f)) Icons.Outlined.InsertDriveFile else Icons.Outlined.Folder,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(20.dp),
@@ -908,7 +1283,7 @@ private fun FilesTab(
                                 )
                             }
                             IconButton(onClick = { shareFile(context, f) }) {
-                                Icon(Icons.Default.Share, contentDescription = "Share", modifier = Modifier.size(18.dp))
+                                Icon(Icons.Outlined.Share, contentDescription = "Share", modifier = Modifier.size(18.dp))
                             }
                             IconButton(onClick = {
                                 scope.launch(Dispatchers.IO) {
@@ -916,7 +1291,7 @@ private fun FilesTab(
                                     withContext(Dispatchers.Main) { refresh() }
                                 }
                             }) {
-                                Icon(Icons.Default.CloudDownload, contentDescription = "Save", modifier = Modifier.size(18.dp))
+                                Icon(Icons.Outlined.CloudDownload, contentDescription = "Save", modifier = Modifier.size(18.dp))
                             }
                             IconButton(onClick = {
                                 val uri = fileUri(context, f)
@@ -936,7 +1311,7 @@ private fun FilesTab(
                                     }
                                 }
                             }) {
-                                Icon(Icons.Default.Delete, contentDescription = "Delete", modifier = Modifier.size(18.dp))
+                                Icon(Icons.Outlined.Delete, contentDescription = "Delete", modifier = Modifier.size(18.dp))
                             }
                         }
                     }

@@ -182,6 +182,11 @@ private fun Material3SettingsItemRow(item: Material3SettingsItem) {
                     desc()
                 }
             }
+            // Wide controls (segmented choices) go under the text, full width.
+            item.bottomContent?.let { bottom ->
+                Spacer(modifier = Modifier.height(10.dp))
+                bottom()
+            }
         }
 
         // Trailing content
@@ -205,6 +210,7 @@ data class Material3SettingsItem(
     val isHighlighted: Boolean = false,
     val enabled: Boolean = true,
     val onClick: (() -> Unit)? = null,
+    val bottomContent: (@Composable () -> Unit)? = null,
 )
 
 /** Helper constructor accepting ImageVector directly */
@@ -215,6 +221,7 @@ fun createM3Item(
     trailingContent: (@Composable () -> Unit)? = null,
     enabled: Boolean = true,
     onClick: (() -> Unit)? = null,
+    bottomContent: (@Composable () -> Unit)? = null,
 ): Material3SettingsItem {
     return Material3SettingsItem(
         icon = null, // Will use leadingContent with vector if provided
@@ -236,5 +243,6 @@ fun createM3Item(
         trailingContent = trailingContent,
         enabled = enabled,
         onClick = onClick,
+        bottomContent = bottomContent,
     )
 }

@@ -58,6 +58,8 @@ data class Settings(
     val remoteBaseUrl: String = "http://192.168.1.100:11434",
     val remoteApiKey: String = "",
     val remoteModelId: String = "",
+    /** Selected remote preset id (see RemoteProviders); blank = detect from URL. */
+    val remoteProvider: String = "",
     val remoteImageModelId: String = "", // image-generation model for /v1/images/generations
     /**
      * Remote context window. Independent from the on-device
@@ -116,6 +118,11 @@ data class Settings(
     val alpineVersion: String = "",
     /** YOLO mode: auto-approve ASK-policy sandbox commands (DENY still blocked). */
     val containerYolo: Boolean = false,
+    /** Full access: destructive commands ask instead of being blocked. */
+    val containerFullAccess: Boolean = false,
+    /** Tool cards in chat: 0 quiet, 1 normal (tap to open), 2 full (open). */
+    val toolVerbosity: Int = 1,
+    /** Terminal runs commands on a real PTY (full-screen apps work); off = lighter pipe mode. */
     /** JSON array of normalized commands always auto-approved (ASK-policy). */
     val containerAlwaysAllowJson: String = "[]",
 )
@@ -247,6 +254,7 @@ class SettingsRepository(
         val MODEL_SOURCE = stringPreferencesKey("model_source")
         val REMOTE_BASE_URL = stringPreferencesKey("remote_base_url")
         val REMOTE_MODEL_ID = stringPreferencesKey("remote_model_id")
+        val REMOTE_PROVIDER = stringPreferencesKey("remote_provider")
         val REMOTE_IMAGE_MODEL_ID = stringPreferencesKey("remote_image_model_id")
         val REMOTE_CONTEXT_WINDOW_TOKENS = intPreferencesKey("remote_context_window_tokens")
         val REMOTE_MODEL_CONTEXT_WINDOWS = stringPreferencesKey("remote_model_context_windows_json")
@@ -276,6 +284,8 @@ class SettingsRepository(
         val ALPINE_INSTALLED = booleanPreferencesKey("alpine_installed")
         val ALPINE_VERSION = stringPreferencesKey("alpine_version")
         val CONTAINER_YOLO = booleanPreferencesKey("container_yolo")
+        val TOOL_VERBOSITY = intPreferencesKey("tool_verbosity")
+        val CONTAINER_FULL_ACCESS = booleanPreferencesKey("container_full_access")
         val CONTAINER_ALWAYS_ALLOW = stringPreferencesKey("container_always_allow_json")
 
         // Legacy DataStore keys for sensitive tokens. Tokens used to live here in
@@ -507,6 +517,7 @@ class SettingsRepository(
                     remoteBaseUrl = prefs[Keys.REMOTE_BASE_URL] ?: "http://192.168.1.100:11434",
                     remoteApiKey = securePrefs().getString(SEC_REMOTE_API_KEY, "") ?: "",
                     remoteModelId = prefs[Keys.REMOTE_MODEL_ID] ?: "",
+                    remoteProvider = prefs[Keys.REMOTE_PROVIDER] ?: "",
                     remoteImageModelId = prefs[Keys.REMOTE_IMAGE_MODEL_ID] ?: "",
                     remoteContextWindowTokens = prefs[Keys.REMOTE_CONTEXT_WINDOW_TOKENS] ?: 8192,
                     remoteModelContextWindowsJson = prefs[Keys.REMOTE_MODEL_CONTEXT_WINDOWS] ?: "{}",
@@ -538,6 +549,8 @@ class SettingsRepository(
                     alpineInstalled = prefs[Keys.ALPINE_INSTALLED] ?: false,
                     alpineVersion = prefs[Keys.ALPINE_VERSION] ?: "",
                     containerYolo = prefs[Keys.CONTAINER_YOLO] ?: false,
+                    containerFullAccess = prefs[Keys.CONTAINER_FULL_ACCESS] ?: false,
+                    toolVerbosity = (prefs[Keys.TOOL_VERBOSITY] ?: 1).coerceIn(0, 2),
                     containerAlwaysAllowJson = prefs[Keys.CONTAINER_ALWAYS_ALLOW] ?: "[]",
                 )
             }
@@ -599,6 +612,24 @@ class SettingsRepository(
     suspend fun setRemoteApiKey(value: String) = putSecureToken(SEC_REMOTE_API_KEY, value)
 
     suspend fun setRemoteModelId(value: String) = edit { it[Keys.REMOTE_MODEL_ID] = value }
+
+    suspend fun setRemoteProvider(value: String) = edit { it[Keys.REMOTE_PROVIDER] = value }
+
+    /** API key remembered for one remote preset (encrypted store). */
+    fun providerApiKey(providerId: String): String =
+        runCatching { securePrefs().getString("remote_api_key__$providerId", "") ?: "" }.getOrDefault("")
+
+    suspend fun setProviderApiKey(providerId: String, value: String) = putSecureToken("remote_api_key__$providerId", value)
+
+    /** Base URL remembered for a self-hosted preset (Ollama / custom). */
+    fun providerBaseUrl(providerId: String): String =
+        context.applicationContext.getSharedPreferences("remote_providers", Context.MODE_PRIVATE)
+            .getString("url__$providerId", "") ?: ""
+
+    fun setProviderBaseUrl(providerId: String, value: String) {
+        context.applicationContext.getSharedPreferences("remote_providers", Context.MODE_PRIVATE)
+            .edit().putString("url__$providerId", value).apply()
+    }
 
     suspend fun setRemoteImageModelId(value: String) = edit { it[Keys.REMOTE_IMAGE_MODEL_ID] = value }
 
@@ -802,6 +833,15 @@ class SettingsRepository(
 
     /** YOLO mode: auto-approve ASK-policy sandbox commands. DENY-policy stays blocked. */
     suspend fun setContainerYolo(value: Boolean) = edit { it[Keys.CONTAINER_YOLO] = value }
+
+    /** 0 ask, 1 auto, 2 full access. */
+    suspend fun setContainerPermission(level: Int) = edit {
+        it[Keys.CONTAINER_YOLO] = level >= 1
+        it[Keys.CONTAINER_FULL_ACCESS] = level >= 2
+    }
+
+    suspend fun setToolVerbosity(value: Int) = edit { it[Keys.TOOL_VERBOSITY] = value.coerceIn(0, 2) }
+
 
     /** Replaces the always-approve command list (normalized commands JSON array). */
     suspend fun setContainerAlwaysAllowJson(json: String) =

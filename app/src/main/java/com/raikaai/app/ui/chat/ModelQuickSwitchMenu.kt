@@ -12,9 +12,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Dns
+import androidx.compose.material.icons.outlined.Memory
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Dns
-import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -54,6 +54,12 @@ internal fun ModelQuickSwitchMenu(
     val activeBackend by viewModel.activeBackendState.collectAsState()
 
     val isLocal = settings.modelSource == ChatConstants.SOURCE_LOCAL
+    val isFetching by viewModel.isFetchingRemoteModels
+
+    // Each open lists the selected provider's current models.
+    androidx.compose.runtime.LaunchedEffect(expanded, settings.remoteBaseUrl, settings.remoteApiKey) {
+        if (expanded) viewModel.refreshActiveRemoteModels()
+    }
 
     val allRemote = remember(remoteModels, settings.remoteModelId) {
         val list = remoteModels.toMutableList()
@@ -81,7 +87,7 @@ internal fun ModelQuickSwitchMenu(
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
-                    if (isLocal) Icons.Default.Memory else Icons.Default.Dns,
+                    if (isLocal) Icons.Outlined.Memory else Icons.Outlined.Dns,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(16.dp),
@@ -161,7 +167,7 @@ internal fun ModelQuickSwitchMenu(
                         },
                         leadingIcon = {
                             Icon(
-                                imageVector = if (isActive) Icons.Default.CheckCircle else Icons.Default.Memory,
+                                imageVector = if (isActive) Icons.Default.CheckCircle else Icons.Outlined.Memory,
                                 contentDescription = null,
                                 tint = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.size(16.dp),
@@ -220,7 +226,7 @@ internal fun ModelQuickSwitchMenu(
                         },
                         leadingIcon = {
                             Icon(
-                                imageVector = if (isRemoteActive) Icons.Default.CheckCircle else Icons.Default.Dns,
+                                imageVector = if (isRemoteActive) Icons.Default.CheckCircle else Icons.Outlined.Dns,
                                 contentDescription = null,
                                 tint = if (isRemoteActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.size(16.dp),

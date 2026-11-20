@@ -77,7 +77,7 @@
     <string name="chat_compare_pick">Model A = active model. Pick model B (challenger):</string>
     <string name="chat_compare_ondevice">On-device</string>
     <string name="chat_compare_remote">Remote</string>
-    <string name="chat_compare_empty">No models yet. Download one in Models Hub first.</string>
+    <string name="chat_compare_empty">No models yet. Download one in Models first.</string>
     <string name="chat_compare_result_note">Result B appears as variant 2 (swipe 1/2) with the compare label under the message.</string>
     <string name="chat_mcp_title">Allow tool call?</string>
     <string name="chat_mcp_desc">The assistant wants to run a tool on your MCP server. Review before allowing.</string>

@@ -1,5 +1,7 @@
 package com.raikaai.app.ui.roleplay.pages.create
 
+import androidx.compose.ui.Alignment
+import androidx.compose.material3.Surface
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -101,6 +103,7 @@ fun RoleplayCreateScreen(
 
     if (showPreview) {
         val systemPrompt = "You are $name. Stay in character and respond consistently with this character description: $description"
+        var acceptedPublic by remember { mutableStateOf(false) }
         AlertDialog(
             onDismissRequest = { showPreview = false },
             title = {
@@ -119,6 +122,33 @@ fun RoleplayCreateScreen(
             },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    // Submissions are public: say so before anything is sent.
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = MaterialTheme.colorScheme.errorContainer,
+                    ) {
+                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(
+                                "Public character",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                            )
+                            Text(
+                                "It goes to the Community category, where everyone using RaikaAI can see and chat with it. " +
+                                    "It can't be edited or deleted from the app. Don't include personal information.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                androidx.compose.material3.Checkbox(checked = acceptedPublic, onCheckedChange = { acceptedPublic = it })
+                                Text(
+                                    "I understand it will be public",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                )
+                            }
+                        }
+                    }
                     Text("Greeting", style = MaterialTheme.typography.titleMedium)
                     Text(greeting, style = MaterialTheme.typography.bodyMedium)
                     Text("System Prompt", style = MaterialTheme.typography.titleMedium)
@@ -127,7 +157,7 @@ fun RoleplayCreateScreen(
             },
             confirmButton = {
                 Button(
-                    enabled = !isPublishing,
+                    enabled = !isPublishing && acceptedPublic,
                     onClick = {
                         scope.launch {
                             isPublishing = true
@@ -162,7 +192,7 @@ fun RoleplayCreateScreen(
                             isPublishing = false
                         }
                     },
-                ) { Text(if (isPublishing) "Publishing…" else "Publish Character") }
+                ) { Text(if (isPublishing) "Publishing…" else "Publish to Community") }
             },
             dismissButton = {
                 TextButton(onClick = { showPreview = false }) { Text("Cancel") }

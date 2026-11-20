@@ -1,12 +1,18 @@
 package com.raikaai.app.ui.roleplay
 
+import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ChatBubble
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.outlined.AccountCircle
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Face
+import androidx.compose.material.icons.outlined.Explore
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.ChatBubble
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Menu
+import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import kotlinx.coroutines.launch
@@ -20,7 +26,6 @@ import com.raikaai.app.ui.roleplay.pages.chat.RoleplayChatScreen
 import com.raikaai.app.ui.roleplay.pages.home.RoleplayCharacter
 import com.raikaai.app.ui.roleplay.pages.create.RoleplayCreateScreen
 import com.raikaai.app.ui.roleplay.pages.home.RoleplayHomeScreen
-import com.raikaai.app.ui.roleplay.pages.history.RoleplayHistoryScreen
 import com.raikaai.app.ui.roleplay.pages.profile.RoleplayProfileScreen
 import com.raikaai.app.ui.roleplay.pages.safebooru.RoleplaySafeBooruScreen
 import com.raikaai.app.ui.roleplay.pages.search.RoleplaySearchScreen
@@ -29,7 +34,9 @@ import com.raikaai.app.ui.roleplay.pages.search.RoleplaySearchScreen
 fun RoleplayScreen(
     viewModel: ChatViewModel,
     onOpenDrawer: () -> Unit = {},
-    onOpenRightDrawer: () -> Unit = {}
+    onOpenRightDrawer: () -> Unit = {},
+    onOpenNormalChat: () -> Unit = {},
+    startTab: String = "home",
 ) {
     val navController = rememberNavController()
     val scope = rememberCoroutineScope()
@@ -37,38 +44,54 @@ fun RoleplayScreen(
     var selectedConversationId by remember { mutableStateOf<String?>(null) }
     var selectedImageUrl by remember { mutableStateOf("") }
     val route = navController.currentBackStackEntryAsState().value?.destination?.route
+    // One Characters hub: the online catalog (Discover), your own characters
+    // (Mine) and Create. Roleplay chats live in the sidebar's Recent list;
+    // your roleplay profile is behind the header's person button.
     val tabs = listOf(
-        "Home" to Icons.Default.Home,
-        "History" to Icons.Default.ChatBubble,
-        "Create" to Icons.Default.Add,
-        "Profile" to Icons.Default.Person
+        "Discover" to Icons.Outlined.Explore,
+        "Mine" to Icons.Outlined.Face,
+        "Create" to Icons.Outlined.Add,
     )
-    val showTopBar = route in setOf(
-        "home",
-        "history",
-        "create",
-        "profile",
-    )
+    val tabRoutes = listOf("home", "mine", "create")
+    val showTopBar = route in tabRoutes || route == "profile"
+
+    // Opened from the sidebar's Recent list.
+    val pendingChat by viewModel.pendingRoleplayChatId
+    LaunchedEffect(pendingChat) {
+        val id = pendingChat ?: return@LaunchedEffect
+        viewModel.pendingRoleplayChatId.value = null
+        viewModel.setRoleplayMode(true)
+        selectedCharacter = null
+        selectedConversationId = id
+        navController.navigate("chat")
+    }
     Scaffold(
         topBar = {
             if (showTopBar) {
-                TopAppBar(
-                    title = { Text("Roleplay") },
-                    navigationIcon = {
-                        IconButton(onClick = onOpenDrawer) {
+                androidx.compose.foundation.layout.Box(
+                    Modifier.statusBarsPadding().padding(top = 10.dp),
+                ) {
+                    com.raikaai.app.ui.component.ScreenHeader(
+                        title = if (route == "profile") "Your profile" else "Characters",
+                        subtitle = if (route == "profile") "How characters know you" else "Roleplay and your own characters",
+                        onOpenDrawer = onOpenDrawer,
+                    ) {
+                        IconButton(onClick = {
+                            if (route == "profile") navController.popBackStack() else navController.navigate("profile")
+                        }) {
                             Icon(
-                                Icons.Default.Menu,
-                                contentDescription = "Open menu",
+                                if (route == "profile") Icons.Outlined.Close else Icons.Outlined.AccountCircle,
+                                contentDescription = if (route == "profile") "Close profile" else "Your profile",
                             )
                         }
-                    },
-                )
+                    }
+                }
             }
         },
         bottomBar = {
-            if (route in setOf("home", "history", "create", "profile")) NavigationBar {
+            if (route in tabRoutes) NavigationBar {
                 tabs.forEachIndexed { i, tab ->
-                    val destination = listOf("home", "history", "create", "profile")[i]
+                    val destination = tabRoutes[i]
                     NavigationBarItem(
                         route == destination,
                         { navController.navigate(destination) },
@@ -78,7 +101,7 @@ fun RoleplayScreen(
             }
         },
     ) { padding ->
-        NavHost(navController, startDestination = "home", modifier = Modifier.padding(padding)) {
+        NavHost(navController, startDestination = startTab, modifier = Modifier.padding(padding)) {
             composable("home") {
                 RoleplayHomeScreen(
                     onOpenSearch = { navController.navigate("search") },
@@ -95,14 +118,12 @@ fun RoleplayScreen(
                     },
                 )
             }
-            composable("history") {
-                RoleplayHistoryScreen(
+            composable("mine") {
+                com.raikaai.app.ui.characters.CharactersScreen(
                     viewModel = viewModel,
-                    onOpenChat = { conversationId ->
-                        selectedCharacter = null
-                        selectedConversationId = conversationId
-                        navController.navigate("chat")
-                    },
+                    onOpenDrawer = onOpenDrawer,
+                    onStartChatWithCharacter = { onOpenNormalChat() },
+                    showHeader = false,
                 )
             }
             composable("create") {
@@ -111,7 +132,7 @@ fun RoleplayScreen(
                     selectedImageUrl = selectedImageUrl,
                     onSearchImage = { navController.navigate("safebooru") },
                     onPublished = {
-                        navController.navigate("history") {
+                        navController.navigate("home") {
                             launchSingleTop = true
                         }
                     },
@@ -162,6 +183,8 @@ fun RoleplayScreen(
 fun RolePlayHomeScreen(
     viewModel: ChatViewModel,
     onOpenDrawer: () -> Unit = {},
-    onOpenRightDrawer: () -> Unit = {}
+    onOpenRightDrawer: () -> Unit = {},
+    onOpenNormalChat: () -> Unit = {},
+    startTab: String = "home",
 ) =
-    RoleplayScreen(viewModel, onOpenDrawer, onOpenRightDrawer)
+    RoleplayScreen(viewModel, onOpenDrawer, onOpenRightDrawer, onOpenNormalChat, startTab)

@@ -15,6 +15,16 @@ const val ALPINE_VERSION = "3.21"
 const val ALPINE_ARCH = "aarch64"
 
 /** Upstream Alpine minirootfs (public CDN, no auth). */
+/**
+ * Alpine minirootfs shipped in the APK (assets), so the environment installs
+ * offline. Named .bin on purpose: the asset packager decompresses ".gz" files
+ * and drops the extension, which would break the name and the checksum.
+ */
+const val BUNDLED_ROOTFS_ASSET = "rootfs/alpine-minirootfs-aarch64.bin"
+
+/** SHA-256 of [BUNDLED_ROOTFS_ASSET] (the official alpine-minirootfs-3.21.0-aarch64 checksum). */
+const val BUNDLED_ROOTFS_SHA256 = "f31202c4070c4ef7de9e157e1bd01cb4da3a2150035d74ea5372c5e86f1efac1"
+
 const val ALPINE_ROOTFS_URL =
     "https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/aarch64/alpine-minirootfs-3.21.0-aarch64.tar.gz"
 
@@ -166,9 +176,11 @@ internal fun containsBackgroundOp(command: String): Boolean {
             i++
             continue
         }
-        if (c == '&' && (i + 1 >= command.length || command[i + 1] != '&') &&
-            (i == 0 || command[i - 1] != '&')
-        ) {
+        // Redirections are not backgrounding: `2>&1`, `>&2`, `&>file`, `|&`.
+        val prev = if (i > 0) command[i - 1] else ' '
+        val next = if (i + 1 < command.length) command[i + 1] else ' '
+        val isRedirect = prev == '>' || prev == '<' || prev == '|' || next == '>'
+        if (c == '&' && next != '&' && prev != '&' && !isRedirect) {
             return true
         }
         i++

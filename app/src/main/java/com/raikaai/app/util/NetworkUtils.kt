@@ -73,6 +73,31 @@ object NetworkUtils {
         return httpUrl
     }
 
+    /**
+     * True for addresses that must never be fetched on the model's or a
+     * redirect's behalf. Beyond the JDK's flags (which miss them) this also
+     * covers 100.64.0.0/10 (carrier-grade NAT, used by Tailscale) and IPv6
+     * unique-local fc00::/7 (the JDK's isSiteLocalAddress only knows the
+     * deprecated fec0::/10).
+     */
+    fun isNonPublicAddress(addr: InetAddress): Boolean {
+        if (addr.isLoopbackAddress || addr.isLinkLocalAddress || addr.isSiteLocalAddress ||
+            addr.isMulticastAddress || addr.isAnyLocalAddress
+        ) {
+            return true
+        }
+        val b = addr.address
+        if (b.size == 4) {
+            val b0 = b[0].toInt() and 0xFF
+            val b1 = b[1].toInt() and 0xFF
+            return b0 == 0 || (b0 == 100 && b1 in 64..127)
+        }
+        if (b.size == 16) {
+            return (b[0].toInt() and 0xFE) == 0xFC
+        }
+        return false
+    }
+
     /** Rejects hosts that resolve to non-public IPs (SSRF guard). */
     fun assertPublicHost(host: String) {
         val addresses =
@@ -82,9 +107,7 @@ object NetworkUtils {
                 throw IllegalArgumentException("Cannot resolve host: $host")
             }
         for (addr in addresses) {
-            if (addr.isLoopbackAddress || addr.isLinkLocalAddress || addr.isSiteLocalAddress ||
-                addr.isMulticastAddress || addr.isAnyLocalAddress
-            ) {
+            if (isNonPublicAddress(addr)) {
                 throw IllegalArgumentException("Host resolves to a non-public IP address: $host")
             }
         }

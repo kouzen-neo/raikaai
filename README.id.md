@@ -3,7 +3,7 @@
   <h1>RaikaAI</h1>
 
   <p>
-    <a href="LICENSE"><img src="https://img.shields.io/badge/Lisensi-GPLv3-blue.svg?style=for-the-badge&logo=gnu&logoColor=white" alt="Lisensi: GPLv3"></a>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/Lisensi-AGPLv3-blue.svg?style=for-the-badge&logo=gnu&logoColor=white" alt="Lisensi: AGPLv3"></a>
     <a href="https://github.com/kouzen-neo/raikaai/releases"><img src="https://img.shields.io/github/v/release/kouzen-neo/raikaai?style=for-the-badge&color=teal" alt="Rilis Terbaru"></a>
     <a href="https://developer.android.com"><img src="https://img.shields.io/badge/Android-API%2026%2B-3DDC84.svg?style=for-the-badge&logo=android&logoColor=white" alt="Android SDK"></a>
     <a href="https://ai.google.dev/edge/litert"><img src="https://img.shields.io/badge/Google_LiteRT-Akselerasi_GPU-4285F4.svg?style=for-the-badge&logo=google&logoColor=white" alt="LiteRT"></a>
@@ -139,4 +139,4 @@ RaikaAI dibangun dengan proyek open-source berikut:
 
 ## Lisensi
 
-Proyek ini dilisensikan di bawah [GNU General Public License v3.0 (GPLv3)](LICENSE).
+Proyek ini dilisensikan di bawah [GNU Affero General Public License v3.0 (AGPLv3)](LICENSE).

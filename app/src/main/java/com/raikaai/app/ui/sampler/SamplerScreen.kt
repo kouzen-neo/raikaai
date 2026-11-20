@@ -1,5 +1,6 @@
 package com.raikaai.app.ui.sampler
 
+import com.raikaai.app.ui.component.ScreenHeader
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -15,10 +16,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.Menu
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -82,34 +83,11 @@ fun SamplerScreen(
                     .padding(top = 10.dp),
         ) {
             // ── 0. Top Header ──
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                IconButton(
-                    onClick = onOpenDrawer,
-                    modifier = Modifier.size(36.dp),
-                ) {
-                    Icon(
-                        Icons.Default.Menu,
-                        contentDescription = "Open Menu",
-                        tint = MaterialTheme.colorScheme.onSurface,
-                    )
-                }
-                Spacer(Modifier.width(10.dp))
-                Column {
-                    Text(
-                        text = "Chat Settings",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Text(
-                        text = "Sampling, Context Budget & Prompt Templates",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
+            ScreenHeader(
+                title = "Parameters",
+                subtitle = "Sampling, context and prompt format",
+                onOpenDrawer = onOpenDrawer,
+            )
 
             Spacer(Modifier.height(8.dp))
 
@@ -123,7 +101,7 @@ fun SamplerScreen(
                     onClick = { selectedTab = 0 },
                     text = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Outlined.Tune, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(6.dp))
                             Text("Sampling", fontWeight = FontWeight.SemiBold)
                         }
@@ -134,7 +112,7 @@ fun SamplerScreen(
                     onClick = { selectedTab = 1 },
                     text = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Description, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Outlined.Description, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(6.dp))
                             Text("Prompt Template", fontWeight = FontWeight.SemiBold)
                         }
@@ -427,7 +405,7 @@ fun SamplerScreen(
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(12.dp),
                         ) {
-                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Outlined.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(8.dp))
                             Text("Reset Sampler to Recommended Defaults")
                         }
@@ -555,7 +533,7 @@ fun SamplerScreen(
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(12.dp),
                         ) {
-                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Outlined.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(8.dp))
                             Text("Reset Formatting to Auto-Detect")
                         }

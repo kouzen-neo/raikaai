@@ -23,7 +23,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.outlined.Person
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -150,7 +150,7 @@ private fun HistoryConversationRow(
                 modifier = Modifier.size(70.dp),
             ) {
                 Icon(
-                    imageVector = Icons.Default.Person,
+                    imageVector = Icons.Outlined.Person,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(20.dp),

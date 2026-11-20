@@ -161,6 +161,11 @@ object RemoteAiClient {
                     val body = getJson("https://openrouter.ai/api/v1/models", apiKey) ?: return@withContext null
                     return@withContext parseOpenRouterContextWindow(body, modelId)
                 }
+                // Many providers put the window in their /models list.
+                runCatching { getJson(RemoteProviders.endpoint(baseUrl, "models"), apiKey) }.getOrNull()
+                    ?.let { contextFromModelList(it, modelId) }?.let { return@withContext it }
+                // Hosted presets have no Ollama /api/show: fall back to known model families.
+                if (!RemoteProviders.detect(baseUrl).editableUrl) return@withContext knownContextWindow(modelId)
                 // Assume Ollama-style (covers Ollama, LM Studio hosts, etc.).
                 // /api/show lives on the server root, not under /v1.
                 val root = if (cleanUrl.endsWith("/v1")) cleanUrl.dropLast(3) else cleanUrl
@@ -176,6 +181,38 @@ object RemoteAiClient {
                 null
             }
         }
+
+    /** Reads context_length / context_window / max_context_length / inputTokenLimit for [modelId]. */
+    internal fun contextFromModelList(json: String, modelId: String): Int? =
+        runCatching {
+            val arr = JSONObject(json).optJSONArray("data") ?: return null
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                val id = o.optString("id")
+                if (id != modelId && id.substringAfterLast('/') != modelId.substringAfterLast('/')) continue
+                for (k in listOf("context_length", "context_window", "max_context_length", "inputTokenLimit", "max_input_tokens")) {
+                    val v = o.optInt(k, -1)
+                    if (v > 0) return v
+                }
+            }
+            null
+        }.getOrNull()
+
+    /** Published windows of common model families, when the API says nothing. */
+    internal fun knownContextWindow(modelId: String): Int? {
+        val m = modelId.lowercase()
+        return when {
+            "gemini" in m -> 1_048_576
+            "claude" in m -> 200_000
+            "gpt-4.1" in m || "gpt-5" in m -> 400_000
+            "gpt-4o" in m || "o3" in m || "o4" in m -> 128_000
+            "deepseek" in m -> 128_000
+            "grok" in m -> 256_000
+            "mistral" in m || "codestral" in m -> 128_000
+            "llama" in m || "qwen" in m || "kimi" in m -> 128_000
+            else -> null
+        }
+    }
 
     /** Parses Ollama `/api/show` output for a `*.context_length` entry. */
     internal fun parseOllamaContextWindow(showJson: String): Int? {
@@ -249,7 +286,7 @@ object RemoteAiClient {
 
     private fun getJson(url: String, apiKey: String): String? {
         val reqBuilder = Request.Builder().url(url).get()
-        if (apiKey.isNotBlank()) reqBuilder.addHeader("Authorization", "Bearer $apiKey")
+        RemoteProviders.authHeaders(url, apiKey).forEach { (k, v) -> reqBuilder.addHeader(k, v) }
         client.newCall(reqBuilder.build()).execute().use { resp ->
             if (!resp.isSuccessful) return null
             return resp.body?.string()
@@ -259,7 +296,7 @@ object RemoteAiClient {
     private fun postJson(url: String, apiKey: String, jsonBody: String): String? {
         val reqBuilder =
             Request.Builder().url(url).post(jsonBody.toRequestBody(JSON_MEDIA_TYPE))
-        if (apiKey.isNotBlank()) reqBuilder.addHeader("Authorization", "Bearer $apiKey")
+        RemoteProviders.authHeaders(url, apiKey).forEach { (k, v) -> reqBuilder.addHeader(k, v) }
         client.newCall(reqBuilder.build()).execute().use { resp ->
             if (!resp.isSuccessful) return null
             return resp.body?.string()
@@ -269,13 +306,10 @@ object RemoteAiClient {
     suspend fun fetchModels(baseUrl: String, apiKey: String = ""): Result<List<RemoteModelItem>> =
         withContext(Dispatchers.IO) {
             try {
-                val cleanUrl = baseUrl.trimEnd('/')
-                val url = if (cleanUrl.endsWith("/v1")) "$cleanUrl/models" else "$cleanUrl/v1/models"
+                val url = RemoteProviders.endpoint(baseUrl, "models")
 
                 val reqBuilder = Request.Builder().url(url).get()
-                if (apiKey.isNotBlank()) {
-                    reqBuilder.addHeader("Authorization", "Bearer $apiKey")
-                }
+                RemoteProviders.authHeaders(baseUrl, apiKey).forEach { (k, v) -> reqBuilder.addHeader(k, v) }
 
                 val response = client.newCall(reqBuilder.build()).execute()
                 response.use { resp ->
@@ -296,7 +330,7 @@ object RemoteAiClient {
                                     id = id,
                                     name = id,
                                     provider = "Remote",
-                                    description = "Remote model on $cleanUrl",
+                                    description = "Remote model on ${baseUrl.trimEnd('/')}",
                                 ),
                             )
                         }
@@ -324,10 +358,7 @@ object RemoteAiClient {
     ): Result<ByteArray> =
         withContext(Dispatchers.IO) {
             try {
-                val cleanUrl = baseUrl.trimEnd('/')
-                val url =
-                    if (cleanUrl.endsWith("/v1")) "$cleanUrl/images/generations"
-                    else "$cleanUrl/v1/images/generations"
+                val url = RemoteProviders.endpoint(baseUrl, "images/generations")
                 val payload =
                     JSONObject()
                         .put("model", model)
@@ -339,9 +370,7 @@ object RemoteAiClient {
                     Request.Builder()
                         .url(url)
                         .post(payload.toRequestBody(JSON_MEDIA_TYPE))
-                if (apiKey.isNotBlank()) {
-                    reqBuilder.addHeader("Authorization", "Bearer $apiKey")
-                }
+                RemoteProviders.authHeaders(baseUrl, apiKey).forEach { (k, v) -> reqBuilder.addHeader(k, v) }
                 client.newCall(reqBuilder.build()).execute().use { resp ->
                     if (!resp.isSuccessful) {
                         val errBody = resp.body?.string().orEmpty().take(300)
@@ -399,8 +428,7 @@ object RemoteAiClient {
         onFinishReason: ((finishReason: String) -> Unit)? = null,
     ): Flow<String> =
         flow {
-            val cleanUrl = baseUrl.trimEnd('/')
-            val url = if (cleanUrl.endsWith("/v1")) "$cleanUrl/chat/completions" else "$cleanUrl/v1/chat/completions"
+            val url = RemoteProviders.endpoint(baseUrl, "chat/completions")
 
             val requestJson =
                 JSONObject().apply {
@@ -421,9 +449,7 @@ object RemoteAiClient {
                     .url(url)
                     .post(requestJson.toString().toRequestBody(JSON_MEDIA_TYPE))
 
-            if (apiKey.isNotBlank()) {
-                reqBuilder.addHeader("Authorization", "Bearer $apiKey")
-            }
+            RemoteProviders.authHeaders(baseUrl, apiKey).forEach { (k, v) -> reqBuilder.addHeader(k, v) }
 
             var response: okhttp3.Response? = null
             var attempts = 0
@@ -472,6 +498,9 @@ object RemoteAiClient {
                 val reader = validResponse.body?.byteStream()?.bufferedReader() ?: return@flow
                 var inThinking = false
                 var lastFinishReason = ""
+                // A stream that ends with neither [DONE] nor a finish_reason
+                // was cut off (dropped connection); the caller marks it.
+                var sawDone = false
                 try {
                     while (true) {
                         val line = reader.readBoundedLine() ?: break
@@ -481,7 +510,10 @@ object RemoteAiClient {
                                 trimmed.removePrefix("data:").let {
                                     if (it.startsWith(" ") || it.startsWith("\t")) it.drop(1) else it
                                 }
-                            if (data == "[DONE]") break
+                            if (data == "[DONE]") {
+                                sawDone = true
+                                break
+                            }
                             try {
                                 val chunkJson = JSONObject(data)
                                 val choices = chunkJson.optJSONArray("choices")
@@ -541,6 +573,8 @@ object RemoteAiClient {
                     }
                     if (lastFinishReason.isNotBlank()) {
                         onFinishReason?.invoke(lastFinishReason)
+                    } else if (sawDone) {
+                        onFinishReason?.invoke("stop")
                     }
                 } finally {
                     reader.close()

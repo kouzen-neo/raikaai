@@ -59,16 +59,19 @@ import androidx.compose.ui.graphics.SolidColor
 import com.raikaai.app.core.audio.AudioPlayerHelper
 import com.raikaai.app.core.audio.AudioRecorderHelper
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Build
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.CompareArrows
+import androidx.compose.material.icons.outlined.FileDownload
+import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Article
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Code
@@ -77,7 +80,6 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.KeyboardArrowUp
@@ -103,7 +105,6 @@ import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.UploadFile
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Psychology
-import androidx.compose.material.icons.filled.CompareArrows
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
@@ -111,7 +112,6 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.filled.Translate
 import androidx.compose.ui.text.input.KeyboardType
@@ -219,7 +219,7 @@ fun ChatDialogsHost(
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
-                        imageVector = Icons.Default.CompareArrows,
+                        imageVector = Icons.Outlined.CompareArrows,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(22.dp),
@@ -360,7 +360,7 @@ fun ChatDialogsHost(
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
-                        imageVector = Icons.Default.Build,
+                        imageVector = Icons.Outlined.Build,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(22.dp),
@@ -422,7 +422,7 @@ fun ChatDialogsHost(
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
-                        imageVector = Icons.Default.Terminal,
+                        imageVector = Icons.Outlined.Terminal,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(22.dp),
@@ -587,7 +587,7 @@ fun ChatDialogsHost(
                         onClick = { overlays.showRagSheet = false },
                         modifier = Modifier.size(32.dp),
                     ) {
-                        Icon(Icons.Default.Close, contentDescription = stringResource(R.string.chat_action_close), modifier = Modifier.size(20.dp))
+                        Icon(Icons.Outlined.Close, contentDescription = stringResource(R.string.chat_action_close), modifier = Modifier.size(20.dp))
                     }
                 }
 
@@ -831,7 +831,7 @@ fun ChatDialogsHost(
                                                     modifier = Modifier.size(28.dp),
                                                 ) {
                                                     Icon(
-                                                        Icons.Default.FileDownload,
+                                                        Icons.Outlined.FileDownload,
                                                         contentDescription = stringResource(R.string.chat_export_folder),
                                                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                                         modifier = Modifier.size(17.dp),
@@ -887,7 +887,7 @@ fun ChatDialogsHost(
                         onClick = { overlays.previewData = null },
                         modifier = Modifier.size(32.dp),
                     ) {
-                        Icon(Icons.Default.Close, contentDescription = stringResource(R.string.chat_close_preview), modifier = Modifier.size(20.dp))
+                        Icon(Icons.Outlined.Close, contentDescription = stringResource(R.string.chat_close_preview), modifier = Modifier.size(20.dp))
                     }
                 }
                 AndroidView(
@@ -911,6 +911,15 @@ fun ChatDialogsHost(
                                     view: WebView,
                                     request: WebResourceRequest,
                                 ): WebResourceResponse? {
+                                    // In-document schemes carry no network
+                                    // access. Newer WebViews route the
+                                    // data: document of loadDataWithBaseURL
+                                    // itself through here; blocking it (no
+                                    // host) made every preview fail with
+                                    // ERR_HTTP_RESPONSE_CODE_FAILURE.
+                                    when (request.url.scheme?.lowercase()) {
+                                        "data", "about", "blob" -> return null
+                                    }
                                     val host = request.url.host
                                     if (host != "appassets.raikaai.local") {
                                         // Foreign host (exfil via <img>/fetch):

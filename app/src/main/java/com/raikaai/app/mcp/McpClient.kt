@@ -21,7 +21,81 @@ import java.util.concurrent.atomic.AtomicLong
  * Dispatchers.IO and throw [McpException] on protocol/transport errors —
  * callers decide how to surface them.
  */
-class McpClient(private val config: McpServerConfig) {
+private const val EOF = "\u0000EOF"
+
+class McpClient(
+    private val config: McpServerConfig,
+    private val stdioLauncher: ((String) -> Process)? = null,
+) {
+    // ── stdio transport (server runs inside Alpine) ──
+    private var proc: Process? = null
+    private var stdin: java.io.Writer? = null
+    private val stdoutLines = java.util.concurrent.LinkedBlockingQueue<String>()
+    private val stderrTail = ArrayDeque<String>()
+
+    @Synchronized
+    private fun ensureProcess(): Process {
+        proc?.takeIf { it.isAlive }?.let { return it }
+        val launcher = stdioLauncher ?: throw McpException("Linux environment unavailable for '${config.name}'")
+        initialized = false
+        stdoutLines.clear()
+        val p = launcher(config.command)
+        proc = p
+        stdin = java.io.OutputStreamWriter(p.outputStream, Charsets.UTF_8)
+        Thread({
+            runCatching { p.inputStream.bufferedReader().forEachLine { stdoutLines.put(it) } }
+            stdoutLines.put(EOF)
+        }, "mcp-out-${config.name}").apply { isDaemon = true }.start()
+        Thread({
+            runCatching {
+                p.errorStream.bufferedReader().forEachLine { line ->
+                    synchronized(stderrTail) {
+                        stderrTail.addLast(line)
+                        while (stderrTail.size > 20) stderrTail.removeFirst()
+                    }
+                }
+            }
+        }, "mcp-err-${config.name}").apply { isDaemon = true }.start()
+        return p
+    }
+
+    private fun stderrHint(): String =
+        synchronized(stderrTail) { stderrTail.takeLast(4).joinToString(" | ") }.take(400)
+
+    @Synchronized
+    private fun stdioSend(payload: String) {
+        ensureProcess()
+        val w = stdin ?: throw McpException("MCP server '${config.name}' is not running")
+        w.write(payload)
+        w.write("\n")
+        w.flush()
+    }
+
+    /** First-run installs (npx/uvx downloads) can take a while. */
+    private fun stdioRpc(id: Long, payload: String): JsonObject {
+        stdioSend(payload)
+        val deadline = System.currentTimeMillis() + (if (initialized) 120_000 else 300_000)
+        while (true) {
+            val left = deadline - System.currentTimeMillis()
+            if (left <= 0) throw McpException("MCP server '${config.name}' did not answer in time. ${stderrHint()}")
+            val line = stdoutLines.poll(left, java.util.concurrent.TimeUnit.MILLISECONDS) ?: continue
+            if (line == EOF) {
+                throw McpException("MCP server '${config.name}' exited. ${stderrHint()}".trim())
+            }
+            val obj = runCatching { JsonParser.parseString(line.trim()).asJsonObject }.getOrNull() ?: continue
+            val respId = obj.get("id")?.takeIf { it.isJsonPrimitive }?.asLong ?: continue
+            if (respId == id) return obj
+        }
+    }
+
+    /** Stops a stdio server process. */
+    fun close() {
+        runCatching { proc?.destroy() }
+        proc = null
+        stdin = null
+        initialized = false
+    }
+
 
     private val http = NetworkUtils.HttpClient.streamingClient
     private val idSeq = AtomicLong(1)
@@ -58,6 +132,14 @@ class McpClient(private val config: McpServerConfig) {
                 }
                 append("}")
             }
+        if (config.isStdio) {
+            val envelope = stdioRpc(id, payload)
+            envelope.getAsJsonObject("error")?.let { err ->
+                throw McpException("MCP error from '${config.name}': ${err.get("message")?.asString ?: "unknown error"}")
+            }
+            return envelope.getAsJsonObject("result")
+                ?: throw McpException("Missing result in MCP response from '${config.name}'")
+        }
         http.newCall(buildRequest(payload)).execute().use { resp ->
             val newSession = resp.header("mcp-session-id")
             if (!newSession.isNullOrBlank()) sessionId = newSession
@@ -94,6 +176,10 @@ class McpClient(private val config: McpServerConfig) {
                 }
                 append("}")
             }
+        if (config.isStdio) {
+            runCatching { stdioSend(payload) }
+            return
+        }
         runCatching {
             http.newCall(buildRequest(payload)).execute().use { resp ->
                 val newSession = resp.header("mcp-session-id")

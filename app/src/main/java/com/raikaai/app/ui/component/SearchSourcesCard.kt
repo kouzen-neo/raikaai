@@ -14,9 +14,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
+import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
-import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -30,6 +30,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.material.icons.outlined.Public
+import androidx.compose.material.icons.outlined.TravelExplore
+import androidx.compose.foundation.layout.Box
 import androidx.compose.material.icons.automirrored.outlined.OpenInNew
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalUriHandler
@@ -71,38 +73,45 @@ fun SearchSourcesCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
                     Icon(
-                        Icons.Outlined.Public,
+                        Icons.Outlined.TravelExplore,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(15.dp),
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(16.dp),
                     )
                     Spacer(Modifier.width(8.dp))
                     Text(
-                        text = "Sources (${sources.size} ${if (sources.size == 1) "link" else "links"})",
+                        text = "Searched the web · ${sources.size} ${if (sources.size == 1) "source" else "sources"}",
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
                     )
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Surface(
-                        shape = RoundedCornerShape(50),
-                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    ) {
-                        Text(
-                            text = if (expanded) "Hide" else "View Sources",
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                    // Overlapping domain initials, like modern assistants.
+                    sources.distinctBy { it.domain }.take(4).forEachIndexed { i, c ->
+                        Surface(
+                            shape = androidx.compose.foundation.shape.CircleShape,
+                            color = MaterialTheme.colorScheme.secondaryContainer,
+                            border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.surface),
+                            modifier = Modifier.padding(start = if (i == 0) 0.dp else (-6).dp).size(20.dp),
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text(
+                                    c.domain.firstOrNull()?.uppercaseChar()?.toString() ?: "•",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                )
+                            }
+                        }
                     }
                     Spacer(Modifier.width(4.dp))
                     Icon(
-                        if (expanded) Icons.Default.KeyboardArrowDown else Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        if (expanded) Icons.Outlined.KeyboardArrowDown else Icons.AutoMirrored.Outlined.KeyboardArrowRight,
                         contentDescription = if (expanded) "Collapse" else "Expand",
                         modifier = Modifier.size(18.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,

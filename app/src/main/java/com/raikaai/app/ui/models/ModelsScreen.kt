@@ -1,5 +1,6 @@
 package com.raikaai.app.ui.models
 
+import com.raikaai.app.ui.component.ScreenHeader
 import android.net.Uri
 import android.widget.Toast
 import androidx.compose.ui.text.style.TextAlign
@@ -26,13 +27,20 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.CloudDownload
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Memory
+import androidx.compose.material.icons.outlined.Menu
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.material.icons.outlined.Hub
+import androidx.compose.material.icons.outlined.Lan
+import androidx.compose.material.icons.outlined.Key
+import androidx.compose.material.icons.outlined.Cloud
+import androidx.compose.material.icons.outlined.PhoneAndroid
 import androidx.compose.material.icons.outlined.Check
-import androidx.compose.material.icons.filled.CloudDownload
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Dns
-import androidx.compose.material.icons.filled.Memory
-import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -132,34 +140,11 @@ fun ModelsScreen(
                     .padding(top = 10.dp),
         ) {
             // ── 0. Top Header ──
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                IconButton(
-                    onClick = onOpenDrawer,
-                    modifier = Modifier.size(36.dp),
-                ) {
-                    Icon(
-                        Icons.Default.Menu,
-                        contentDescription = "Open Menu",
-                        tint = MaterialTheme.colorScheme.onSurface,
-                    )
-                }
-                Spacer(Modifier.width(10.dp))
-                Column {
-                    Text(
-                        text = "Models Hub",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Text(
-                        text = "On-Device LiteRT & Remote Endpoints",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
+            ScreenHeader(
+                title = "Models",
+                subtitle = "Run on this phone, or through a provider",
+                onOpenDrawer = onOpenDrawer,
+            )
 
             Spacer(Modifier.height(8.dp))
 
@@ -173,9 +158,9 @@ fun ModelsScreen(
                     onClick = { viewModel.setModelSource(ChatConstants.SOURCE_LOCAL) },
                     text = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Memory, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Outlined.PhoneAndroid, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(6.dp))
-                            Text("On-Device (LiteRT)", fontWeight = FontWeight.SemiBold)
+                            Text("Local", fontWeight = FontWeight.SemiBold)
                         }
                     },
                 )
@@ -184,9 +169,9 @@ fun ModelsScreen(
                     onClick = { viewModel.setModelSource(ChatConstants.SOURCE_REMOTE) },
                     text = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Dns, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Outlined.Cloud, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(6.dp))
-                            Text("Remote API", fontWeight = FontWeight.SemiBold)
+                            Text("Remote", fontWeight = FontWeight.SemiBold)
                         }
                     },
                 )
@@ -383,7 +368,7 @@ fun ModelsScreen(
 
                             if (installedModels.isEmpty()) {
                                 EmptyState(
-                                    icon = Icons.Default.Memory,
+                                    icon = Icons.Outlined.Memory,
                                     title = "No models installed",
                                     message = "Download a preset below or import a .litertlm file.",
                                 )
@@ -440,7 +425,7 @@ fun ModelsScreen(
                                                         onClick = { viewModel.deleteModel(item.fileName) },
                                                         modifier = Modifier.size(36.dp),
                                                     ) {
-                                                        Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
+                                                        Icon(Icons.Outlined.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
                                                     }
 
                                                     if (isCurrent) {
@@ -570,7 +555,7 @@ fun ModelsScreen(
                                                     }
                                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                                         IconButton(onClick = { viewModel.deleteModel(model) }) {
-                                                            Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f))
+                                                            Icon(Icons.Outlined.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f))
                                                         }
                                                         if (!isActive) {
                                                             Button(
@@ -601,7 +586,7 @@ fun ModelsScreen(
                                                     shape = RoundedCornerShape(10.dp),
                                                     modifier = Modifier.fillMaxWidth(),
                                                 ) {
-                                                    Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                    Icon(Icons.Outlined.CloudDownload, contentDescription = null, modifier = Modifier.size(16.dp))
                                                     Spacer(Modifier.width(6.dp))
                                                     Text("Download (${model.sizeDisplay})", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                                                 }
@@ -695,39 +680,84 @@ fun ModelsScreen(
                             modifier = Modifier.padding(16.dp),
                             verticalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
-                            Text("Remote Provider Configuration", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                            Text(
-                                "Connect to an Ollama instance on your Wi-Fi LAN or any OpenAI-compatible API.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                            val provider = viewModel.currentRemoteProvider(settings)
+                            val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
+                            Text("Provider", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
 
-                            SettingsTextField(
-                                initialValue = settings.remoteBaseUrl,
-                                onSave = { viewModel.setRemoteBaseUrl(it) },
-                                onValueChange = { remoteUrlInput = it },
-                                label = { Text("API Base URL") },
-                                placeholder = { Text("http://192.168.1.100:11434") },
-                                modifier = Modifier.fillMaxWidth(),
-                            )
+                            // Preset grid: two per row, the selected one in primaryContainer.
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                com.raikaai.app.core.remote.RemoteProviders.all.chunked(2).forEach { pair ->
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        pair.forEach { p ->
+                                            ProviderTile(
+                                                provider = p,
+                                                selected = p.id == provider.id,
+                                                onClick = { viewModel.selectRemoteProvider(p.id) },
+                                                modifier = Modifier.weight(1f),
+                                            )
+                                        }
+                                        if (pair.size == 1) Spacer(Modifier.weight(1f))
+                                    }
+                                }
+                            }
 
-                            SettingsTextField(
-                                initialValue = settings.remoteApiKey,
-                                onSave = { viewModel.setRemoteApiKey(it) },
-                                onValueChange = { remoteKeyInput = it },
-                                label = { Text("API Key (Optional for Ollama)") },
-                                placeholder = { Text("sk-...") },
-                                modifier = Modifier.fillMaxWidth(),
-                            )
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
 
-                            Button(
-                                onClick = { viewModel.fetchRemoteModels(remoteUrlInput, remoteKeyInput) },
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Text("Fetch Remote Models")
+                            // Fields are keyed by provider so switching shows that provider's values.
+                            androidx.compose.runtime.key(provider.id, settings.remoteBaseUrl.isBlank()) {
+                                LaunchedEffect(provider.id, settings.remoteBaseUrl, settings.remoteApiKey) {
+                                    remoteUrlInput = settings.remoteBaseUrl
+                                    remoteKeyInput = settings.remoteApiKey
+                                }
+                                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Text(provider.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                                    if (provider.editableUrl) {
+                                        SettingsTextField(
+                                            initialValue = settings.remoteBaseUrl,
+                                            onSave = { viewModel.setRemoteBaseUrl(it) },
+                                            onValueChange = { remoteUrlInput = it },
+                                            label = { Text("Server URL") },
+                                            placeholder = { Text(provider.baseUrl.ifBlank { "http://192.168.1.100:1234/v1" }) },
+                                            modifier = Modifier.fillMaxWidth(),
+                                        )
+                                    } else {
+                                        Text(
+                                            settings.remoteBaseUrl,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                    SettingsTextField(
+                                        initialValue = settings.remoteApiKey,
+                                        onSave = { viewModel.setRemoteApiKey(it) },
+                                        onValueChange = { remoteKeyInput = it },
+                                        label = { Text(if (provider.needsKey) "API key" else "API key (optional)") },
+                                        placeholder = { Text(provider.keyPrefix.ifBlank { "key" } + "…") },
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Button(
+                                            onClick = { viewModel.fetchRemoteModels(remoteUrlInput, remoteKeyInput) },
+                                            shape = RoundedCornerShape(12.dp),
+                                            modifier = Modifier.weight(1f),
+                                        ) {
+                                            Icon(Icons.Outlined.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Spacer(Modifier.width(6.dp))
+                                            Text("Load models")
+                                        }
+                                        if (provider.keyUrl.isNotBlank()) {
+                                            OutlinedButton(
+                                                onClick = { runCatching { uriHandler.openUri(provider.keyUrl) } },
+                                                shape = RoundedCornerShape(12.dp),
+                                            ) {
+                                                Icon(Icons.Outlined.Key, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                Spacer(Modifier.width(6.dp))
+                                                Text("Get a key")
+                                            }
+                                        }
+                                    }
+                                }
                             }
 
                             if (remoteModels.isNotEmpty()) {
@@ -818,4 +848,66 @@ fun ModelsScreen(
         }
     }
 }
+}
+
+/** A provider preset tile: tonal initial badge, name, one-line description. */
+@Composable
+private fun ProviderTile(
+    provider: com.raikaai.app.core.remote.RemoteProvider,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val scheme = MaterialTheme.colorScheme
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(14.dp),
+        color = if (selected) scheme.primaryContainer else scheme.surfaceContainerHigh,
+        border = if (selected) androidx.compose.foundation.BorderStroke(1.5.dp, scheme.primary) else null,
+        modifier = modifier,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = if (selected) scheme.primary else scheme.secondaryContainer,
+                modifier = Modifier.size(32.dp),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    when (provider.id) {
+                        com.raikaai.app.core.remote.RemoteProviders.OLLAMA ->
+                            Icon(Icons.Outlined.Lan, null, Modifier.size(18.dp), tint = if (selected) scheme.onPrimary else scheme.onSecondaryContainer)
+                        com.raikaai.app.core.remote.RemoteProviders.CUSTOM ->
+                            Icon(Icons.Outlined.Hub, null, Modifier.size(18.dp), tint = if (selected) scheme.onPrimary else scheme.onSecondaryContainer)
+                        else ->
+                            Text(
+                                provider.name.first().toString(),
+                                fontWeight = FontWeight.Bold,
+                                color = if (selected) scheme.onPrimary else scheme.onSecondaryContainer,
+                            )
+                    }
+                }
+            }
+            Spacer(Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    provider.name,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (selected) scheme.onPrimaryContainer else scheme.onSurface,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                )
+                Text(
+                    provider.description,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (selected) scheme.onPrimaryContainer.copy(alpha = 0.8f) else scheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
 }
