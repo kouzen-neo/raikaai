@@ -51,4 +51,21 @@ class ConversationNormalizeAuditTest {
 
         assertTrue(out.id.isNotBlank())
     }
+
+    @Test
+    fun `RagDocument and Artifact normalize safely with null fields`() {
+        val ragDoc = gson.fromJson("""{"id":null,"name":null,"chunkCount":-3,"charCount":-1}""", com.raikaai.app.rag.RagDocument::class.java).normalize()
+        assertEquals("", ragDoc.id)
+        assertEquals("document", ragDoc.name)
+        assertEquals(0, ragDoc.chunkCount)
+        assertEquals(0, ragDoc.charCount)
+
+        val artifact = gson.fromJson("""{"id":null,"projectId":null,"fileName":null,"language":null,"charCount":-5,"version":0}""", com.raikaai.app.artifacts.Artifact::class.java).normalize()
+        assertEquals("", artifact.id)
+        assertEquals("project", artifact.projectId)
+        assertEquals("file.txt", artifact.fileName)
+        assertEquals("", artifact.language)
+        assertEquals(0, artifact.charCount)
+        assertEquals(1, artifact.version)
+    }
 }

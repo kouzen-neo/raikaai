@@ -107,6 +107,11 @@ class LocalModelManager(
         val file = File(modelsDir, safeName)
         val tmp = File(modelsDir, "$safeName.tmp")
         if (tmp.exists()) tmp.delete()
+        // Also remove URL-keyed resume temp files ($safeName.<urlHash>.tmp)
+        // created by ModelDownloadService so orphaned multi-GB partials don't leak.
+        modelsDir.listFiles { f ->
+            f.isFile && f.name.startsWith("$safeName.") && f.name.endsWith(".tmp")
+        }?.forEach { runCatching { it.delete() } }
         return if (file.exists()) {
             file.delete()
         } else {
@@ -200,15 +205,29 @@ class LocalModelManager(
                 val fileName = sanitizeModelFileNameOrNull(rawName) ?: return@withContext null
 
                 val targetFile = File(modelsDir, fileName)
-                context.contentResolver.openInputStream(uri)?.use { input ->
-                    FileOutputStream(targetFile).use { output ->
-                        input.copyTo(output)
+                val tempFile = File(modelsDir, "$fileName.import.${System.nanoTime()}.tmp")
+                try {
+                    context.contentResolver.openInputStream(uri)?.use { input ->
+                        FileOutputStream(tempFile).use { output ->
+                            input.copyTo(output)
+                        }
+                    } ?: run {
+                        tempFile.delete()
+                        return@withContext null
                     }
-                }
-                if (targetFile.exists() && targetFile.length() > 0) {
+                    if (!tempFile.exists() || tempFile.length() <= 0L) {
+                        tempFile.delete()
+                        return@withContext null
+                    }
+                    if (targetFile.exists()) targetFile.delete()
+                    if (!tempFile.renameTo(targetFile)) {
+                        tempFile.copyTo(targetFile, overwrite = true)
+                        tempFile.delete()
+                    }
                     targetFile.absolutePath
-                } else {
-                    null
+                } catch (e: Exception) {
+                    runCatching { tempFile.delete() }
+                    throw e
                 }
             } catch (_: Exception) {
                 null

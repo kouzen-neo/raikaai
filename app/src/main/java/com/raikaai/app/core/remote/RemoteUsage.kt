@@ -53,11 +53,13 @@ object RemoteUsage {
         prefs?.edit()?.putString(KEY_USAGE, usageJson(_usage.value))?.apply()
     }
 
+    @Synchronized
     fun setPrice(model: String, price: Price?) {
         _prices.value = if (price == null) _prices.value - model else _prices.value + (model to price)
         prefs?.edit()?.putString(KEY_PRICES, pricesJson(_prices.value))?.apply()
     }
 
+    @Synchronized
     fun reset() {
         _usage.value = emptyMap()
         prefs?.edit()?.remove(KEY_USAGE)?.apply()

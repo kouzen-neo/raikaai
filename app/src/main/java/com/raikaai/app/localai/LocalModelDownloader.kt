@@ -5,6 +5,7 @@ import android.util.Log
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 
 /**
  * State coordinator for On-Device LiteRT LLM model downloads.
@@ -133,8 +134,6 @@ class LocalModelDownloader private constructor(
         modelId: String,
         state: DownloadState,
     ) {
-        val current = _downloadStates.value.toMutableMap()
-        current[modelId] = state
-        _downloadStates.value = current
+        _downloadStates.update { it + (modelId to state) }
     }
 }

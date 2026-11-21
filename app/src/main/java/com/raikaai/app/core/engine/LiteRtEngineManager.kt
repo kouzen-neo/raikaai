@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -91,17 +92,23 @@ class LiteRtEngineManager private constructor(
             }
         }
 
+        private const val MAX_LOG_FILE_BYTES = 2 * 1024 * 1024L
+
         fun logEngine(message: String) {
             val timestamp = SimpleDateFormat("HH:mm:ss.SSS", Locale.US).format(Date())
             val formatted = "[$timestamp] $message"
-            val current = _engineLogs.value.toMutableList()
-            if (current.size > 300) current.removeAt(0)
-            current.add(formatted)
-            _engineLogs.value = current
+            _engineLogs.update { prev ->
+                val trimmed = if (prev.size >= 300) prev.drop(prev.size - 299) else prev
+                trimmed + formatted
+            }
 
             logScope.launch {
                 try {
-                    logFile?.appendText("$formatted\n")
+                    val f = logFile ?: return@launch
+                    if (f.exists() && f.length() > MAX_LOG_FILE_BYTES) {
+                        f.writeText("")
+                    }
+                    f.appendText("$formatted\n")
                 } catch (_: Throwable) {
                 }
             }
@@ -272,11 +279,15 @@ class LiteRtEngineManager private constructor(
         onMetrics: ((InferenceMetrics) -> Unit)? = null,
     ): Flow<String> =
         flow {
-            try {
-                android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
-            } catch (e: Throwable) {
-                KLog.e("LiteRT", "Failed to set thread priority: ${e.message}")
-            }
+            val previousPriority =
+                try {
+                    val prev = android.os.Process.getThreadPriority(android.os.Process.myTid())
+                    android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
+                    prev
+                } catch (e: Throwable) {
+                    KLog.e("LiteRT", "Failed to set thread priority: ${e.message}")
+                    null
+                }
 
             val startTime = System.currentTimeMillis()
             var firstTokenTime = 0L
@@ -363,14 +374,6 @@ class LiteRtEngineManager private constructor(
                     val validImageFile =
                         if (!imagePath.isNullOrBlank()) {
                             File(imagePath).takeIf { it.exists() }
-                        } else if (imageBytes != null && imageBytes.isNotEmpty()) {
-                            try {
-                                val temp = File(context.cacheDir, "temp_vision_input.jpg")
-                                temp.writeBytes(imageBytes)
-                                temp
-                            } catch (_: Exception) {
-                                null
-                            }
                         } else {
                             null
                         }
@@ -378,14 +381,6 @@ class LiteRtEngineManager private constructor(
                     val validAudioFile =
                         if (!audioPath.isNullOrBlank()) {
                             File(audioPath).takeIf { it.exists() }
-                        } else if (audioBytes != null && audioBytes.isNotEmpty()) {
-                            try {
-                                val temp = File(context.cacheDir, "temp_audio_input.wav")
-                                temp.writeBytes(audioBytes)
-                                temp
-                            } catch (_: Exception) {
-                                null
-                            }
                         } else {
                             null
                         }
@@ -482,6 +477,12 @@ class LiteRtEngineManager private constructor(
                 onMetrics?.invoke(metrics)
             } finally {
                 _isGenerating.value = false
+                if (previousPriority != null) {
+                    try {
+                        android.os.Process.setThreadPriority(previousPriority)
+                    } catch (_: Throwable) {
+                    }
+                }
             }
         }.flowOn(Dispatchers.Default)
 
@@ -798,8 +799,8 @@ class LiteRtEngineManager private constructor(
 
     private fun formatBytes(bytes: Long): String {
         if (bytes <= 0) return "0 B"
-        val units = arrayOf("B", "KB", "MB", "GB")
-        val digitGroups = (Math.log10(bytes.toDouble()) / Math.log10(1024.0)).toInt()
+        val units = arrayOf("B", "KB", "MB", "GB", "TB")
+        val digitGroups = (Math.log10(bytes.toDouble()) / Math.log10(1024.0)).toInt().coerceIn(0, units.lastIndex)
         return String.format(Locale.US, "%.2f %s", bytes / Math.pow(1024.0, digitGroups.toDouble()), units[digitGroups])
     }
 

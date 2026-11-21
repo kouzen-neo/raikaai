@@ -51,15 +51,14 @@ class BackgroundWorkService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
-        if (wakeLock?.isHeld != true) {
-            wakeLock =
-                (getSystemService(Context.POWER_SERVICE) as PowerManager)
+        val wl =
+            wakeLock
+                ?: (getSystemService(Context.POWER_SERVICE) as PowerManager)
                     .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "RaikaAI:background-work")
-                    .apply {
-                        setReferenceCounted(false)
-                        acquire(MAX_WAKE_MS)
-                    }
-        }
+                    .apply { setReferenceCounted(false) }
+                    .also { wakeLock = it }
+        // Re-acquire resets the safety timeout on long multi-step sessions.
+        wl.acquire(MAX_WAKE_MS)
         return START_NOT_STICKY
     }
 

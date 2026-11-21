@@ -18,7 +18,6 @@ import kotlinx.coroutines.launch
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
-import java.io.RandomAccessFile
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.math.abs
@@ -142,17 +141,23 @@ class AudioRecorderHelper(
         if (!_isRecording.value) return null
         _isRecording.value = false
 
+        val rec = audioRecord
+        audioRecord = null
         try {
             timerJob?.cancel()
-            audioRecord?.stop()
-            audioRecord?.release()
-            audioRecord = null
+            rec?.stop()
         } catch (e: Exception) {
             KLog.e(TAG, "Error stopping AudioRecord", e)
         }
 
+        // Wait for recordJob to exit its read loop and finish writing the WAV
+        // BEFORE releasing the native AudioRecord instance.
         try {
             recordJob?.join()
+        } catch (_: Exception) {
+        }
+        try {
+            rec?.release()
         } catch (_: Exception) {
         }
 
@@ -168,11 +173,11 @@ class AudioRecorderHelper(
         }
         _isRecording.value = false
 
+        val rec = audioRecord
+        audioRecord = null
         try {
             timerJob?.cancel()
-            audioRecord?.stop()
-            audioRecord?.release()
-            audioRecord = null
+            rec?.stop()
         } catch (e: Exception) {
             KLog.e(TAG, "Error stopping AudioRecord", e)
         }
@@ -184,6 +189,10 @@ class AudioRecorderHelper(
                 recordJob?.join()
             } catch (_: Exception) {
             }
+            try {
+                rec?.release()
+            } catch (_: Exception) {
+            }
             onComplete(result)
         }
     }
@@ -191,12 +200,23 @@ class AudioRecorderHelper(
     fun cancelRecording() {
         _isRecording.value = false
         timerJob?.cancel()
-        recordJob?.cancel()
+        val job = recordJob
+        job?.cancel()
+        val rec = audioRecord
+        audioRecord = null
         try {
-            audioRecord?.stop()
-            audioRecord?.release()
-            audioRecord = null
+            rec?.stop()
         } catch (_: Exception) {
+        }
+        scope.launch {
+            try {
+                job?.join()
+            } catch (_: Exception) {
+            }
+            try {
+                rec?.release()
+            } catch (_: Exception) {
+            }
         }
         currentOutputFile?.delete()
         currentOutputFile = null

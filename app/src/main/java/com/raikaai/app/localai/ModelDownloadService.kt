@@ -154,12 +154,15 @@ class ModelDownloadService : Service() {
 
     /** Per-download cancellation handle. Replaces the old single global flag. */
     private data class DownloadHandle(
+        val name: String,
+        val sizeBytes: Long,
         val call: AtomicReference<Call?> = AtomicReference(null),
         val cancelled: AtomicBoolean = AtomicBoolean(false),
     )
 
     /** Active downloads by model id — the service supports parallel downloads. */
     private val activeDownloads = ConcurrentHashMap<String, DownloadHandle>()
+    @Volatile private var foregroundDownloadId: String? = null
 
     /** Per-download notification ids so parallel downloads don't overwrite each other. */
     private val notificationIds = ConcurrentHashMap<String, Int>()
@@ -217,7 +220,7 @@ class ModelDownloadService : Service() {
                     old.cancelled.set(true)
                     old.call.get()?.cancel()
                 }
-                val handle = DownloadHandle()
+                val handle = DownloadHandle(name = name, sizeBytes = sizeBytes)
                 activeDownloads[id] = handle
 
                 ensureNotificationChannel(this)
@@ -225,7 +228,8 @@ class ModelDownloadService : Service() {
                 val initialNotification = buildNotification(id, name, 0f, 0L, sizeBytes, 0L)
                 // Only the first concurrent download needs to promote the service
                 // to foreground; the rest just post their own notifications.
-                if (activeDownloads.size == 1) {
+                if (foregroundDownloadId == null) {
+                    foregroundDownloadId = id
                     try {
                         ServiceCompat.startForeground(
                             this,
@@ -464,7 +468,29 @@ class ModelDownloadService : Service() {
                 showErrorNotification(notifId, name, msg)
             }
         } finally {
-            activeDownloads.remove(id)
+            activeDownloads.remove(id, handle)
+            if (foregroundDownloadId == id) {
+                val next = activeDownloads.entries.firstOrNull()
+                if (next != null) {
+                    foregroundDownloadId = next.key
+                    val nextNotifId = notificationIdFor(next.key)
+                    val nextNotif = buildNotification(next.key, next.value.name, 0f, 0L, next.value.sizeBytes, 0L)
+                    runCatching {
+                        ServiceCompat.startForeground(
+                            this,
+                            nextNotifId,
+                            nextNotif,
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+                            } else {
+                                0
+                            },
+                        )
+                    }
+                } else {
+                    foregroundDownloadId = null
+                }
+            }
             if (!terminalNotificationPosted) {
                 // Progress notification only: remove it. Completion/error
                 // notifications posted above must stay visible.

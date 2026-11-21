@@ -81,6 +81,7 @@ object ReminderParser {
     private fun parseRelativeId(text: String, nowMillis: Long): ReminderSpec? {
         val m = RELATIVE_ID.matchEntire(text) ?: return null
         val amount = m.groupValues[1].toLongOrNull() ?: return null
+        if (amount <= 0L || amount > 365_000L) return null
         val unitMillis = when (m.groupValues[2].lowercase()) {
             "detik" -> 1_000L
             "menit" -> 60_000L
@@ -96,6 +97,7 @@ object ReminderParser {
     private fun parseRelativeEn(text: String, nowMillis: Long): ReminderSpec? {
         val m = RELATIVE_EN.matchEntire(text) ?: return null
         val amount = m.groupValues[1].toLongOrNull() ?: return null
+        if (amount <= 0L || amount > 365_000L) return null
         val unitMillis = when (m.groupValues[2].lowercase()) {
             "second", "seconds" -> 1_000L
             "minute", "minutes" -> 60_000L
@@ -180,9 +182,13 @@ object ReminderParser {
         val m = TOMORROW_EN.matchEntire(text) ?: return null
         var hour = m.groupValues[1].toIntOrNull() ?: return null
         val minute = m.groupValues[2].takeIf { it.isNotEmpty() }?.toIntOrNull() ?: 0
-        when (m.groupValues[3].lowercase()) {
-            "am" -> if (hour == 12) hour = 0
-            "pm" -> if (hour < 12) hour += 12
+        val suffix = m.groupValues[3].lowercase()
+        if (suffix.isNotEmpty()) {
+            if (hour !in 1..12) return null
+            when (suffix) {
+                "am" -> if (hour == 12) hour = 0
+                "pm" -> if (hour < 12) hour += 12
+            }
         }
         if (hour !in 0..23 || minute !in 0..59) return null
         val note = m.groupValues[4].trim()

@@ -143,4 +143,30 @@ class ConversationTreeTest {
         conv2.branchActive?.set(u.id!!, a1.id!!)
         assertEquals("v1", ChatRepository.resolveActivePath(conv2).last().content)
     }
+
+    @Test
+    fun `pruneUnreachableNodes preserves multi-turn inactive branches and drops orphans`() {
+        val g = node("assistant", "hi", 1)
+        val oldU1 = node("user", "old q1", 2, g)
+        val oldA1 = node("assistant", "old a1", 3, oldU1)
+        val oldU2 = node("user", "old q2", 4, oldA1)
+        val oldA2 = node("assistant", "old a2", 5, oldU2)
+        val forkU1 = node("user", "new q1", 10, g)
+        val newA1 = node("assistant", "new a1", 11, forkU1)
+        val orphan = ChatMessageEntry(role = "assistant", content = "detached", timestamp = 99, parentId = "missing-parent")
+
+        val kept = ChatRepository.pruneUnreachableNodes(listOf(g, oldU1, oldA1, oldU2, oldA2, forkU1, newA1, orphan))
+        val keptIds = kept.map { it.id }.toSet()
+
+        assertEquals(7, kept.size)
+        assertTrue(oldA1.id in keptIds)
+        assertTrue(oldU2.id in keptIds)
+        assertTrue(oldA2.id in keptIds)
+        assertTrue(newA1.id in keptIds)
+        assertTrue(orphan.id !in keptIds)
+
+        // Switching back to oldU1 restores the entire multi-turn old branch:
+        val conv = Conversation(messages = kept, branchActive = mutableMapOf(g.id!! to oldU1.id!!))
+        assertEquals(listOf(g.id, oldU1.id, oldA1.id, oldU2.id, oldA2.id), ChatRepository.resolveActivePath(conv).map { it.id })
+    }
 }

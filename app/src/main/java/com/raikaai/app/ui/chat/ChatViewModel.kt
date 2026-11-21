@@ -231,7 +231,6 @@ class ChatViewModel(
 
     val skills: StateFlow<List<com.raikaai.app.skills.Skill>> get() = skillsManager.skills
     val artifacts: StateFlow<List<com.raikaai.app.artifacts.Artifact>> get() = artifactStore.artifacts
-    val isCompressing = mutableStateOf(false)
     val compressionTick = mutableStateOf(0)
     val liveContextTokens = mutableIntStateOf(0)
 
@@ -239,7 +238,16 @@ class ChatViewModel(
 
     val settings = MutableStateFlow(Settings())
 
-    /** Estimated cumulative remote API spend in USD (owned by ServerControls). */
+    /**
+     * Compare mode: pass 2 runs the same prompt on a challenger model, then
+     * its output is merged as a second variant of pass 1's assistant message.
+     */
+    internal data class ComparePass(
+        val settings: Settings,
+        val labelA: String,
+        val labelB: String,
+    )
+
     /**
      * The state one chat needs while it generates. Each reply runs in the
      * lane of the chat it belongs to, so it keeps going (and is saved to that
@@ -249,12 +257,22 @@ class ChatViewModel(
     class ChatLane {
         val messages = mutableStateListOf<ChatMessageEntry>()
         val isGenerating = mutableStateOf(false)
+        val isCompressing = mutableStateOf(false)
+        val errorMessage = mutableStateOf<String?>(null)
+        val contextParts = mutableStateOf<List<ContextPart>>(emptyList())
+        internal var contextPartsChatId: String? = null
         var conversationId: String? = null
         var conversation: Conversation? = null
         var nodes: MutableList<ChatMessageEntry> = mutableListOf()
         var genJob: Job? = null
         /** The user stopped this reply; its tail must not raise errors. */
         var interrupted = false
+        /** One automatic retry per user turn when a reply ends after thinking only. */
+        internal var thinkingOnlyRetried = false
+        /** Pass 2 waiting to start after pass 1's finally (cleared on stop/error). */
+        internal var pendingComparePass: ComparePass? = null
+        /** Pass 2 finished; merge its assistant message as a variant (consumed in finally). */
+        internal var pendingCompareMerge: ComparePass? = null
     }
 
     /** The chat on screen. */
@@ -273,6 +291,12 @@ class ChatViewModel(
 
     val messages: androidx.compose.runtime.snapshots.SnapshotStateList<ChatMessageEntry> get() = lane.messages
     val isGenerating: androidx.compose.runtime.MutableState<Boolean> get() = lane.isGenerating
+    val isCompressing: androidx.compose.runtime.MutableState<Boolean> get() = lane.isCompressing
+    val errorMessage: androidx.compose.runtime.MutableState<String?> get() = lane.errorMessage
+    val contextParts: androidx.compose.runtime.MutableState<List<ContextPart>> get() = lane.contextParts
+    private var contextPartsChatId: String?
+        get() = lane.contextPartsChatId
+        set(value) { lane.contextPartsChatId = value }
 
     /** True while any chat (on screen or in the background) is generating. */
     val anyGenerating: Boolean get() = uiLane.isGenerating.value || backgroundLanes.any { it.isGenerating.value }
@@ -281,7 +305,6 @@ class ChatViewModel(
         object : State<Boolean> {
             override val value: Boolean get() = isGenerating.value
         }
-    val errorMessage = mutableStateOf<String?>(null)
     val installedModels = mutableStateOf<List<com.raikaai.app.localai.InstalledModel>>(emptyList())
     val conversations = mutableStateOf<List<ConversationHeader>>(emptyList())
     /** Normal-chat history for the global drawer; never replaced by roleplay history. */
@@ -1017,21 +1040,15 @@ class ChatViewModel(
         }
     }
 
-    /**
-     * Compare mode: pass 2 runs the same prompt on a challenger model, then
-     * its output is merged as a second variant of pass 1's assistant message.
-     */
-    private data class ComparePass(
-        val settings: Settings,
-        val labelA: String,
-        val labelB: String,
-    )
-
     /** Pass 2 waiting to start after pass 1's finally (cleared on stop/error). */
-    private var pendingComparePass: ComparePass? = null
+    private var pendingComparePass: ComparePass?
+        get() = lane.pendingComparePass
+        set(value) { lane.pendingComparePass = value }
 
     /** Pass 2 finished; merge its assistant message as a variant (consumed in finally). */
-    private var pendingCompareMerge: ComparePass? = null
+    private var pendingCompareMerge: ComparePass?
+        get() = lane.pendingCompareMerge
+        set(value) { lane.pendingCompareMerge = value }
 
     // ── Conversation Tree (Branching) Helpers ────────────────────────
 
@@ -1152,7 +1169,7 @@ class ChatViewModel(
     private suspend fun ragContext(query: String): Pair<String, List<String>>? =
         if (settings.value.ragEnabled && query.isNotBlank()) {
             try {
-                rag.retrieve(query, settings.value.useChatMemory)
+                rag.retrieve(query, settings.value.useChatMemory, chatId = conversation?.id)
             } catch (_: Throwable) {
                 null
             }
@@ -1247,19 +1264,26 @@ class ChatViewModel(
         return StaticSystem(system, parts)
     }
 
-    /** Last measured system prompt pieces, per chat. */
-    val contextParts = mutableStateOf<List<ContextPart>>(emptyList())
-    private var contextPartsChatId: String? = null
+    /** Active context window in tokens for the current source (local or remote model). */
+    fun effectiveContextWindow(s: Settings = settings.value): Int =
+        if (s.modelSource == ChatConstants.SOURCE_REMOTE) {
+            s.effectiveRemoteContextWindow(s.remoteModelId)
+        } else {
+            s.contextWindowTokens
+        }
 
     /** Measures the system prompt for the context sheet when no reply has been built yet. */
     fun refreshContextParts() {
         if (contextPartsChatId == currentConversationId && contextParts.value.isNotEmpty()) return
-        viewModelScope.launch(Dispatchers.IO) {
+        val expectedChatId = currentConversationId
+        viewModelScope.launch(Dispatchers.IO + laneContext()) {
             val s = settings.value
             val parts = runCatching { buildStaticSystem(resolveSystemPrompt(s), s).parts }.getOrDefault(emptyList())
             withContext(Dispatchers.Main) {
-                contextParts.value = parts
-                contextPartsChatId = currentConversationId
+                if (currentConversationId == expectedChatId) {
+                    contextParts.value = parts
+                    contextPartsChatId = expectedChatId
+                }
             }
         }
     }
@@ -3497,17 +3521,28 @@ class ChatViewModel(
     private fun permissionStatusText(): String {
         val s = settings.value
         val list = com.raikaai.app.core.container.parseAlwaysAllow(s.containerAlwaysAllowJson).toList()
+        val modeLabel =
+            when {
+                s.containerFullAccess -> "Full access"
+                s.containerYolo -> "Auto"
+                else -> "Ask"
+            }
+        val modeDesc =
+            when {
+                s.containerFullAccess -> "Linux commands and MCP tools run without asking (destructive commands still ask once)."
+                s.containerYolo -> "Linux commands run without asking (destructive ones stay blocked)."
+                else -> "Raika asks before each Linux command."
+            }
         return buildString {
-            appendLine("**Permission: ${if (s.containerYolo) "Auto" else "Ask"}**")
-            appendLine(if (s.containerYolo) "Linux commands run without asking (destructive ones stay blocked)." else "Raika asks before each Linux command.")
+            appendLine("**Permission: $modeLabel**")
+            appendLine(modeDesc)
             if (list.isEmpty()) {
                 appendLine("Always allowed: (none)")
             } else {
                 appendLine("Always allowed (${list.size}):")
                 list.forEachIndexed { i, cmd -> appendLine("${i + 1}. `$cmd`") }
             }
-            append("Policy: destructive / untrusted commands are always blocked. ")
-            append("Change: /permission ask | auto · /permission allow <cmd> · /permission forget <n>")
+            append("Change: /permission ask | auto | full · /permission allow <cmd> · /permission forget <n>")
         }.trim()
     }
 
@@ -4065,7 +4100,9 @@ class ChatViewModel(
     }
 
     /** One automatic retry per user turn when a reply ends after thinking only. */
-    private var thinkingOnlyRetried = false
+    private var thinkingOnlyRetried: Boolean
+        get() = lane.thinkingOnlyRetried
+        set(value) { lane.thinkingOnlyRetried = value }
 
     /** A message typed while a reply was still being written. */
     data class QueuedMessage(val id: Long, val chatId: String?, val text: String, val sending: Boolean = false)
@@ -4868,7 +4905,7 @@ class ChatViewModel(
                             onMetrics = { lastMetrics = it },
                             onRagSources = { ragSources = it },
                         )
-                    val (effectiveSystem, history, _) = runGenerationPipeline(pipelineCtx, s.enableThinking)
+                    val (effectiveSystem, history, _) = streamWithThinkingFallback(pipelineCtx)
 
                     ragSources = handleAutonomousToolCall(
                         modelPath = modelPath,
@@ -5071,18 +5108,10 @@ class ChatViewModel(
             byId[id] = m
         }
         nodes = byId.values.toMutableList()
-        // Prune unreachable nodes: keep the active path plus their siblings
-        // (branch-switchable). Anything else can never be reached by
-        // resolveActivePath/siblingsOf and would bloat the file forever.
-        // Skipped while messages is empty — with no active path every node
-        // would look unreachable.
+        // Prune genuinely detached orphan nodes while keeping the active path
+        // AND every multi-turn inactive sibling branch reachable from ROOT_KEY.
         if (messages.isNotEmpty()) {
-            val activeIds = messages.mapNotNull { it.id }.toSet()
-            val activeParents = messages.map { it.parentId ?: ChatRepository.ROOT_KEY }.toSet()
-            val pruned = nodes.filter { node ->
-                val id = node.id
-                id != null && (id in activeIds || (node.parentId ?: ChatRepository.ROOT_KEY) in activeParents)
-            }
+            val pruned = ChatRepository.pruneUnreachableNodes(nodes)
             if (pruned.size != nodes.size) {
                 nodes = pruned.toMutableList()
             }

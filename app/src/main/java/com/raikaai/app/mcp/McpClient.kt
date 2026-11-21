@@ -30,6 +30,7 @@ class McpClient(
     // ── stdio transport (server runs inside Alpine) ──
     private var proc: Process? = null
     private var stdin: java.io.Writer? = null
+    private val stdioRpcLock = Any()
     private val stdoutLines = java.util.concurrent.LinkedBlockingQueue<String>()
     private val stderrTail = ArrayDeque<String>()
 
@@ -71,34 +72,45 @@ class McpClient(
         w.flush()
     }
 
-    /** First-run installs (npx/uvx downloads) can take a while. */
+    /**
+     * First-run installs (npx/uvx downloads) can take a while.
+     * Serialized via [stdioRpcLock] so concurrent callers on the same stdio
+     * server never steal or discard each other's responses from [stdoutLines].
+     */
     private fun stdioRpc(id: Long, payload: String): JsonObject {
-        stdioSend(payload)
-        val deadline = System.currentTimeMillis() + (if (initialized) 120_000 else 300_000)
-        while (true) {
-            val left = deadline - System.currentTimeMillis()
-            if (left <= 0) throw McpException("MCP server '${config.name}' did not answer in time. ${stderrHint()}")
-            val line = stdoutLines.poll(left, java.util.concurrent.TimeUnit.MILLISECONDS) ?: continue
-            if (line == EOF) {
-                throw McpException("MCP server '${config.name}' exited. ${stderrHint()}".trim())
+        synchronized(stdioRpcLock) {
+            stdioSend(payload)
+            val deadline = System.currentTimeMillis() + (if (initialized) 120_000 else 300_000)
+            while (true) {
+                val left = deadline - System.currentTimeMillis()
+                if (left <= 0) throw McpException("MCP server '${config.name}' did not answer in time. ${stderrHint()}")
+                val line = stdoutLines.poll(left, java.util.concurrent.TimeUnit.MILLISECONDS) ?: continue
+                if (line == EOF) {
+                    throw McpException("MCP server '${config.name}' exited. ${stderrHint()}".trim())
+                }
+                val obj = runCatching { JsonParser.parseString(line.trim()).asJsonObject }.getOrNull() ?: continue
+                val respId = obj.get("id")?.takeIf { it.isJsonPrimitive }?.asLong ?: continue
+                if (respId == id) return obj
             }
-            val obj = runCatching { JsonParser.parseString(line.trim()).asJsonObject }.getOrNull() ?: continue
-            val respId = obj.get("id")?.takeIf { it.isJsonPrimitive }?.asLong ?: continue
-            if (respId == id) return obj
         }
     }
 
     /** Stops a stdio server process. */
     fun close() {
-        runCatching { proc?.destroy() }
+        val p = proc
         proc = null
         stdin = null
         initialized = false
+        runCatching { p?.destroy() }
+        runCatching {
+            if (p != null && p.isAlive) p.destroyForcibly()
+        }
     }
 
 
     private val http = NetworkUtils.HttpClient.streamingClient
     private val idSeq = AtomicLong(1)
+    private val initMutex = kotlinx.coroutines.sync.Mutex()
     @Volatile private var sessionId: String? = null
     @Volatile private var initialized = false
 
@@ -218,24 +230,30 @@ class McpClient(
     suspend fun initialize() =
         withContext(Dispatchers.IO) {
             if (initialized) return@withContext
-            val params =
-                JsonObject().apply {
-                    addProperty("protocolVersion", "2025-06-18")
-                    add("capabilities", JsonObject())
-                    add(
-                        "clientInfo",
-                        JsonObject().apply {
-                            addProperty("name", "RaikaAI")
-                            addProperty("version", "1.0")
-                        },
-                    )
-                }
-            val result = rpcSync("initialize", params)
-            val serverVersion = result.get("protocolVersion")?.takeIf { it.isJsonPrimitive }?.asString
-            KLog.d("McpClient", "Initialized '${config.name}' (server protocol: $serverVersion)")
-            // Notification per spec: no id, no response — fire and forget.
-            notifySync("notifications/initialized", JsonObject())
-            initialized = true
+            initMutex.lock()
+            try {
+                if (initialized) return@withContext
+                val params =
+                    JsonObject().apply {
+                        addProperty("protocolVersion", "2025-06-18")
+                        add("capabilities", JsonObject())
+                        add(
+                            "clientInfo",
+                            JsonObject().apply {
+                                addProperty("name", "RaikaAI")
+                                addProperty("version", "1.0")
+                            },
+                        )
+                    }
+                val result = rpcSync("initialize", params)
+                val serverVersion = result.get("protocolVersion")?.takeIf { it.isJsonPrimitive }?.asString
+                KLog.d("McpClient", "Initialized '${config.name}' (server protocol: $serverVersion)")
+                // Notification per spec: no id, no response — fire and forget.
+                notifySync("notifications/initialized", JsonObject())
+                initialized = true
+            } finally {
+                initMutex.unlock()
+            }
         }
 
     /** Returns the tools advertised by the server. */

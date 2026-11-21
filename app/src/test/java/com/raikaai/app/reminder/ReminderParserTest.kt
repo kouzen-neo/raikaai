@@ -174,5 +174,9 @@ class ReminderParserTest {
         val now = millis(2026, 10, 1, 10, 0)
         assertNull(ReminderParser.parse("ingatkan saya jam 25:00 untuk meeting", now))
         assertNull(ReminderParser.parse("ingatkan saya jam 10:75 untuk meeting", now))
+        assertNull(ReminderParser.parse("remind me tomorrow at 0pm to meeting", now))
+        assertNull(ReminderParser.parse("remind me tomorrow at 13am to meeting", now))
+        assertNull(ReminderParser.parse("remind me in 0 minutes to test", now))
+        assertNull(ReminderParser.parse("ingatkan saya dalam 0 menit untuk test", now))
     }
 }

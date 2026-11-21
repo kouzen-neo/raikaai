@@ -46,8 +46,9 @@ class AudioPlayerHelper(private val context: Context) {
                     _currentlyPlayingPath.value = null
                 }
             }
-            player.setOnCompletionListener {
+            player.setOnCompletionListener { mp ->
                 _currentlyPlayingPath.value = null
+                releasePlayer(mp)
                 onCompletion?.invoke()
             }
             player.setOnErrorListener { mp, what, extra ->
@@ -74,13 +75,24 @@ class AudioPlayerHelper(private val context: Context) {
     }
 
     fun stop() {
-        try {
-            mediaPlayer?.stop()
-            mediaPlayer?.release()
-        } catch (_: Exception) {
-        }
+        val mp = mediaPlayer
         mediaPlayer = null
         _currentlyPlayingPath.value = null
+        if (mp != null) {
+            try {
+                if (mp.isPlaying) mp.stop()
+            } catch (_: Exception) {
+            } finally {
+                try {
+                    mp.reset()
+                } catch (_: Exception) {
+                }
+                try {
+                    mp.release()
+                } catch (_: Exception) {
+                }
+            }
+        }
     }
 
     fun isPlaying(filePath: String): Boolean {

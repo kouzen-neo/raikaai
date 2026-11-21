@@ -548,6 +548,30 @@ class ChatRepository(
             conv.messages
                 .filter { (it.parentId ?: ROOT_KEY) == (msg.parentId ?: ROOT_KEY) }
                 .sortedBy { it.timestamp }
+
+        /**
+         * Retains every node reachable from [ROOT_KEY] (the active path plus
+         * all multi-turn sibling branches) and drops genuinely detached
+         * orphan nodes or unreachable cyclic islands.
+         */
+        fun pruneUnreachableNodes(nodes: List<ChatMessageEntry>): List<ChatMessageEntry> {
+            if (nodes.isEmpty()) return emptyList()
+            val byParent = nodes.groupBy { it.parentId ?: ROOT_KEY }
+            val reachableIds = HashSet<String>(nodes.size)
+            val queue = ArrayDeque<String>()
+            queue.add(ROOT_KEY)
+            while (queue.isNotEmpty()) {
+                val parentKey = queue.removeFirst()
+                val children = byParent[parentKey] ?: continue
+                for (child in children) {
+                    val id = child.id ?: continue
+                    if (reachableIds.add(id)) {
+                        queue.add(id)
+                    }
+                }
+            }
+            return nodes.filter { it.id != null && it.id in reachableIds }
+        }
     }
 
     fun exportToMarkdown(conversation: Conversation): String =

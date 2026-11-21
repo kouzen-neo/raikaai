@@ -327,7 +327,7 @@ object NativeToolCalls {
         private fun partialMarkerLength(s: CharSequence): Int {
             val text = s.toString()
             // "<tool_call>" followed only by whitespace: the next character decides.
-            Regex("""<tool_call>\s*$""", CI).find(text)?.let { return text.length - it.range.first }
+            TRAILING_TOOL_CALL_TAG.find(text)?.let { return text.length - it.range.first }
             val maxLen = minOf(text.length, LITERAL_MARKERS.maxOf { it.length })
             for (len in maxLen downTo 1) {
                 val tail = normalize(text.substring(text.length - len))
@@ -338,5 +338,9 @@ object NativeToolCalls {
         }
 
         private fun normalize(s: String) = s.replace('｜', '|').replace('▁', '_')
+
+        private companion object {
+            val TRAILING_TOOL_CALL_TAG = Regex("""<tool_call>\s*$""", CI)
+        }
     }
 }

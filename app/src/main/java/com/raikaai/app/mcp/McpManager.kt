@@ -8,6 +8,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -111,7 +112,7 @@ class McpManager private constructor(private val appContext: Context) {
     /** Discovers tools on one server, updating cache + error state. */
     suspend fun refreshTools(server: McpServerConfig): List<McpTool> =
         withContext(Dispatchers.IO) {
-            _busy.value = _busy.value + server.id
+            _busy.update { it + server.id }
             try {
                 val tools = clientFor(server).listTools()
                 mutex.withLock {
@@ -125,7 +126,7 @@ class McpManager private constructor(private val appContext: Context) {
                 mutex.withLock { _errors.value = _errors.value + (server.id to msg) }
                 throw e
             } finally {
-                _busy.value = _busy.value - server.id
+                _busy.update { it - server.id }
             }
         }
 
