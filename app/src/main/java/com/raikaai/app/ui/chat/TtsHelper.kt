@@ -26,54 +26,89 @@ class TtsHelper(private val context: Context) : TextToSpeech.OnInitListener {
     var isInitialized = mutableStateOf(false)
     var currentlySpeakingId = mutableStateOf<String?>(null)
 
+    /** True while an engine is binding; taps then wait instead of starting another one. */
+    private var initializing = false
+    /** Set when the default engine failed and the Google engine was tried. */
+    private var triedFallbackEngine = false
+    /** The message tapped before the engine was ready; spoken as soon as it is. */
+    private var pending: Pair<String, String>? = null
+
     init {
+        createEngine(null)
+    }
+
+    private fun createEngine(enginePackage: String?) {
+        initializing = true
+        isInitialized.value = false
         try {
-            tts = TextToSpeech(context.applicationContext, this)
+            // A fresh listener per instance, so a late callback from an old
+            // engine can never mark a newer one as ready.
+            var created: TextToSpeech? = null
+            val listener = TextToSpeech.OnInitListener { status -> onEngineInit(created, status) }
+            created = if (enginePackage == null) {
+                TextToSpeech(context.applicationContext, listener)
+            } else {
+                TextToSpeech(context.applicationContext, listener, enginePackage)
+            }
+            tts = created
         } catch (e: Throwable) {
+            initializing = false
             KLog.e("TTS", "Failed to create TextToSpeech instance", e)
         }
     }
 
-    override fun onInit(status: Int) {
-        if (status == TextToSpeech.SUCCESS) {
-            try {
-                var langResult = tts?.setLanguage(Locale.getDefault())
-                if (langResult == TextToSpeech.LANG_MISSING_DATA || langResult == TextToSpeech.LANG_NOT_SUPPORTED) {
-                    langResult = tts?.setLanguage(Locale.US)
-                    if (langResult == TextToSpeech.LANG_MISSING_DATA || langResult == TextToSpeech.LANG_NOT_SUPPORTED) {
-                        tts?.setLanguage(Locale.ENGLISH)
-                    }
-                }
-                isInitialized.value = true
-                tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                    override fun onStart(utteranceId: String?) {
-                        currentlySpeakingId.value = utteranceId
-                    }
-                    override fun onDone(utteranceId: String?) {
-                        if (currentlySpeakingId.value == utteranceId) {
-                            currentlySpeakingId.value = null
-                        }
-                    }
-                    @Deprecated("Deprecated in Java")
-                    override fun onError(utteranceId: String?) {
-                        if (currentlySpeakingId.value == utteranceId) {
-                            currentlySpeakingId.value = null
-                        }
-                    }
+    override fun onInit(status: Int) = onEngineInit(tts, status)
 
-                    override fun onError(utteranceId: String?, errorCode: Int) {
-                        if (currentlySpeakingId.value == utteranceId) {
-                            currentlySpeakingId.value = null
-                        }
-                    }
-                })
-                KLog.d("TTS", "TextToSpeech initialized successfully")
-            } catch (e: Throwable) {
-                KLog.e("TTS", "Error setting up TextToSpeech", e)
-            }
-        } else {
+    private fun onEngineInit(engine: TextToSpeech?, status: Int) {
+        if (engine != null && engine !== tts) return // superseded instance
+        initializing = false
+        if (status != TextToSpeech.SUCCESS) {
             isInitialized.value = false
             KLog.w("TTS", "TextToSpeech init failed with status: $status")
+            runCatching { engine?.shutdown() }
+            tts = null
+            if (!triedFallbackEngine) {
+                // Some phones bind the default engine slowly or not at all;
+                // the Google engine is usually installed and works.
+                triedFallbackEngine = true
+                createEngine("com.google.android.tts")
+            } else if (pending != null) {
+                pending = null
+                Toast.makeText(context, "Text-to-speech isn't available. Check Settings → Text-to-speech output on your phone.", Toast.LENGTH_LONG).show()
+            }
+            return
+        }
+        try {
+            var langResult = engine?.setLanguage(Locale.getDefault())
+            if (langResult == TextToSpeech.LANG_MISSING_DATA || langResult == TextToSpeech.LANG_NOT_SUPPORTED) {
+                langResult = engine?.setLanguage(Locale.US)
+                if (langResult == TextToSpeech.LANG_MISSING_DATA || langResult == TextToSpeech.LANG_NOT_SUPPORTED) {
+                    engine?.setLanguage(Locale.ENGLISH)
+                }
+            }
+            engine?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                override fun onStart(utteranceId: String?) {
+                    currentlySpeakingId.value = utteranceId
+                }
+                override fun onDone(utteranceId: String?) {
+                    if (currentlySpeakingId.value == utteranceId) currentlySpeakingId.value = null
+                }
+                @Deprecated("Deprecated in Java")
+                override fun onError(utteranceId: String?) {
+                    if (currentlySpeakingId.value == utteranceId) currentlySpeakingId.value = null
+                }
+                override fun onError(utteranceId: String?, errorCode: Int) {
+                    if (currentlySpeakingId.value == utteranceId) currentlySpeakingId.value = null
+                }
+            })
+            isInitialized.value = true
+            KLog.d("TTS", "TextToSpeech initialized successfully")
+        } catch (e: Throwable) {
+            KLog.e("TTS", "Error setting up TextToSpeech", e)
+        }
+        pending?.let { (id, text) ->
+            pending = null
+            speakNow(id, text)
         }
     }
 
@@ -98,15 +133,20 @@ class TtsHelper(private val context: Context) : TextToSpeech.OnInitListener {
         if (cleanText.isBlank()) return
 
         if (tts == null || !isInitialized.value) {
-            try {
-                tts = TextToSpeech(context.applicationContext, this)
-            } catch (e: Throwable) {
-                KLog.e("TTS", "Failed to create TTS instance", e)
+            // Not ready yet: remember the tap and speak it when the engine is
+            // up. Only start a new engine when none is loading.
+            pending = id to cleanText
+            currentlySpeakingId.value = id
+            if (!initializing) {
+                triedFallbackEngine = false
+                createEngine(null)
             }
-            Toast.makeText(context, "TTS engine initializing. Tap again in a moment.", Toast.LENGTH_SHORT).show()
             return
         }
+        speakNow(id, cleanText)
+    }
 
+    private fun speakNow(id: String, cleanText: String) {
         try {
             val params = Bundle().apply {
                 putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, id)
@@ -126,6 +166,7 @@ class TtsHelper(private val context: Context) : TextToSpeech.OnInitListener {
     }
 
     fun stop() {
+        pending = null
         try {
             tts?.stop()
         } catch (e: Throwable) {
@@ -142,6 +183,8 @@ class TtsHelper(private val context: Context) : TextToSpeech.OnInitListener {
             KLog.e("TTS", "Failed to shutdown TTS", e)
         }
         tts = null
+        pending = null
+        initializing = false
         currentlySpeakingId.value = null
         isInitialized.value = false
     }
