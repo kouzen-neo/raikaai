@@ -7,14 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased]
+## [0.5.2] - 2026-11-21
 
 ### Added
-- Reminders in English for a time today: "remind me at 3pm to drink water" and "remind me at 15:30 to meeting". A time that has already passed today rolls over to tomorrow, like the Indonesian form.
+- Reminders in English for a time today: "remind me at 3pm to drink water" and "remind me at 15:30 to meeting". A time that has already passed today rolls over to tomorrow, like the Indonesian form. The `/remind` hint shows the new form too (thanks @sanixmon, #2).
 
 ### Fixed
-- "remind me tomorrow at 12am to …" now schedules tomorrow at midnight instead of skipping a day.
-- The keyboard no longer stays up when you open the sidebar or the Characters drawer. Opening either one now clears focus from the composer, so the drawer is not covered by the IME and the chat input does not keep focus behind it. Swiping the drawer open is covered too.
+- "remind me tomorrow at 12am to …" now schedules tomorrow at midnight instead of skipping a day (thanks @sanixmon, #2).
+- The keyboard no longer stays up when you open the sidebar or the Characters drawer. Opening either one now clears focus from the composer, so the drawer is not covered by the IME and the chat input does not keep focus behind it. Swiping the drawer open is covered too (thanks @sanixmon, #4).
+
+### Changed
+- Pull requests are now compiled and unit tested automatically on GitHub (thanks @sanixmon, #3).
 
 ## [0.5.1] - 2026-11-21
 

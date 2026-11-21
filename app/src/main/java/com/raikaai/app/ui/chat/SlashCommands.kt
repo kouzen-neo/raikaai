@@ -57,7 +57,7 @@ val DEFAULT_SLASH_COMMANDS: List<SlashCommand> =
         // ── Tools ──
         SlashCommand("/search", "Answer with fresh web results", "/search ", SlashGroup.TOOLS, scope = SlashScope.CHAT, usage = "/search <query>"),
         SlashCommand("/image", "Generate an image", "/image ", SlashGroup.TOOLS, usage = "/image <prompt>"),
-        SlashCommand("/remind", "Schedule a notification", "/remind in 10 minutes to ", SlashGroup.TOOLS, scope = SlashScope.CHAT, usage = "/remind in <n> minutes to <note>"),
+        SlashCommand("/remind", "Schedule a notification", "/remind in 10 minutes to ", SlashGroup.TOOLS, scope = SlashScope.CHAT, usage = "/remind in <n> minutes to <note> · /remind at 3pm to <note>"),
 
         // ── Linux ──
         SlashCommand("/run", "Run a shell command in /workspace", "/run ", SlashGroup.LINUX, scope = SlashScope.CHAT, requiresLinux = true, usage = "/run <command>"),
