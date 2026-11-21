@@ -60,6 +60,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -70,7 +71,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.LayoutDirection
@@ -163,6 +166,20 @@ fun RaikaAIApp(
                 launchSingleTop = true
                 restoreState = true
             }
+        }
+    }
+
+    // Opening a drawer while the composer still has focus left the IME on
+    // screen, so the sidebar opened behind the keyboard and the chat input
+    // stayed focused underneath. Drop focus and hide the keyboard as soon as
+    // either drawer opens — this also covers the edge-swipe gesture, which
+    // never goes through a click handler.
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
+    LaunchedEffect(drawerState.isOpen, rightDrawerState.isOpen) {
+        if (drawerState.isOpen || rightDrawerState.isOpen) {
+            focusManager.clearFocus(force = true)
+            keyboardController?.hide()
         }
     }
 
