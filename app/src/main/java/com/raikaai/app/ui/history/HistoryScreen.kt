@@ -28,6 +28,7 @@ import androidx.compose.material.icons.outlined.DeleteSweep
 import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.Tag
+import androidx.compose.material.icons.outlined.TheaterComedy
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.PushPin
@@ -108,12 +109,15 @@ fun HistoryScreen(
     onOpenDrawer: () -> Unit = {},
     onBack: () -> Unit = {},
     onOpenConversation: () -> Unit = {},
+    onOpenRoleplayChat: () -> Unit = {},
 ) {
     LaunchedEffect(Unit) {
         viewModel.setRoleplayMode(false)
         viewModel.refreshConversations()
     }
-    val conversations = viewModel.normalConversations.value
+    // Normal and roleplay chats together; roleplay rows open in the Characters hub.
+    val roleplayIds = viewModel.roleplayConversations.value.map { it.id }.toSet()
+    val conversations = viewModel.normalConversations.value + viewModel.roleplayConversations.value
     val activeConvId = viewModel.currentConversationId
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -447,8 +451,13 @@ fun HistoryScreen(
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(16.dp))
                                 .clickable {
-                                    viewModel.loadConversation(conv.id)
-                                    onOpenConversation()
+                                    if (conv.id in roleplayIds) {
+                                        viewModel.pendingRoleplayChatId.value = conv.id
+                                        onOpenRoleplayChat()
+                                    } else {
+                                        viewModel.loadConversation(conv.id)
+                                        onOpenConversation()
+                                    }
                                 },
                     ) {
                         Row(
@@ -457,8 +466,8 @@ fun HistoryScreen(
                         ) {
                             // Left Icon container
                             Icon(
-                                Icons.Outlined.ChatBubbleOutline,
-                                contentDescription = null,
+                                if (conv.id in roleplayIds) Icons.Outlined.TheaterComedy else Icons.Outlined.ChatBubbleOutline,
+                                contentDescription = if (conv.id in roleplayIds) "Roleplay chat" else null,
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.size(24.dp),
                             )
@@ -923,7 +932,7 @@ fun HistoryScreen(
             onDismissRequest = { showClearAllConfirm = false },
             icon = { Icon(Icons.Outlined.DeleteSweep, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
             title = { Text("Clear All History?") },
-            text = { Text("This will delete all saved conversation transcripts. This action cannot be undone.") },
+            text = { Text("This deletes all saved chats, including roleplay chats. This can't be undone.") },
             confirmButton = {
                 Button(
                     onClick = {

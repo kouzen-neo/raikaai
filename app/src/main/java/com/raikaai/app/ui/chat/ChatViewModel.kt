@@ -221,6 +221,19 @@ class ChatViewModel(
     private var roleplayMode = false
     private val chatRepo: ChatRepository
         get() = if (roleplayMode) roleplayChatRepo else defaultChatRepo
+
+    /**
+     * The store that owns [id]. All chats lists normal and roleplay chats
+     * together, so actions on a row must not follow the current mode.
+     */
+    private fun repoFor(id: String): ChatRepository = when {
+        roleplayConversations.value.any { it.id == id } -> roleplayChatRepo
+        normalConversations.value.any { it.id == id } -> defaultChatRepo
+        else -> chatRepo
+    }
+
+    /** True when [id] is a saved roleplay chat. */
+    fun isRoleplayChat(id: String): Boolean = roleplayConversations.value.any { it.id == id }
     private val modelManager = LocalModelManager(app)
     private val downloader get() = LocalModelDownloader.getInstance(app)
     private val engine get() = LiteRtEngineManager.getInstance(app)
@@ -1839,9 +1852,10 @@ class ChatViewModel(
     /** Moves a conversation into a folder ("" = no folder). */
     fun setConversationFolder(id: String, folder: String) {
         viewModelScope.launch(Dispatchers.IO + laneContext()) {
-            val conv = chatRepo.get(id) ?: return@launch
+            val repo = repoFor(id)
+            val conv = repo.get(id) ?: return@launch
             conv.folder = folder.trim().take(40)
-            chatRepo.save(conv)
+            repo.save(conv)
             refreshConversations()
         }
     }
@@ -1853,9 +1867,10 @@ class ChatViewModel(
     /** Replaces a conversation's tags (unlike folder, a chat can carry several). */
     fun setConversationTags(id: String, tags: List<String>) {
         viewModelScope.launch(Dispatchers.IO + laneContext()) {
-            val conv = chatRepo.get(id) ?: return@launch
+            val repo = repoFor(id)
+            val conv = repo.get(id) ?: return@launch
             conv.tags = com.raikaai.app.data.sanitizeTags(tags)
-            chatRepo.save(conv)
+            repo.save(conv)
             refreshConversations()
         }
     }
@@ -2037,8 +2052,9 @@ class ChatViewModel(
             conversation = null
             stopGeneration()
         }
+        val repo = repoFor(id)
         viewModelScope.launch(laneContext()) {
-            chatRepo.delete(id)
+            repo.delete(id)
             withContext(Dispatchers.IO) { runCatching { com.raikaai.app.core.agent.ChatArchive.delete(containerManager.raikaHomeDir, id) } }
             rag.clearChatMemory(id)
             if (currentConversationId == id) {
@@ -2050,7 +2066,7 @@ class ChatViewModel(
 
     fun renameConversation(id: String, newTitle: String) {
         viewModelScope.launch(laneContext()) {
-            chatRepo.rename(id, newTitle)
+            repoFor(id).rename(id, newTitle)
             if (currentConversationId == id) {
                 conversation?.title = newTitle
             }
@@ -2063,7 +2079,8 @@ class ChatViewModel(
         conversation = null
         stopGeneration()
         viewModelScope.launch(laneContext()) {
-            chatRepo.deleteAll()
+            defaultChatRepo.deleteAll()
+            roleplayChatRepo.deleteAll()
             rag.clearAllMemories()
             newChat()
             refreshConversations()
@@ -2080,7 +2097,7 @@ class ChatViewModel(
 
     /** Full-text body search across conversations; bodies are loaded on demand (P6). */
     suspend fun searchConversationBodies(query: String): Set<String> =
-        chatRepo.listConversations()
+        (defaultChatRepo.listConversations() + roleplayChatRepo.listConversations())
             .filter { conv -> conv.messages.any { it.content.contains(query, ignoreCase = true) } }
             .map { it.id }
             .toSet()
@@ -2094,11 +2111,13 @@ class ChatViewModel(
 
     /** Loads the full conversation on demand for per-item export from header lists (P6). */
     suspend fun exportChatMarkdownById(id: String): String =
-        chatRepo.get(id)?.let { chatRepo.exportToMarkdown(it) } ?: ""
+        repoFor(id).let { repo -> repo.get(id)?.let { repo.exportToMarkdown(it) } } ?: ""
 
     /** Loads full bodies on demand for the "export all as markdown" share action (P6). */
     suspend fun exportAllChatsMarkdown(): String =
-        chatRepo.listConversations().joinToString("\n\n---\n\n") { chatRepo.exportToMarkdown(it) }
+        (defaultChatRepo.listConversations() + roleplayChatRepo.listConversations())
+            .sortedByDescending { it.updatedAt }
+            .joinToString("\n\n---\n\n") { defaultChatRepo.exportToMarkdown(it) }
 
     fun exportCurrentChatMarkdown(): String {
         val conv = conversation ?: return ""

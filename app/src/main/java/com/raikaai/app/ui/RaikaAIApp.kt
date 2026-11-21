@@ -460,6 +460,7 @@ fun RaikaAIApp(
                                 restoreState = true
                             }
                         },
+                        onOpenRoleplayChat = { navigateTo(NavRoute.ROLEPLAY) },
                     )
                 }
                 composable(NavRoute.SETTINGS) {
