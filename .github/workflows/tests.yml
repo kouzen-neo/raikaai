@@ -1,0 +1,61 @@
+name: Tests
+
+# Pull requests get a compile + unit-test check. build-apk.yml only runs on
+# tags, releases and manual dispatch, so without this a red test is only
+# noticed after merge. The android-37 shim mirrors build-apk.yml.
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit-tests:
+    name: Compile and unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Install Android 36 platform + build-tools (+ android-37 shim)
+        run: |
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses > /dev/null || true
+          "$SDKMANAGER" --install "platforms;android-36" "build-tools;36.0.0"
+          # The Compose 1.12.0-beta01 / material3 1.5.0-alpha25 /
+          # material-kolor 5.0.0 artifacts declare compileSdk 37, which AGP 9
+          # enforces, but Google has not published that platform publicly.
+          # Provide android-37 as android-36's APIs; the app uses no API 37+
+          # calls (see build-apk.yml).
+          cp -r "$ANDROID_HOME/platforms/android-36" "$ANDROID_HOME/platforms/android-37"
+          ls "$ANDROID_HOME/platforms/"
+
+      - name: Compile
+        run: ./gradlew :app:compileDebugKotlin --stacktrace
+
+      - name: Unit tests
+        run: ./gradlew :app:testDebugUnitTest --stacktrace
+
+      - name: Upload test report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-report
+          path: app/build/reports/tests/testDebugUnitTest/
+          retention-days: 7
