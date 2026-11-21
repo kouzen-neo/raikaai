@@ -5,6 +5,7 @@ import okhttp3.ConnectionPool
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.ResponseBody
 import java.net.Inet4Address
 import java.net.InetAddress
 import java.net.NetworkInterface
@@ -114,6 +115,25 @@ object NetworkUtils {
     }
 
     /**
+     * Reads at most [maxChars] characters from an HTTP response body without
+     * buffering an arbitrarily large payload into heap memory.
+     */
+    fun readBodyBounded(body: ResponseBody?, maxChars: Int): String? {
+        if (body == null || maxChars <= 0) return null
+        val sb = StringBuilder(minOf(maxChars, 16_384))
+        body.charStream().use { reader ->
+            val buf = CharArray(4096)
+            while (sb.length < maxChars) {
+                val want = minOf(buf.size, maxChars - sb.length)
+                val n = reader.read(buf, 0, want)
+                if (n <= 0) break
+                sb.append(buf, 0, n)
+            }
+        }
+        return sb.toString()
+    }
+
+    /**
      * Fetches a URL body as text, following up to [maxHops] redirects manually
      * and re-validating every hop with [requirePublicHttpUrl] (a redirect can
      * neither downgrade the scheme silently nor bounce to an internal address).
@@ -132,7 +152,7 @@ object NetworkUtils {
             headers.forEach { (k, v) -> builder.header(k, v) }
             client.newCall(builder.build()).execute().use { response ->
                 if (response.isSuccessful) {
-                    return response.body?.string()?.take(maxChars)?.takeIf { it.isNotBlank() }
+                    return readBodyBounded(response.body, maxChars)?.takeIf { it.isNotBlank() }
                 }
                 val location = response.header("Location") ?: return null
                 val next = current.resolve(location) ?: return null

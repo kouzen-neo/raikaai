@@ -66,7 +66,8 @@ does not word-split, and Gradle then prints its help instead of building.
   tool results needs a compact path for `modelSource != REMOTE` (hard caps, one-line lists).
 - Roleplay keeps the character card first; do not inject tool catalogs into roleplay prompts.
 - Every command or tool call that changes state goes through the permission gate
-  (Ask / Auto / Full access). MCP calls always ask.
+  (Ask / Auto / Full access). MCP calls ask in Ask and Auto modes (with a per-tool
+  "Always" option) and run automatically in Full access.
 - Never let the model's claims stand in for tool output: results shown in chat come from real
   runs.
 

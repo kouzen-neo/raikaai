@@ -137,6 +137,7 @@ object OpenAiServer {
          * truncation and [LiteRtEngineManager.EngineParams] (B4).
          */
         val contextWindow: Int = 2048,
+        val enableThinking: Boolean = false,
     )
 
     private val gson = Gson()
@@ -226,6 +227,7 @@ object OpenAiServer {
             backend = config.backend,
             contextWindow = config.contextWindow,
             systemPrompt = systemPrompt,
+            enableThinking = config.enableThinking,
         )
     }
 
@@ -322,20 +324,32 @@ object OpenAiServer {
                                 call.respondText("")
                             }
                             get("/health") {
-                                if (!call.checkAuth(config)) return@get
                                 call.appendCors()
+                                if (!call.checkBrowserOrigin(config)) return@get
+                                if (!call.checkAuth(config)) return@get
                                 call.respondText("ok")
                             }
                             get("/v1/models") {
-                                if (!call.checkAuth(config)) return@get
                                 call.appendCors()
+                                if (!call.checkBrowserOrigin(config)) return@get
+                                if (!call.checkAuth(config)) return@get
                                 call.respondText(modelsJson(config.modelId()), ContentType.Application.Json)
                             }
                             get("/v1/models/{model}") {
-                                if (!call.checkAuth(config)) return@get
                                 call.appendCors()
-                                val requestedModel = call.parameters["model"] ?: config.modelId()
-                                call.respondText(modelDetailJson(requestedModel), ContentType.Application.Json)
+                                if (!call.checkBrowserOrigin(config)) return@get
+                                if (!call.checkAuth(config)) return@get
+                                val activeModelId = config.modelId()
+                                val requestedModel = call.parameters["model"].orEmpty()
+                                if (requestedModel != activeModelId && requestedModel != "raikaai") {
+                                    call.respondText(
+                                        errorJson("model_not_found", "Model '$requestedModel' not found"),
+                                        ContentType.Application.Json,
+                                        HttpStatusCode.NotFound,
+                                    )
+                                    return@get
+                                }
+                                call.respondText(modelDetailJson(activeModelId), ContentType.Application.Json)
                             }
                             post("/v1/chat/completions") {
                                 call.appendCors()
@@ -400,7 +414,11 @@ object OpenAiServer {
             } catch (_: Exception) {
                 null
             }
-        if (request == null || request.messages.isNullOrEmpty()) {
+        val safeMessages =
+            request?.messages
+                ?.mapNotNull { msg -> msg?.normalize()?.takeIf { it.role.isNotEmpty() || it.content.isNotEmpty() } }
+                .orEmpty()
+        if (request == null || safeMessages.isEmpty()) {
             respondText(
                 errorJson("invalid_request_error", "messages[] is required"),
                 ContentType.Application.Json,
@@ -415,9 +433,10 @@ object OpenAiServer {
         val modelId = config.modelId()
         val prompt =
             PromptBuilder.build(
-                request.messages,
+                safeMessages,
                 config.systemPrompt,
                 modelPath = config.modelPath,
+                enableThinking = config.enableThinking,
                 contextWindow = config.contextWindow,
             )
         val params =
@@ -691,7 +710,7 @@ object OpenAiServer {
                 addProperty("id", modelId)
                 addProperty("object", "model")
                 addProperty("owned_by", "raikaai")
-                addProperty("permission", "public")
+                add("permission", JsonArray())
             }.toString()
 
     private fun modelsJson(modelId: String): String =
@@ -731,7 +750,7 @@ object OpenAiServer {
 /** Gson-mapped OpenAI chat completion request. */
 data class ChatCompletionRequest(
     val model: String? = null,
-    val messages: List<PromptBuilder.ChatMessage>? = null,
+    val messages: List<PromptBuilder.ChatMessage?>? = null,
     val stream: Boolean? = false,
     val temperature: Float? = null,
     val top_k: Int? = null,

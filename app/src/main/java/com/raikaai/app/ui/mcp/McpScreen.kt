@@ -169,7 +169,7 @@ fun McpScreen(
 
             item {
                 if (servers.isNotEmpty()) Text(
-                    "Raika asks before every MCP tool call.",
+                    "Raika asks before MCP calls in Ask and Auto modes.",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(vertical = 8.dp),

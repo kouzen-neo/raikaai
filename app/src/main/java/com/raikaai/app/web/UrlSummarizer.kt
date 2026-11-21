@@ -48,6 +48,13 @@ object UrlSummarizer {
     suspend fun fetchReadableText(context: Context, rawUrl: String): PageContent? =
         withContext(Dispatchers.IO) {
             val url = normalizeUrl(rawUrl) ?: return@withContext null
+            // SSRF guard: refuse non-public hosts before ANY external fetch (including Jina Reader).
+            try {
+                NetworkUtils.requirePublicHttpUrl(url)
+            } catch (e: IllegalArgumentException) {
+                KLog.w("UrlSummarizer", "Blocked non-public URL: ${e.message}")
+                return@withContext null
+            }
             val stripper = WebSearchManager.getInstance(context)
             // Attempt 1: Jina AI Reader
             try {
@@ -60,20 +67,13 @@ object UrlSummarizer {
                         .build()
                 val text: String =
                     NetworkUtils.HttpClient.searchClient.newCall(request).execute().use { response ->
-                        if (response.isSuccessful) response.body?.string() else null
-                    }.orEmpty().take(MAX_CHARS)
+                        if (response.isSuccessful) NetworkUtils.readBodyBounded(response.body, MAX_CHARS) else null
+                    }.orEmpty()
                 if (text.isNotBlank() && text.length > 200) {
                     return@withContext PageContent(title = url, text = text.trim(), url = url)
                 }
             } catch (e: Exception) {
                 KLog.e("UrlSummarizer", "Jina Reader failed for $url", e)
-            }
-            // SSRF guard: refuse non-public hosts before any fetch.
-            try {
-                NetworkUtils.requirePublicHttpUrl(url)
-            } catch (e: IllegalArgumentException) {
-                KLog.w("UrlSummarizer", "Blocked non-public URL: ${e.message}")
-                return@withContext null
             }
             // Attempt 2: direct fetch + HTML strip, manual redirect hops
             // re-validated per hop (SSRF-safe).

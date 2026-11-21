@@ -5,10 +5,14 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -18,12 +22,23 @@ import com.raikaai.app.util.KLog
 import java.util.UUID
 
 data class RagDocument(
-    val id: String,
-    val name: String,
-    val chunkCount: Int,
-    val charCount: Int,
+    val id: String = "",
+    val name: String = "",
+    val chunkCount: Int = 0,
+    val charCount: Int = 0,
     val addedAt: Long = System.currentTimeMillis(),
-)
+) {
+    /** Repairs JVM nulls when Gson deserializes corrupt or legacy JSON. */
+    @Suppress("USELESS_ELVIS")
+    fun normalize(): RagDocument =
+        RagDocument(
+            id = (id ?: "").trim(),
+            name = (name ?: "").ifBlank { "document" },
+            chunkCount = chunkCount.coerceAtLeast(0),
+            charCount = charCount.coerceAtLeast(0),
+            addedAt = addedAt,
+        )
+}
 
 data class RagHit(
     val docName: String,
@@ -72,7 +87,7 @@ class RagManager private constructor(private val context: Context) {
     }
 
     private val gson = Gson()
-    private val dir = File(context.filesDir, "rag").apply { if (!exists()) mkdirs() }
+    private val dir by lazy { File(context.filesDir, "rag").apply { if (!exists()) mkdirs() } }
     private val metaFile get() = File(dir, "documents.json")
     private val memoryMetaFile get() = File(dir, "memory.json")
 
@@ -94,7 +109,6 @@ class RagManager private constructor(private val context: Context) {
 
     private var indexDirty = true
     private var chunks: List<IndexedChunk> = emptyList()
-    private var docFreq: Map<String, Int> = emptyMap()
 
     /**
      * Serializes every read-modify-write on memoryDocs/_documents plus index
@@ -102,34 +116,56 @@ class RagManager private constructor(private val context: Context) {
      * updates and racing ensureIndex() calls build the index twice (B24).
      */
     private val dataMutex = Mutex()
+    private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val initGate = CompletableDeferred<Unit>()
 
     init {
-        reloadMeta()
+        // Off-main initialization (same pattern as ArtifactStore) so calling
+        // getInstance() from Compose/Main never performs disk I/O.
+        ioScope.launch {
+            try {
+                dataMutex.withLock { reloadMetaLocked() }
+            } finally {
+                initGate.complete(Unit)
+            }
+        }
     }
 
-    private fun reloadMeta() {
+    private fun writeAtomically(target: File, content: String) {
+        target.parentFile?.mkdirs()
+        val tmp = File(target.parentFile, "${target.name}.${System.nanoTime()}.tmp")
+        tmp.writeText(content)
+        if (!tmp.renameTo(target)) {
+            tmp.copyTo(target, overwrite = true)
+            tmp.delete()
+        }
+    }
+
+    private fun reloadMetaLocked() {
         indexDirty = true
         _documents.value =
             try {
                 if (metaFile.exists()) {
-                    gson.fromJson(metaFile.readText(), object : TypeToken<List<RagDocument>>() {}.type)
-                        ?: emptyList()
+                    val raw: List<RagDocument>? =
+                        gson.fromJson(metaFile.readText(), object : TypeToken<List<RagDocument>>() {}.type)
+                    raw.orEmpty().map { it.normalize() }.filter { it.id.isNotBlank() }
                 } else {
                     emptyList()
                 }
             } catch (_: Throwable) {
-                emptyList()
+                _documents.value
             }
         memoryDocs =
             try {
                 if (memoryMetaFile.exists()) {
-                    gson.fromJson(memoryMetaFile.readText(), object : TypeToken<List<RagDocument>>() {}.type)
-                        ?: emptyList()
+                    val raw: List<RagDocument>? =
+                        gson.fromJson(memoryMetaFile.readText(), object : TypeToken<List<RagDocument>>() {}.type)
+                    raw.orEmpty().map { it.normalize() }.filter { it.id.isNotBlank() }
                 } else {
                     emptyList()
                 }
             } catch (_: Throwable) {
-                emptyList()
+                memoryDocs
             }
     }
 
@@ -144,24 +180,30 @@ class RagManager private constructor(private val context: Context) {
     ): Unit =
         withContext(Dispatchers.IO) {
             if (text.isBlank()) return@withContext
+            initGate.await()
             dataMutex.withLock {
                 try {
                     val id = "mem_$chatId"
                     val file = File(dir, "$id.json")
+                    val rawFile = File(dir, "$id.raw.txt")
+                    // Prefer raw un-chunked transcript so repeated evictions do not
+                    // compound chunk-overlap duplication; fall back to legacy JSON once.
                     val existing =
-                        if (file.exists()) {
-                            runCatching {
-                                val parts: List<String> =
-                                    gson.fromJson(file.readText(), object : TypeToken<List<String>>() {}.type)
-                                parts.joinToString("\n\n")
-                            }.getOrNull()
-                        } else {
-                            null
+                        when {
+                            rawFile.exists() -> runCatching { rawFile.readText() }.getOrNull()
+                            file.exists() ->
+                                runCatching {
+                                    val parts: List<String> =
+                                        gson.fromJson(file.readText(), object : TypeToken<List<String>>() {}.type)
+                                    parts.joinToString("\n\n")
+                                }.getOrNull()
+                            else -> null
                         }
                     val combined = listOfNotNull(existing, text).filter { it.isNotBlank() }.joinToString("\n\n").take(200_000)
                     val parts = chunkText(combined)
                     if (parts.isEmpty()) return@withLock
-                    file.writeText(gson.toJson(parts))
+                    writeAtomically(rawFile, combined)
+                    writeAtomically(file, gson.toJson(parts))
                     memoryDocs =
                         memoryDocs.filterNot { it.id == id } +
                             RagDocument(
@@ -170,7 +212,7 @@ class RagManager private constructor(private val context: Context) {
                                 chunkCount = parts.size,
                                 charCount = combined.length,
                             )
-                    memoryMetaFile.writeText(gson.toJson(memoryDocs))
+                    writeAtomically(memoryMetaFile, gson.toJson(memoryDocs))
                     indexDirty = true
                 } catch (t: Throwable) {
                     KLog.w("Rag", "addChatMemory failed: ${t.message}")
@@ -180,12 +222,14 @@ class RagManager private constructor(private val context: Context) {
 
     suspend fun clearChatMemory(chatId: String): Unit =
         withContext(Dispatchers.IO) {
+            initGate.await()
             dataMutex.withLock {
                 try {
                     val id = "mem_$chatId"
                     File(dir, "$id.json").delete()
+                    File(dir, "$id.raw.txt").delete()
                     memoryDocs = memoryDocs.filterNot { it.id == id }
-                    memoryMetaFile.writeText(gson.toJson(memoryDocs))
+                    writeAtomically(memoryMetaFile, gson.toJson(memoryDocs))
                     indexDirty = true
                 } catch (_: Throwable) {
                 }
@@ -194,10 +238,12 @@ class RagManager private constructor(private val context: Context) {
 
     suspend fun clearAllMemories(): Unit =
         withContext(Dispatchers.IO) {
+            initGate.await()
             dataMutex.withLock {
                 try {
                     memoryDocs.forEach { doc ->
                         File(dir, "${doc.id}.json").delete()
+                        File(dir, "${doc.id}.raw.txt").delete()
                     }
                     memoryDocs = emptyList()
                     memoryMetaFile.delete()
@@ -207,9 +253,9 @@ class RagManager private constructor(private val context: Context) {
             }
         }
 
-    private fun saveMeta(docs: List<RagDocument>) {
+    private fun saveMetaLocked(docs: List<RagDocument>) {
         try {
-            metaFile.writeText(gson.toJson(docs))
+            writeAtomically(metaFile, gson.toJson(docs))
         } catch (_: Throwable) {
         }
     }
@@ -256,6 +302,7 @@ class RagManager private constructor(private val context: Context) {
         content: String,
     ): RagDocument? =
         withContext(Dispatchers.IO) {
+            initGate.await()
             dataMutex.withLock {
                 try {
                     val parts = chunkText(content)
@@ -267,9 +314,9 @@ class RagManager private constructor(private val context: Context) {
                             chunkCount = parts.size,
                             charCount = content.length,
                         )
-                    File(dir, "${doc.id}.json").writeText(gson.toJson(parts))
-                    saveMeta(_documents.value + doc)
-                    reloadMeta()
+                    writeAtomically(File(dir, "${doc.id}.json"), gson.toJson(parts))
+                    saveMetaLocked(_documents.value + doc)
+                    reloadMetaLocked()
                     doc
                 } catch (_: Throwable) {
                     null
@@ -279,11 +326,12 @@ class RagManager private constructor(private val context: Context) {
 
     suspend fun delete(id: String) =
         withContext(Dispatchers.IO) {
+            initGate.await()
             dataMutex.withLock {
                 try {
                     File(dir, "$id.json").delete()
-                    saveMeta(_documents.value.filterNot { it.id == id })
-                    reloadMeta()
+                    saveMetaLocked(_documents.value.filterNot { it.id == id })
+                    reloadMetaLocked()
                 } catch (_: Throwable) {
                 }
             }
@@ -292,7 +340,8 @@ class RagManager private constructor(private val context: Context) {
     /**
      * Retrieves top matching excerpts for [query]. Returns formatted prompt
      * block plus citation labels, or null when nothing relevant was found.
-     * With [includeMemory], archived conversation excerpts compete as [MemN].
+     * With [includeMemory], archived conversation excerpts compete as [MemN],
+     * scoped to [chatId] when provided so memory never leaks across chats.
      *
      * Runs on [Dispatchers.IO]: index building reads chunk files from disk and
      * BM25 scoring is CPU-heavy, so this must never run on the main thread.
@@ -300,11 +349,17 @@ class RagManager private constructor(private val context: Context) {
     suspend fun retrieve(
         query: String,
         includeMemory: Boolean = false,
+        chatId: String? = null,
     ): Pair<String, List<String>>? =
         withContext(Dispatchers.IO) {
-            ensureIndex()
+            initGate.await()
             val docHits = searchInternal(query, includeMemory = false).take(TOP_K)
-            val memHits = if (includeMemory) searchInternal(query, includeMemory = true).take(2) else emptyList()
+            val memHits =
+                if (includeMemory) {
+                    searchInternal(query, includeMemory = true, chatId = chatId).take(2)
+                } else {
+                    emptyList()
+                }
             if (docHits.isEmpty() && memHits.isEmpty()) return@withContext null
 
             val sb = StringBuilder()
@@ -339,15 +394,19 @@ class RagManager private constructor(private val context: Context) {
         query: String,
         topK: Int = TOP_K,
         includeMemory: Boolean,
+        chatId: String? = null,
     ): List<RagHit> {
-        if (!includeMemory && _documents.value.isEmpty()) return emptyList()
-        if (includeMemory && memoryDocs.isEmpty()) return emptyList()
-        ensureIndex()
-        if (chunks.isEmpty()) return emptyList()
+        val pool =
+            dataMutex.withLock {
+                if (!includeMemory && _documents.value.isEmpty()) return emptyList()
+                if (includeMemory && memoryDocs.isEmpty()) return emptyList()
+                ensureIndexLocked()
+                if (chunks.isEmpty()) return emptyList()
+                chunks.filter { c -> chunkInScope(c.isMemory, c.docId, includeMemory, chatId) }
+            }
+        if (pool.isEmpty()) return emptyList()
         val qTokens = tokenize(query).distinct()
         if (qTokens.isEmpty()) return emptyList()
-        val pool = chunks.filter { it.isMemory == includeMemory }
-        if (pool.isEmpty()) return emptyList()
         val qTokenSet = qTokens.toSet()
         // Document frequencies for this pool, computed once in O(C) instead of
         // re-scanning the whole pool for every query token (was O(Q x C)).
@@ -375,49 +434,45 @@ class RagManager private constructor(private val context: Context) {
 
     suspend fun search(query: String, topK: Int = TOP_K): List<RagHit> =
         withContext(Dispatchers.IO) {
+            initGate.await()
             searchInternal(query, topK = topK, includeMemory = false)
         }
 
-    private suspend fun ensureIndex() {
-        dataMutex.withLock {
-            if (!indexDirty && chunks.isNotEmpty()) return@withLock
-            val list = ArrayList<IndexedChunk>()
-            _documents.value.forEach { doc ->
-                try {
-                    val f = File(dir, "${doc.id}.json")
-                    if (f.exists()) {
-                        val parts: List<String> =
-                            gson.fromJson(f.readText(), object : TypeToken<List<String>>() {}.type) ?: emptyList()
-                        parts.forEachIndexed { i, p ->
-                            val tf = HashMap<String, Int>()
-                            tokenize(p).forEach { t -> tf[t] = (tf[t] ?: 0) + 1 }
-                            list.add(IndexedChunk(doc.id, doc.name, i, p, tf))
-                        }
+    private fun ensureIndexLocked() {
+        if (!indexDirty && chunks.isNotEmpty()) return
+        val list = ArrayList<IndexedChunk>()
+        _documents.value.forEach { doc ->
+            try {
+                val f = File(dir, "${doc.id}.json")
+                if (f.exists()) {
+                    val parts: List<String> =
+                        gson.fromJson(f.readText(), object : TypeToken<List<String>>() {}.type) ?: emptyList()
+                    parts.forEachIndexed { i, p ->
+                        val tf = HashMap<String, Int>()
+                        tokenize(p).forEach { t -> tf[t] = (tf[t] ?: 0) + 1 }
+                        list.add(IndexedChunk(doc.id, doc.name, i, p, tf))
                     }
-                } catch (_: Throwable) {
                 }
+            } catch (_: Throwable) {
             }
-            memoryDocs.forEach { doc ->
-                try {
-                    val f = File(dir, "${doc.id}.json")
-                    if (f.exists()) {
-                        val parts: List<String> =
-                            gson.fromJson(f.readText(), object : TypeToken<List<String>>() {}.type) ?: emptyList()
-                        parts.forEachIndexed { i, p ->
-                            val tf = HashMap<String, Int>()
-                            tokenize(p).forEach { t -> tf[t] = (tf[t] ?: 0) + 1 }
-                            list.add(IndexedChunk(doc.id, "memory", i, p, tf, isMemory = true))
-                        }
-                    }
-                } catch (_: Throwable) {
-                }
-            }
-            val df = HashMap<String, Int>()
-            list.forEach { c -> c.tf.keys.forEach { t -> df[t] = (df[t] ?: 0) + 1 } }
-            chunks = list
-            docFreq = df
-            indexDirty = false
         }
+        memoryDocs.forEach { doc ->
+            try {
+                val f = File(dir, "${doc.id}.json")
+                if (f.exists()) {
+                    val parts: List<String> =
+                        gson.fromJson(f.readText(), object : TypeToken<List<String>>() {}.type) ?: emptyList()
+                    parts.forEachIndexed { i, p ->
+                        val tf = HashMap<String, Int>()
+                        tokenize(p).forEach { t -> tf[t] = (tf[t] ?: 0) + 1 }
+                        list.add(IndexedChunk(doc.id, "memory", i, p, tf, isMemory = true))
+                    }
+                }
+            } catch (_: Throwable) {
+            }
+        }
+        chunks = list
+        indexDirty = false
     }
 
     private fun chunkText(text: String): List<String> {
@@ -447,4 +502,16 @@ class RagManager private constructor(private val context: Context) {
             .lowercase(Locale.ROOT)
             .split(Regex("[^\\p{L}\\p{Nd}]+"))
             .filter { it.length > 1 && it !in STOPWORDS }
+}
+
+/**
+ * Which indexed chunks a search may use. Documents never mix with memory, and
+ * archived chat memory only comes from the chat being answered: no chat id
+ * means no memory, so one conversation never leaks into another.
+ */
+internal fun chunkInScope(isMemory: Boolean, docId: String, includeMemory: Boolean, chatId: String?): Boolean {
+    if (isMemory != includeMemory) return false
+    if (!isMemory) return true
+    val id = chatId?.trim().orEmpty()
+    return id.isNotEmpty() && docId == "mem_$id"
 }

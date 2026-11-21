@@ -1,21 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    Auto Backup rules: non-sensitive app data is backed up, but the following
-    are EXCLUDED:
-    - EncryptedSharedPreferences files holding API tokens ("raikaai_secrets"
-      and its "_fallback"; see SettingsRepository.SECURE_PREFS_NAME). Tokens
-      must never leave the device via backup.
-    - The DataStore settings file ("datastore/raikaai_settings.preferences_pb";
-      see preferencesDataStore(name = "raikaai_settings")). Legacy token keys
-      may still be present there on devices that migrated.
-    - Chat history ("chats/"), which is private conversation content.
-    - Appended log files ("logs/"), which may contain sensitive text.
+    Legacy Auto Backup rules (Android 8–11). Cloud backup is disabled in the
+    manifest (allowBackup="false"), and these exclusions additionally ensure
+    that secrets, settings, chats, agent memory, RAG documents, attachments,
+    workspace files, the bundled Linux rootfs, and logs never leave the device.
 -->
 <full-backup-content>
     <exclude domain="sharedpref" path="raikaai_secrets.xml" />
     <exclude domain="sharedpref" path="raikaai_secrets_fallback.xml" />
     <exclude domain="file" path="datastore/raikaai_settings.preferences_pb" />
     <exclude domain="file" path="chats/" />
+    <exclude domain="file" path="roleplay_chats/" />
+    <exclude domain="file" path="agent/" />
+    <exclude domain="file" path="rag/" />
+    <exclude domain="file" path="chat_files/" />
+    <exclude domain="file" path="chat_images/" />
+    <exclude domain="file" path="workspace/" />
+    <exclude domain="file" path="alpine/" />
     <exclude domain="file" path="logs/" />
     <exclude domain="external" path="logs/" />
 </full-backup-content>

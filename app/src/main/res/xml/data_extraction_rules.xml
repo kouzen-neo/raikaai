@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Android 12+ (API 31+) data extraction rules. Prevents secrets, settings,
+    private chats, roleplay chats, agent memory, RAG documents, attachments,
+    workspace files, the Alpine Linux rootfs, and logs from leaving the device
+    via Cloud Backup or Device-to-Device transfer.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="raikaai_secrets.xml" />
+        <exclude domain="sharedpref" path="raikaai_secrets_fallback.xml" />
+        <exclude domain="file" path="datastore/raikaai_settings.preferences_pb" />
+        <exclude domain="file" path="chats/" />
+        <exclude domain="file" path="roleplay_chats/" />
+        <exclude domain="file" path="agent/" />
+        <exclude domain="file" path="rag/" />
+        <exclude domain="file" path="chat_files/" />
+        <exclude domain="file" path="chat_images/" />
+        <exclude domain="file" path="workspace/" />
+        <exclude domain="file" path="alpine/" />
+        <exclude domain="file" path="logs/" />
+        <exclude domain="external" path="logs/" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="raikaai_secrets.xml" />
+        <exclude domain="sharedpref" path="raikaai_secrets_fallback.xml" />
+        <exclude domain="file" path="datastore/raikaai_settings.preferences_pb" />
+        <exclude domain="file" path="chats/" />
+        <exclude domain="file" path="roleplay_chats/" />
+        <exclude domain="file" path="agent/" />
+        <exclude domain="file" path="rag/" />
+        <exclude domain="file" path="chat_files/" />
+        <exclude domain="file" path="chat_images/" />
+        <exclude domain="file" path="workspace/" />
+        <exclude domain="file" path="alpine/" />
+        <exclude domain="file" path="logs/" />
+        <exclude domain="external" path="logs/" />
+    </device-transfer>
+</data-extraction-rules>

@@ -93,4 +93,18 @@ class ServerValidationTest {
         assertTrue(small.contains("final"))
         assertTrue(large.contains("final"))
     }
+
+    @Test
+    fun `enableThinking propagates from config into engine params`() {
+        assertEquals(false, clamp(config = config().copy(enableThinking = false)).enableThinking)
+        assertEquals(true, clamp(config = config().copy(enableThinking = true)).enableThinking)
+    }
+
+    @Test
+    fun `Gson deserialized ChatMessage with missing fields normalizes safely`() {
+        val parsed = com.google.gson.Gson().fromJson("{}", PromptBuilder.ChatMessage::class.java)
+        val normalized = parsed.normalize()
+        assertEquals("", normalized.role)
+        assertEquals("", normalized.content)
+    }
 }

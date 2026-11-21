@@ -218,12 +218,15 @@ object UpdateManager {
     private fun verify(file: File, release: Release) {
         val url = release.checksumsUrl ?: return // older releases have no checksums file
         val text = http.newCall(Request.Builder().url(url).header("User-Agent", "RaikaAI-Android").build())
-            .execute().use { if (it.isSuccessful) it.body?.string() else null } ?: return
-        val expected = expectedSha256(text, release.apkName) ?: return
-        val actual = sha256(file)
-        if (!actual.equals(expected, ignoreCase = true)) {
+            .execute().use { resp ->
+                if (!resp.isSuccessful) {
+                    throw IOException("Couldn't fetch release checksums (HTTP ${resp.code})")
+                }
+                resp.body?.string() ?: throw IOException("Empty release checksums file")
+            }
+        checksumProblem(text, release.apkName, sha256(file))?.let { problem ->
             file.delete()
-            throw ChecksumException("The downloaded file doesn't match the release checksum. It was deleted; try again.")
+            throw ChecksumException(problem)
         }
     }
 
@@ -261,6 +264,20 @@ object UpdateManager {
         abis.forEach { abi -> apks.firstOrNull { it.contains("-$abi") }?.let { return it } }
         val known = listOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86")
         return apks.firstOrNull { n -> known.none { n.contains("-$it") } }
+    }
+
+    /**
+     * Fail-closed check of a downloaded APK against the release checksums:
+     * null when it matches, otherwise the reason to refuse the install.
+     */
+    fun checksumProblem(checksums: String, apkName: String, actualSha256: String): String? {
+        val expected = expectedSha256(checksums, apkName)
+            ?: return "Release checksums file does not list $apkName."
+        return if (actualSha256.equals(expected, ignoreCase = true)) {
+            null
+        } else {
+            "The downloaded file doesn't match the release checksum. It was deleted; try again."
+        }
     }
 
     /** Reads `<sha256>  <file>` lines (sha256sum format). */

@@ -31,4 +31,15 @@ class UpdateManagerTest {
         assertEquals(hash, UpdateManager.expectedSha256(text, "RaikaAI-v0.4.9-arm64-v8a.apk"))
         assertNull(UpdateManager.expectedSha256(text, "other.apk"))
     }
+
+    @Test
+    fun checksumFailsClosed() {
+        val good = "b".repeat(64)
+        val text = "$good  RaikaAI-v0.5.3-arm64-v8a.apk\n"
+        assertNull(UpdateManager.checksumProblem(text, "RaikaAI-v0.5.3-arm64-v8a.apk", good.uppercase()))
+        assertTrue(UpdateManager.checksumProblem(text, "RaikaAI-v0.5.3-arm64-v8a.apk", "c".repeat(64))!!.contains("doesn't match"))
+        // No entry for this APK, or an empty file: refuse instead of installing unverified.
+        assertTrue(UpdateManager.checksumProblem(text, "other.apk", good)!!.contains("does not list"))
+        assertTrue(UpdateManager.checksumProblem("", "RaikaAI-v0.5.3-arm64-v8a.apk", good) != null)
+    }
 }

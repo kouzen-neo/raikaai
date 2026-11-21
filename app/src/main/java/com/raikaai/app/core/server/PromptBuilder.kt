@@ -15,7 +15,18 @@ object PromptBuilder {
     data class ChatMessage(
         val role: String = "",
         val content: String = "",
-    )
+    ) {
+        /**
+         * Repairs JVM nulls produced when Gson deserializes untrusted client
+         * JSON with missing `role` or `content` fields.
+         */
+        @Suppress("USELESS_ELVIS")
+        fun normalize(): ChatMessage =
+            ChatMessage(
+                role = (role ?: "").trim(),
+                content = content ?: "",
+            )
+    }
 
     /**
      * Builds a formatted prompt string from message history based on the chosen format template.

@@ -48,6 +48,8 @@ object AttachmentProcessor {
     const val MAX_TOTAL_TEXT_CHARS = 2_000_000
     const val MAX_PDF_PAGES = 5
     const val PDF_RENDER_WIDTH = 1024
+    /** Hard cap per decompressed FlateDecode PDF stream to prevent zip-bomb OOMs. */
+    const val MAX_PDF_DECOMPRESSED_BYTES = 4_000_000
 
     private val TEXT_EXTENSIONS =
         setOf(
@@ -84,7 +86,11 @@ object AttachmentProcessor {
                     when {
                         p.isImage -> prepareImage(context, p)?.let { out += it }
                         p.mime == "application/pdf" || p.name.endsWith(".pdf", ignoreCase = true) -> {
-                            out += preparePdf(context, p)
+                            val pdfItems = preparePdf(context, p, textBudget)
+                            pdfItems.forEach { item ->
+                                item.extractedText?.let { textBudget = (textBudget - it.length).coerceAtLeast(0) }
+                            }
+                            out += pdfItems
                         }
                         isTextLike(p) -> {
                             val text = readTextCapped(context, p.uri, MAX_TEXT_CHARS_PER_FILE)
@@ -191,10 +197,11 @@ object AttachmentProcessor {
         }
     }
 
-    private fun preparePdf(context: Context, p: PendingAttachment): List<PreparedAttachment> {
+    private fun preparePdf(context: Context, p: PendingAttachment, remainingBudget: Int): List<PreparedAttachment> {
         val out = mutableListOf<PreparedAttachment>()
         val savedPdfFile = copyToFilesDir(context, p)
-        val extractedText = extractPdfText(savedPdfFile, MAX_TEXT_CHARS_PER_FILE)
+        val cap = minOf(MAX_TEXT_CHARS_PER_FILE, remainingBudget.coerceAtLeast(0))
+        val extractedText = if (cap > 0) extractPdfText(savedPdfFile, cap) else null
 
         // 1. Always retain the original document attachment so it is never dropped
         out +=
@@ -278,20 +285,7 @@ object AttachmentProcessor {
                     val streamData = actualBytes.copyOfRange(contentStart, streamEnd)
                     val decompressed: ByteArray? =
                         if (isFlate) {
-                            try {
-                                java.util.zip.InflaterInputStream(java.io.ByteArrayInputStream(streamData)).use { it.readBytes() }
-                            } catch (_: Exception) {
-                                try {
-                                    val inf = java.util.zip.Inflater(true)
-                                    inf.setInput(streamData)
-                                    val buf = ByteArray(minOf(streamLen * 4 + 1024, 500_000))
-                                    val n = inf.inflate(buf)
-                                    inf.end()
-                                    buf.copyOf(n)
-                                } catch (_: Exception) {
-                                    null
-                                }
-                            }
+                            inflateBounded(streamData, MAX_PDF_DECOMPRESSED_BYTES)
                         } else {
                             streamData
                         }
@@ -313,6 +307,38 @@ object AttachmentProcessor {
             KLog.w("Attachments", "PDF text extraction failed: ${t.message}")
             null
         }
+    }
+
+    /**
+     * Inflates a FlateDecode stream with a strict upper bound on output bytes
+     * so a high-ratio compressed stream (PDF decompression bomb) cannot OOM.
+     */
+    internal fun inflateBounded(streamData: ByteArray, maxBytes: Int): ByteArray? {
+        fun tryInflate(nowrap: Boolean): ByteArray? {
+            val inf = java.util.zip.Inflater(nowrap)
+            return try {
+                inf.setInput(streamData)
+                val out = ByteArrayOutputStream(minOf(streamData.size * 2 + 256, maxBytes))
+                val buf = ByteArray(16_384)
+                var total = 0
+                while (!inf.finished() && total < maxBytes) {
+                    val want = minOf(buf.size, maxBytes - total)
+                    val n = inf.inflate(buf, 0, want)
+                    if (n > 0) {
+                        out.write(buf, 0, n)
+                        total += n
+                    } else if (inf.needsInput() || inf.needsDictionary()) {
+                        break
+                    }
+                }
+                if (total > 0) out.toByteArray() else null
+            } catch (_: Exception) {
+                null
+            } finally {
+                inf.end()
+            }
+        }
+        return tryInflate(nowrap = false) ?: tryInflate(nowrap = true)
     }
 
     private fun findBytes(source: ByteArray, target: ByteArray, start: Int = 0): Int {
@@ -467,11 +493,16 @@ object AttachmentProcessor {
                     out.write(buf, 0, n)
                 }
                 val bytes = out.toByteArray()
-                // Cheap charset handling: try UTF-8, fall back to ISO-8859-1.
+                // Strict UTF-8 check first so invalid byte sequences genuinely
+                // fall back to ISO-8859-1 instead of silently inserting U+FFFD.
                 val text =
                     try {
-                        String(bytes, Charsets.UTF_8)
-                    } catch (_: Exception) {
+                        Charsets.UTF_8.newDecoder()
+                            .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+                            .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
+                            .decode(java.nio.ByteBuffer.wrap(bytes))
+                            .toString()
+                    } catch (_: java.nio.charset.CharacterCodingException) {
                         String(bytes, Charsets.ISO_8859_1)
                     }
                 // Strip NULs/control garbage that sometimes appears in mislabeled files.
@@ -489,7 +520,13 @@ object AttachmentProcessor {
         context.contentResolver.openInputStream(p.uri)?.use { input ->
             dest.outputStream().use { input.copyTo(it) }
         }
-        mirrorToWorkspace(context, p)
+        // Mirror from the already-copied app file instead of re-reading the SAF stream.
+        runCatching {
+            val dir = workspaceUploadsDir(context)
+            var mirror = File(dir, safeName)
+            if (mirror.exists()) mirror = File(dir, "${System.currentTimeMillis()}_$safeName")
+            dest.inputStream().use { input -> mirror.outputStream().use { input.copyTo(it) } }
+        }.onFailure { KLog.w("Attachments", "Workspace mirror skipped for ${p.name}: ${it.message}") }
         return dest
     }
 }

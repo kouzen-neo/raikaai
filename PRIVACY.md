@@ -9,6 +9,11 @@ app. What leaves your phone depends only on the features you use.
 - Everything sent to an **on-device model**: prompts, images, audio, documents and replies.
 - The Linux environment and its files (`/workspace`, `/root/.raika`).
 - API keys and tokens, encrypted with the Android Keystore.
+- **No cloud backup.** Android's Google backup and phone-to-phone transfer are turned off for
+  RaikaAI, so none of the above is copied off the phone. Before moving to a new phone, export
+  your chats in **Settings → Data & Storage**.
+- **Chat Memory** (older turns of a long chat, kept for recall) is used only in the chat it came
+  from, never in other chats.
 
 ## Sent only when you use the feature
 

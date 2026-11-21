@@ -138,6 +138,7 @@ class ChatServerService : Service() {
                 contextWindow = settings.contextWindowTokens,
                 backend = settings.backend,
                 modelPath = modelPath,
+                enableThinking = settings.enableThinking,
             )
         }
     }
@@ -232,29 +233,34 @@ class ChatServerService : Service() {
         }
     }
 
+    private val wakeLockLock = Any()
     private var wakeLock: PowerManager.WakeLock? = null
 
     private fun acquireWakeLock() {
-        try {
-            var wl = wakeLock
-            if (wl == null) {
-                val pm = getSystemService(Context.POWER_SERVICE) as? PowerManager ?: return
-                wl = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "RaikaAI:ServerGeneration")
-                wakeLock = wl
+        synchronized(wakeLockLock) {
+            try {
+                var wl = wakeLock
+                if (wl == null) {
+                    val pm = getSystemService(Context.POWER_SERVICE) as? PowerManager ?: return
+                    wl = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "RaikaAI:ServerGeneration")
+                    wakeLock = wl
+                }
+                if (wl.isHeld) wl.release() // reset the safety timeout
+                wl.acquire(WAKE_LOCK_TIMEOUT_MS)
+            } catch (e: Exception) {
+                Log.e("ChatServerService", "Failed to acquire wake lock", e)
             }
-            if (wl.isHeld) wl.release() // reset the safety timeout
-            wl.acquire(WAKE_LOCK_TIMEOUT_MS)
-        } catch (e: Exception) {
-            Log.e("ChatServerService", "Failed to acquire wake lock", e)
         }
     }
 
     private fun releaseWakeLock() {
-        try {
-            wakeLock?.let { if (it.isHeld) it.release() }
-        } catch (_: Exception) {
+        synchronized(wakeLockLock) {
+            try {
+                wakeLock?.let { if (it.isHeld) it.release() }
+            } catch (_: Exception) {
+            }
+            wakeLock = null
         }
-        wakeLock = null
     }
 
     private fun lanHint(): String =

@@ -174,4 +174,17 @@ class PdfAttachmentTest {
         assertEquals(1, legacyResolved.size)
         assertEquals("Prompt Notebook.txt", legacyResolved[0].name)
     }
+
+    @Test
+    fun `inflateBounded caps high-ratio compressed stream without OOM`() {
+        val repeated = ByteArray(1_000_000) { 'A'.code.toByte() }
+        val compressed = ByteArrayOutputStream().apply {
+            DeflaterOutputStream(this).use { it.write(repeated) }
+        }.toByteArray()
+        assertTrue(compressed.size < 20_000)
+
+        val capped = AttachmentProcessor.inflateBounded(compressed, maxBytes = 64_000)
+        assertNotNull(capped)
+        assertEquals(64_000, capped!!.size)
+    }
 }
