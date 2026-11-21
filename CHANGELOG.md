@@ -7,7 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-
 ## [Unreleased]
 
 ### Added
@@ -15,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - "remind me tomorrow at 12am to …" now schedules tomorrow at midnight instead of skipping a day.
+- The keyboard no longer stays up when you open the sidebar or the Characters drawer. Opening either one now clears focus from the composer, so the drawer is not covered by the IME and the chat input does not keep focus behind it. Swiping the drawer open is covered too.
 
 ## [0.5.1] - 2026-11-21
 
