@@ -54,7 +54,7 @@ data class BundledProot(
 data class ContainerManifest(
     val alpineVersion: String = ALPINE_VERSION,
     val rootfsUrl: String = ALPINE_ROOTFS_URL,
-    val rootfsSha256: String = "", // pin when the release checksum is known
+    val rootfsSha256: String = BUNDLED_ROOTFS_SHA256,
 )
 
 /** Resolves the bundled proot payload for an Android ABI. Null = unsupported. */
@@ -352,27 +352,56 @@ internal fun dedupKeyOf(command: String): String {
     return s
 }
 
+/**
+ * Recursive force-delete of the root, its contents or a top-level system,
+ * workspace or phone-storage folder. Deeper paths (`rm -rf /workspace/build`)
+ * are not destructive at this level and simply ask.
+ */
+private val DESTRUCTIVE_RM_REGEX =
+    Regex("""(?:^|[\s;|&])rm\s+(?:[^;&|\n]*\s+)?(?:-[a-zA-Z]*[rR][a-zA-Z]*f[a-zA-Z]*|-[a-zA-Z]*f[a-zA-Z]*[rR][a-zA-Z]*|(?:-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)\s+(?:[^;&|\n]*\s+)?(?:-[a-zA-Z]*f[a-zA-Z]*|--force)|(?:-[a-zA-Z]*f[a-zA-Z]*|--force)\s+(?:[^;&|\n]*\s+)?(?:-[a-zA-Z]*[rR][a-zA-Z]*|--recursive))\s+(?:[^;&|\n]*\s)?["']?/(?:\*|(?:bin|boot|dev|etc|home|lib|opt|proc|root|sbin|sdcard|storage|sys|usr|var|workspace)/?\*?)?["']?(?=$|[\s;&|])""")
+
+private val ALLOWED_APK_FLAGS = setOf("--no-cache", "-q", "--quiet")
+
+private fun hasUntrustedRepository(cmd: String): Boolean {
+    val tokens = cmd.split(Regex("\\s+"))
+    for (i in tokens.indices) {
+        val tok = tokens[i]
+        val repoUrl = when {
+            tok.startsWith("--repository=") -> tok.removePrefix("--repository=")
+            tok == "--repository" || tok == "-X" -> tokens.getOrNull(i + 1).orEmpty()
+            else -> continue
+        }.trim('\'', '"')
+        if (!repoUrl.startsWith("https://dl-cdn.alpinelinux.org/")) return true
+    }
+    return false
+}
+
 fun installPolicyFor(command: String): InstallPolicy {
     val cmd = command.trim()
     if (cmd.isEmpty()) return InstallPolicy.DENY
     // Destructive patterns are never auto-run.
-    if (cmd.contains("rm -rf /") || cmd.contains("--allow-untrusted")) return InstallPolicy.DENY
-    if (cmd.contains("--repository") && !cmd.contains("dl-cdn.alpinelinux.org")) return InstallPolicy.DENY
+    if (DESTRUCTIVE_RM_REGEX.containsMatchIn(cmd) || cmd.contains("--allow-untrusted")) return InstallPolicy.DENY
+    if (hasUntrustedRepository(cmd)) return InstallPolicy.DENY
+    val hasShellOp = shellOperators.any { op -> cmd.contains(op) }
     // Single safe read-only invocation with plain args: no prompt fatigue.
     val parts = cmd.split(Regex("\\s+"))
     val base = parts.first().substringAfterLast("/")
-    if (base in safeReadonlyBinaries &&
-        parts.drop(1).none { arg -> shellOperators.any { op -> arg.contains(op) } }
-    ) {
+    if (!hasShellOp && base in safeReadonlyBinaries) {
         return InstallPolicy.ALLOW
     }
     // Arbitrary code managers always ask.
     if (cmd.startsWith("pip install") || cmd.startsWith("pip3 install")) return InstallPolicy.ASK
     if (cmd.startsWith("npm i") || cmd.startsWith("npm install")) return InstallPolicy.ASK
-    // Official apk packages: allowlist = auto, rest = ask.
-    if (cmd.startsWith("apk add")) {
-        val pkg = cmd.removePrefix("apk add").replace("--no-cache", "").trim().split(Regex("\\s+")).firstOrNull().orEmpty()
-        return if (pkg in allowlistedApkPackages) InstallPolicy.ALLOW else InstallPolicy.ASK
+    // Official apk packages: allowlist = auto (only when no shell operators and every package is allowlisted).
+    if (!hasShellOp && parts.size >= 3 && parts[0] == "apk" && parts[1] == "add") {
+        val args = parts.drop(2)
+        val unknownFlags = args.any { it.startsWith("-") && it !in ALLOWED_APK_FLAGS }
+        val pkgs = args.filterNot { it.startsWith("-") }
+        return if (!unknownFlags && pkgs.isNotEmpty() && pkgs.all { it in allowlistedApkPackages }) {
+            InstallPolicy.ALLOW
+        } else {
+            InstallPolicy.ASK
+        }
     }
     return InstallPolicy.ASK
 }

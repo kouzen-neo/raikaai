@@ -14,7 +14,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -171,12 +173,18 @@ fi
      */
     val previewUrl: StateFlow<String?> = _previewUrl.asStateFlow()
 
+    private data class DaemonEntry(
+        val proc: Process,
+        @Volatile var port: Int? = null,
+    )
+
     private var serveProcess: Process? = null
     private var serveJob: Job? = null
     private var installJob: Job? = null
     private val activeProcs = java.util.concurrent.ConcurrentHashMap.newKeySet<Process>()
+    private val mcpProcs = java.util.concurrent.ConcurrentHashMap.newKeySet<Process>()
     private var resolvLastRefresh = 0L
-    private val daemons = java.util.concurrent.ConcurrentHashMap<Int, Process>()
+    private val daemons = java.util.concurrent.ConcurrentHashMap<Int, DaemonEntry>()
     private var daemonSeq = 0
     private val MAX_DAEMONS = 5
 
@@ -394,6 +402,8 @@ fi
 
     /** Deletes the rootfs but keeps workspace/ (user files survive). */
     suspend fun wipe() {
+        killAllDaemons()
+        stopMcpProcesses()
         stopServe()
         withContext(Dispatchers.IO) {
             alpineDir.deleteRecursively()
@@ -433,7 +443,7 @@ fi
             runCatching { refreshResolvConf() }
         }
         return execProot(
-            args = baseArgs() + listOf("/bin/sh", "-c", clean),
+            args = baseArgs() + guestShArgs(clean),
             extraEnv = extraEnv,
             timeoutSec = timeoutSec,
             keepTailOutput = keepTailOutput,
@@ -485,6 +495,14 @@ fi
     }
 
     /**
+     * Wraps a guest `/bin/sh -c` invocation so processes inside Alpine see
+     * `TMPDIR=/tmp` (existing inside the rootfs) while host PRoot/libshmem
+     * continue using `filesDir/proot-tmp`.
+     */
+    private fun guestShArgs(command: String): List<String> =
+        listOf("/bin/busybox", "env", "TMPDIR=/tmp", "TEMP=/tmp", "TMP=/tmp", "/bin/sh", "-c", command)
+
+    /**
      * Raw proot invocation (single-flight). Used by [run] and engine probes.
      * No install gate: probes must run even on broken installs.
      */
@@ -502,27 +520,39 @@ fi
                     pb.redirectErrorStream(false)
                     withContainerEnv(pb)
                     extraEnv.forEach { (k, v) -> pb.environment()[k] = v }
-                    proc = pb.start()
-                    activeProcs.add(proc)
-                    val finished = try {
-                        proc.waitFor(timeoutSec, TimeUnit.SECONDS)
-                    } finally {
-                        activeProcs.remove(proc)
-                    }
-                    if (!finished) {
-                        proc.destroyForcibly()
-                        return@withContext RunResult(
-                            readCapped(proc.inputStream, keepTailOutput),
-                            readCapped(proc.errorStream, keepTailOutput),
-                            -1,
-                            timedOut = true,
+                    val started = pb.start()
+                    proc = started
+                    activeProcs.add(started)
+                    // Drain stdout & stderr concurrently BEFORE waitFor(): otherwise
+                    // any command writing >64 KB fills the kernel pipe buffer and
+                    // deadlocks until timeoutSec kills it.
+                    coroutineScope {
+                        val stdoutDeferred = async(Dispatchers.IO) {
+                            runCatching { readCapped(started.inputStream, keepTailOutput) }.getOrDefault("")
+                        }
+                        val stderrDeferred = async(Dispatchers.IO) {
+                            runCatching { readCapped(started.errorStream, keepTailOutput) }.getOrDefault("")
+                        }
+                        val finished = try {
+                            started.waitFor(timeoutSec, TimeUnit.SECONDS)
+                        } finally {
+                            activeProcs.remove(started)
+                        }
+                        if (!finished) {
+                            started.destroyForcibly()
+                            return@coroutineScope RunResult(
+                                stdoutDeferred.await(),
+                                stderrDeferred.await(),
+                                -1,
+                                timedOut = true,
+                            )
+                        }
+                        RunResult(
+                            stdoutDeferred.await(),
+                            stderrDeferred.await(),
+                            started.exitValue(),
                         )
                     }
-                    RunResult(
-                        readCapped(proc.inputStream, keepTailOutput),
-                        readCapped(proc.errorStream, keepTailOutput),
-                        proc.exitValue(),
-                    )
                 } catch (t: Throwable) {
                     try { proc?.destroyForcibly() } catch (_: Throwable) {}
                     RunResult("", "run failed: ${t.message ?: t.javaClass.simpleName}", -1)
@@ -550,7 +580,7 @@ fi
             try {
                 workspaceDir.mkdirs()
                 val pb = ProcessBuilder(
-                    listOf(prootBin.absolutePath) + baseArgs() + listOf("/bin/sh", "-c", command),
+                    listOf(prootBin.absolutePath) + baseArgs() + guestShArgs(command),
                 )
                 pb.redirectErrorStream(false)
                 withContainerEnv(pb)
@@ -633,7 +663,7 @@ fi
             try {
                 workspaceDir.mkdirs()
                 val pb = ProcessBuilder(
-                    listOf(prootBin.absolutePath) + baseArgs() + listOf("/bin/sh", "-c", command),
+                    listOf(prootBin.absolutePath) + baseArgs() + guestShArgs(command),
                 )
                 pb.redirectErrorStream(false)
                 withContainerEnv(pb)
@@ -735,7 +765,7 @@ fi
                 workspaceDir.mkdirs()
                 val pb = ProcessBuilder(
                     listOf(ptyBin.absolutePath, rows.coerceIn(2, 300).toString(), cols.coerceIn(10, 400).toString(), prootBin.absolutePath) +
-                        baseArgs() + listOf("/bin/sh", "-c", command),
+                        baseArgs() + guestShArgs(command),
                 )
                 pb.redirectErrorStream(true)
                 withContainerEnv(pb)
@@ -839,8 +869,32 @@ fi
 
     /** Stops every background server started with `&` (used before a reset). */
     fun stopAllDaemons() {
-        daemons.values.forEach { runCatching { it.destroyForcibly() } }
+        daemons.values.forEach { runCatching { it.proc.destroyForcibly() } }
         daemons.clear()
+        recomputePreviewUrl(null)
+    }
+
+    /** Stops all long-lived stdio MCP processes spawned inside Alpine. */
+    fun stopMcpProcesses() {
+        mcpProcs.forEach { proc ->
+            try { proc.destroyForcibly() } catch (_: Throwable) {}
+        }
+        mcpProcs.clear()
+    }
+
+    /**
+     * Recomputes [_previewUrl] when a daemon or busybox httpd exits, preserving
+     * any other still-running server's preview link.
+     */
+    private fun recomputePreviewUrl(exitedPort: Int?) {
+        val current = _previewUrl.value
+        val exitedUrl = exitedPort?.let { "http://127.0.0.1:$it" }
+        val shouldReplace = exitedUrl == null || current == exitedUrl
+        if (!shouldReplace && current != null) return
+        val nextPort =
+            daemons.values.firstOrNull { it.proc.isAlive && it.port != null }?.port
+                ?: _servedPort.value
+        _previewUrl.value = nextPort?.let { "http://127.0.0.1:$it" }
     }
 
     /** Forcibly stops all currently running foreground commands, if any (terminal Ctrl+C). */
@@ -868,7 +922,7 @@ fi
             withContext(Dispatchers.IO) {
                 // Reap daemons whose process already exited so a crashed server
                 // never permanently consumes a slot.
-                daemons.entries.removeAll { !it.value.isAlive }
+                daemons.entries.removeAll { !it.value.proc.isAlive }
                 if (daemons.size >= MAX_DAEMONS) {
                     return@withContext RunResult(
                         "",
@@ -880,13 +934,14 @@ fi
                 try {
                     workspaceDir.mkdirs()
                     val pb = ProcessBuilder(
-                        listOf(prootBin.absolutePath) + baseArgs() + listOf("/bin/sh", "-c", command),
+                        listOf(prootBin.absolutePath) + baseArgs() + guestShArgs(command),
                     )
                     pb.redirectErrorStream(false)
                     withContainerEnv(pb)
                     val proc = pb.start()
                     val id = ++daemonSeq
-                    daemons[id] = proc
+                    val entry = DaemonEntry(proc)
+                    daemons[id] = entry
 
                     val startupLog = StringBuilder()
                     val logLock = Any()
@@ -902,11 +957,8 @@ fi
                     // Reap on exit.
                     scope.launch {
                         try { proc.waitFor() } catch (_: Throwable) {}
-                        daemons.remove(id)
-                        if (daemons.keys.none { it == id }) {
-                            // Last owner of the discovered port is gone.
-                            _previewUrl.value = null
-                        }
+                        val removed = daemons.remove(id)
+                        recomputePreviewUrl(removed?.port)
                     }
 
                     // Wait briefly for a banner that names the port, or for the
@@ -922,7 +974,8 @@ fi
                     val log = synchronized(logLock) { startupLog.toString() }.trim()
                     val announced = parseAnnouncedPort(log)
                     val port = announced ?: probeListeningPort()
-                    if (port != null) {
+                    if (port != null && proc.isAlive) {
+                        entry.port = port
                         _previewUrl.value = "http://127.0.0.1:$port"
                     }
                     val portNote = when {
@@ -1005,11 +1058,12 @@ fi
     suspend fun stopDaemon(id: Int): Boolean {
         return runMutex.withLock {
             withContext(Dispatchers.IO) {
-                val proc = daemons.remove(id) ?: return@withContext false
+                val entry = daemons.remove(id) ?: return@withContext false
+                val proc = entry.proc
                 try { proc.destroy() } catch (_: Throwable) {}
                 try { proc.waitFor(2, TimeUnit.SECONDS) } catch (_: Throwable) {}
                 try { proc.destroyForcibly() } catch (_: Throwable) {}
-                if (daemons.isEmpty()) _previewUrl.value = null
+                recomputePreviewUrl(entry.port)
                 true
             }
         }
@@ -1073,19 +1127,20 @@ fi
                     withContainerEnv(pb)
                     val proc = pb.start()
                     // Give httpd a moment; if it exits immediately the port is taken.
-                    Thread.sleep(600)
+                    delay(600)
                     val alive = try { proc.exitValue(); false } catch (_: IllegalThreadStateException) { true }
                     if (!alive) {
                         val err = readCapped(proc.errorStream)
                         return@withContext "ERROR:httpd failed to bind port $port. $err"
                     }
+                    startLogDrains(proc) {}
                     serveProcess = proc
                     _servedPort.value = port
                     _previewUrl.value = "http://127.0.0.1:$port"
                     serveJob = scope.launch {
                         try { proc.waitFor() } catch (_: Throwable) {}
-                        _servedPort.value = null
-                        _previewUrl.value = null
+                        if (_servedPort.value == port) _servedPort.value = null
+                        recomputePreviewUrl(port)
                     }
                     "http://127.0.0.1:$port"
                 } catch (t: Throwable) {
@@ -1096,7 +1151,7 @@ fi
     }
 
     suspend fun stopServe() {
-        killAllDaemons()
+        val prevPort = _servedPort.value
         serveJob?.cancel()
         serveJob = null
         withContext(Dispatchers.IO) {
@@ -1106,6 +1161,7 @@ fi
             serveProcess = null
         }
         _servedPort.value = null
+        recomputePreviewUrl(prevPort)
     }
 
     fun close() = scope.cancel()
@@ -1129,14 +1185,16 @@ fi
 
     /**
      * Starts a long-lived shell command inside Alpine with open stdin/stdout
-     * (stdio MCP servers). The caller owns the process and must destroy it.
+     * (stdio MCP servers). Tracked separately from [activeProcs] so terminal
+     * Ctrl+C never kills running MCP servers.
      */
     fun startShellProcess(command: String): Process {
         check(isInstalled()) { "Linux environment is not installed" }
-        val pb = ProcessBuilder(listOf(prootBin.absolutePath) + baseArgs() + listOf("/bin/sh", "-c", command))
+        mcpProcs.removeIf { !it.isAlive }
+        val pb = ProcessBuilder(listOf(prootBin.absolutePath) + baseArgs() + guestShArgs(command))
         pb.redirectErrorStream(false)
         withContainerEnv(pb)
-        return pb.start().also { activeProcs.add(it) }
+        return pb.start().also { mcpProcs.add(it) }
     }
 
     private fun withContainerEnv(pb: ProcessBuilder) {
@@ -1154,15 +1212,11 @@ fi
         env["PROOT_NO_SECCOMP"] = "1"
         // Guest shells inherit an empty PATH through proot: set Alpine's
         // default so apk/ls/busybox applets resolve without full paths.
-        // Guest TMPDIR points inside the guest (/tmp is created on install);
-        // PROOT_TMP_DIR stays host-side for proot's own glue files.
         env["PATH"] = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
         env["HOME"] = "/root"
-        env["TMPDIR"] = "/tmp"
-        env["TEMP"] = "/tmp"
-        env["TMP"] = "/tmp"
-        // proot's compiled-in tmp points at the Termux prefix: redirect all
-        // temp (glue rootfs, f2fs probe, shm) into app storage.
+        // proot + libandroid-shmem need host-writable temp paths (outside the
+        // non-existent Termux prefix). Guest processes receive TMPDIR=/tmp via
+        // guestShArgs() so tools inside Alpine always see a valid guest dir.
         val tmpDir = File(app.filesDir, "proot-tmp").apply { mkdirs() }.absolutePath
         env["PROOT_TMP_DIR"] = tmpDir
         env["TMPDIR"] = tmpDir
