@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.5.3] - 2026-11-21
+
+### Added
+- Pure Black (OLED) switch in Settings → Appearance for true black backgrounds in dark theme.
+
+### Changed
+- RaikaAI is no longer included in Android's Google backup or phone-to-phone transfer. Chats, characters, memory, documents, Linux files, settings and keys stay on this phone only; a new phone starts fresh.
+- Chat Memory only recalls older turns from the same chat. Memories from one chat (or a roleplay) no longer show up in another.
+- App updates refuse to install when the release's checksum can't be checked, instead of installing unverified.
+- Linux permissions: chained commands (`apk add curl && …`), extra packages outside the safe list and unofficial package sources now ask first. Deleting the whole system, `/workspace` or `/sdcard` is blocked; deleting a normal folder such as `/workspace/build` asks instead of being blocked.
+- `/stop-serve` stops only the preview server; background servers you started keep running.
+- Local API server: browser pages from other sites can't read `/v1/models` either, unknown model names return "not found", and the port must be 1024–65535.
+
+### Fixed
+- Linux commands with a lot of output no longer freeze until they time out.
+- Programs inside Linux now get a working temp folder (`/tmp`).
+- Stopping one background server no longer hides the preview link of another one.
+- Editing an earlier message no longer deletes replies saved on the other branch.
+- Two MCP calls at the same time no longer mix up their answers, and Ctrl+C in the terminal no longer stops MCP servers.
+- Summarizing a link to a private or local address is refused before anything is fetched. Very large pages and PDFs can no longer run the app out of memory.
+- The context meter uses the cloud model's context size when you chat with a cloud model.
+- Terminal → Files shows binary files as files, and folders no longer offer Share, Save or Send to Chat.
+- `/permission` shows Full access when it is on.
+- Voice recording and playback no longer leak or crash when stopped quickly.
+- Downloading several models at once no longer mixes up their progress, and leftover partial files are cleaned up.
+- Errors, compaction and Compare mode stay with the chat they belong to when you switch chats.
+- Logs, Agent and Characters no longer read files on the main thread (less stutter).
+- Reminders reject impossible times such as "0pm", "13am" or "in 0 minutes".
+
 ## [0.5.2] - 2026-11-21
 
 ### Added

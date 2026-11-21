@@ -87,7 +87,7 @@ through their buttons; tapping outside or pressing back does not deny them.
 | `/model` | Switch the model |
 | `/remember <fact>` | Save a fact to memory |
 | `/search <query>`, `/image <prompt>`, `/remind in <n> minutes to <note>` (or `at 15:30` / `at 3pm`), `/remind tomorrow at 9am to <note>` | Tools |
-| `/run <command>`, `/serve [port]`, `/env install \| wipe` | Linux |
+| `/run <command>`, `/serve [port]`, `/stop-serve` (stops the preview server only; background servers keep running), `/env install \| wipe` | Linux |
 | `/permission ask \| auto \| full` | Permission level |
 | `/continue`, `/ooc <note>`, `/scene <direction>` | Roleplay only |
 | `/help` | List commands |
