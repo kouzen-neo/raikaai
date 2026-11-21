@@ -343,11 +343,16 @@ object RemoteAiClient {
             }
         }
 
+    /** A generated picture and how it was made ("generations", "edits", "chat" or "text"). */
+    class GeneratedImage(val bytes: ByteArray, val via: String)
+
     /**
-     * Generates an image via an OpenAI-compatible `/v1/images/generations`
-     * endpoint (e.g. OpenRouter image models). Requests `b64_json` and falls
-     * back to downloading `url` when the server returns one instead.
-     * Returns the raw image bytes (PNG/JPEG as served).
+     * Generates a picture. With [references] (a character's avatar, a photo
+     * from the chat) it tries, in order: `images/generations` with the
+     * pictures as `image` / `images` data URLs (9router and similar Gemini
+     * proxies), `images/edits` (OpenAI style), `chat/completions` with image
+     * output (OpenRouter style), and last a text-only request so a picture
+     * still comes back.
      */
     suspend fun generateImage(
         baseUrl: String,
@@ -355,61 +360,99 @@ object RemoteAiClient {
         model: String,
         prompt: String,
         size: String = "1024x1024",
-    ): Result<ByteArray> =
+        references: List<ByteArray> = emptyList(),
+    ): Result<GeneratedImage> =
         withContext(Dispatchers.IO) {
+            val refs = references.filter { it.isNotEmpty() }
+            if (refs.isNotEmpty()) {
+                runCatching { requestImage(baseUrl, apiKey, generationsRequest(baseUrl, model, prompt, size, refs)) }
+                    .onSuccess { return@withContext Result.success(GeneratedImage(it, "generations")) }
+                    .onFailure { KLog.w("RemoteAiClient", "Image with reference failed: ${it.message}") }
+                runCatching { requestImage(baseUrl, apiKey, editRequest(baseUrl, model, prompt, size, refs)) }
+                    .onSuccess { return@withContext Result.success(GeneratedImage(it, "edits")) }
+                    .onFailure { KLog.w("RemoteAiClient", "Image edit with reference failed: ${it.message}") }
+                runCatching { requestImage(baseUrl, apiKey, chatImageRequest(baseUrl, model, prompt, refs)) }
+                    .onSuccess { return@withContext Result.success(GeneratedImage(it, "chat")) }
+                    .onFailure { KLog.w("RemoteAiClient", "Chat image with reference failed: ${it.message}") }
+            }
             try {
-                val url = RemoteProviders.endpoint(baseUrl, "images/generations")
-                val payload =
-                    JSONObject()
-                        .put("model", model)
-                        .put("prompt", prompt)
-                        .put("size", size)
-                        .put("response_format", "b64_json")
-                        .toString()
-                val reqBuilder =
-                    Request.Builder()
-                        .url(url)
-                        .post(payload.toRequestBody(JSON_MEDIA_TYPE))
-                RemoteProviders.authHeaders(baseUrl, apiKey).forEach { (k, v) -> reqBuilder.addHeader(k, v) }
-                RemoteTimeouts.client().newCall(reqBuilder.build()).execute().use { resp ->
-                    if (!resp.isSuccessful) {
-                        val errBody = resp.body?.string().orEmpty().take(300)
-                        return@withContext Result.failure(
-                            Exception("HTTP ${resp.code}: ${errBody.ifBlank { resp.message }}"),
-                        )
-                    }
-                    val body = resp.body?.string() ?: "{}"
-                    val data = JSONObject(body).optJSONArray("data") ?: JSONArray()
-                    if (data.length() == 0) {
-                        return@withContext Result.failure(Exception("Empty image response"))
-                    }
-                    val first = data.getJSONObject(0)
-                    val b64 = first.optString("b64_json", "")
-                    if (b64.isNotBlank()) {
-                        return@withContext Result.success(
-                            android.util.Base64.decode(b64, android.util.Base64.DEFAULT),
-                        )
-                    }
-                    val imageUrl = first.optString("url", "")
-                    if (imageUrl.isNotBlank()) {
-                        val imgReq = Request.Builder().url(imageUrl).get().build()
-                        client.newCall(imgReq).execute().use { imgResp ->
-                            if (!imgResp.isSuccessful) {
-                                return@withContext Result.failure(Exception("Image download HTTP ${imgResp.code}"))
-                            }
-                            val bytes = imgResp.body?.bytes()
-                            if (bytes != null && bytes.isNotEmpty()) {
-                                return@withContext Result.success(bytes)
-                            }
-                        }
-                    }
-                    Result.failure(Exception("No image data in response"))
-                }
+                val req = generationsRequest(baseUrl, model, prompt, size, emptyList())
+                Result.success(GeneratedImage(requestImage(baseUrl, apiKey, req), "text"))
             } catch (e: Exception) {
                 KLog.e("RemoteAiClient", "Image generation failed: ${e.message}", e)
                 Result.failure(e)
             }
         }
+
+    private fun generationsRequest(baseUrl: String, model: String, prompt: String, size: String, refs: List<ByteArray>): Request.Builder {
+        val payload = JSONObject()
+            .put("model", model)
+            .put("prompt", prompt)
+            .put("size", size)
+            .put("response_format", "b64_json")
+        if (refs.isNotEmpty()) {
+            val urls = refs.map { "data:image/png;base64," + android.util.Base64.encodeToString(it, android.util.Base64.NO_WRAP) }
+            payload.put("image", urls.first())
+            if (urls.size > 1) payload.put("images", JSONArray(urls))
+        }
+        return Request.Builder()
+            .url(RemoteProviders.endpoint(baseUrl, "images/generations"))
+            .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
+    }
+
+    private fun editRequest(baseUrl: String, model: String, prompt: String, size: String, refs: List<ByteArray>): Request.Builder {
+        val body = okhttp3.MultipartBody.Builder()
+            .setType(okhttp3.MultipartBody.FORM)
+            .addFormDataPart("model", model)
+            .addFormDataPart("prompt", prompt)
+            .addFormDataPart("size", size)
+        val field = if (refs.size == 1) "image" else "image[]"
+        refs.forEachIndexed { i, bytes ->
+            body.addFormDataPart(field, "reference_$i.png", bytes.toRequestBody("image/png".toMediaType()))
+        }
+        return Request.Builder().url(RemoteProviders.endpoint(baseUrl, "images/edits")).post(body.build())
+    }
+
+    private fun chatImageRequest(baseUrl: String, model: String, prompt: String, refs: List<ByteArray>): Request.Builder {
+        val content = JSONArray().put(JSONObject().put("type", "text").put("text", prompt))
+        refs.forEach { bytes ->
+            val b64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+            content.put(
+                JSONObject().put("type", "image_url")
+                    .put("image_url", JSONObject().put("url", "data:image/png;base64,$b64")),
+            )
+        }
+        val payload = JSONObject()
+            .put("model", model)
+            .put("stream", false)
+            .put("modalities", JSONArray().put("image").put("text"))
+            .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", content)))
+        return Request.Builder()
+            .url(RemoteProviders.endpoint(baseUrl, "chat/completions"))
+            .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
+    }
+
+    /** Runs an image request and returns the picture's bytes, or throws. */
+    private fun requestImage(baseUrl: String, apiKey: String, reqBuilder: Request.Builder): ByteArray {
+        RemoteProviders.authHeaders(baseUrl, apiKey).forEach { (k, v) -> reqBuilder.addHeader(k, v) }
+        RemoteTimeouts.client().newCall(reqBuilder.build()).execute().use { resp ->
+            val body = resp.body?.string().orEmpty()
+            if (!resp.isSuccessful) {
+                throw Exception("HTTP ${resp.code}: ${body.take(300).ifBlank { resp.message }}")
+            }
+            val found = com.raikaai.app.core.image.ImageResponse.find(body)
+                ?: throw Exception("No image data in response")
+            if (found.startsWith("data:")) {
+                return android.util.Base64.decode(found.substringAfter("base64,"), android.util.Base64.DEFAULT)
+            }
+            client.newCall(Request.Builder().url(found).get().build()).execute().use { imgResp ->
+                if (!imgResp.isSuccessful) throw Exception("Image download HTTP ${imgResp.code}")
+                val bytes = imgResp.body?.bytes()
+                if (bytes == null || bytes.isEmpty()) throw Exception("Empty image download")
+                return bytes
+            }
+        }
+    }
 
     /**
      * Streams a chat completion. Messages with [RemoteChatMessage.imageDataUrls]

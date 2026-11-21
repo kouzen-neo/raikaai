@@ -45,6 +45,7 @@ data class ChatMessageEntry(
     val id: String? = UUID.randomUUID().toString(), // stable node id for conversation branching
     val parentId: String? = null, // previous node in the tree; null = root child
     val sources: List<String>? = null, // RAG citation labels e.g. ["notes.txt #2"]
+    val imagePrompt: String? = null, // prompt behind generated pictures; sent to the model, not shown
 )
 
 data class Conversation(

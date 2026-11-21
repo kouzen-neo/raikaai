@@ -58,6 +58,9 @@ import com.raikaai.app.util.orFallback
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -909,7 +912,7 @@ class ChatViewModel(
                         imageModel,
                         prompt,
                         size,
-                    ).getOrThrow()
+                    ).getOrThrow().bytes
                 val dir = File(app.filesDir, "chat_images").apply { if (!exists()) mkdirs() }
                 val file = File(dir, "gen_${System.currentTimeMillis()}.png")
                 withContext(Dispatchers.IO) { file.writeBytes(bytes) }
@@ -925,8 +928,9 @@ class ChatViewModel(
                 val assistant =
                     ChatMessageEntry(
                         role = ChatConstants.ROLE_ASSISTANT,
-                        content = "Generated with `$imageModel`:",
-                        imagePath = file.absolutePath,
+                        content = "",
+                        attachments = listOf(ChatAttachment(type = "image", path = file.absolutePath, name = file.name, mimeType = "image/png")),
+                        imagePrompt = prompt,
                         parentId = userEntry.id,
                     )
                 messages.add(assistant)
@@ -1198,9 +1202,26 @@ class ChatViewModel(
         com.raikaai.app.core.roleplay.RoleplayPrefs.enabled.value &&
             (roleplayMode || com.raikaai.app.core.roleplay.RoleplayPrompt.isCharacter(activePersona.value.id))
 
-    /** Tool calls are never run in Roleplay mode, whatever the model writes. */
-    private fun parseCallUnlessLean(text: String): com.raikaai.app.skills.ToolCallParser.GenericToolCall? =
-        if (leanRoleplay()) null else com.raikaai.app.skills.ToolCallParser.parseGenericCall(text)
+    /**
+     * Tool calls are never run in Roleplay mode, whatever the model writes;
+     * sending a picture (`generate_image`) is the one exception.
+     */
+    private fun parseCallUnlessLean(text: String): com.raikaai.app.skills.ToolCallParser.GenericToolCall? {
+        val call = com.raikaai.app.skills.ToolCallParser.parseGenericCall(text) ?: return null
+        return if (!leanRoleplay() || call.name.equals("generate_image", ignoreCase = true)) call else null
+    }
+
+    /** Name of the active character, or null for the default assistant. */
+    private fun activeCharacterName(): String? =
+        activePersona.value.takeIf { com.raikaai.app.core.roleplay.RoleplayPrompt.isCharacter(it.id) }
+            ?.name?.ifBlank { null }
+
+    /** The image tool description, or "" when no remote image model is set up. */
+    private fun imageToolBlock(s: Settings?): String {
+        if (s == null || s.modelSource != ChatConstants.SOURCE_REMOTE || s.remoteBaseUrl.isBlank()) return ""
+        if (s.remoteImageModelId.isBlank() && s.remoteModelId.isBlank()) return ""
+        return com.raikaai.app.core.image.ImagePrompt.toolBlock(activeCharacterName())
+    }
 
     private class StaticSystem(val text: String, val parts: List<ContextPart>)
 
@@ -1221,7 +1242,9 @@ class ChatViewModel(
         if (leanRoleplay()) {
             val lean = com.raikaai.app.core.roleplay.RoleplayPrompt.build(base)
             part("Character card", lean)
-            return StaticSystem(lean, parts)
+            val img = imageToolBlock(s)
+            part("Image tool", img)
+            return StaticSystem(lean + img, parts)
         }
         var system =
             when {
@@ -1265,15 +1288,9 @@ class ChatViewModel(
             system += linux
             part("Linux tools", linux)
         }
-        if (!rp && s != null && s.modelSource == ChatConstants.SOURCE_REMOTE && (s.remoteImageModelId.isNotBlank() || s.remoteModelId.isNotBlank())) {
-            val img = "\n\n[IMAGE GENERATION TOOL]\n" +
-                "You have access to an image generator tool. When the user asks to draw, generate, visualize, or modify an image " +
-                "(e.g. 'buat gambar...', 'jadikan kucing biru', 'ubah warna...', 'draw a...', 'create an image of...'), " +
-                "output EXACTLY one tool call in this format and NO OTHER text:\n" +
-                "<tool_call>{\"name\": \"generate_image\", \"arguments\": {\"prompt\": \"<detailed English prompt describing the complete visual scene>\"}}</tool_call>\n"
-            system += img
-            part("Image tool", img)
-        }
+        val img = imageToolBlock(s)
+        system += img
+        part("Image tool", img)
         return StaticSystem(system, parts)
     }
 
@@ -1400,7 +1417,15 @@ class ChatViewModel(
             // alone, so every later reply came back empty. Replies left blank
             // (thinking-only, failed) are skipped.
             if (m.role != ChatConstants.ROLE_ASSISTANT) return@mapNotNull m
-            val visible = stripThinking(m.content).trim()
+            val pictures = m.attachments.orEmpty().count { it.kind == AttachmentType.IMAGE }
+            val visible = stripThinking(m.content).trim().let { text ->
+                val prompt = m.imagePrompt
+                if (prompt.isNullOrBlank() || pictures == 0) {
+                    text
+                } else {
+                    (text + "\n" + com.raikaai.app.core.image.ImagePrompt.historyNote(pictures, prompt)).trim()
+                }
+            }
             val wasInterrupted = m.stats?.contains(INTERRUPTED_MARK) == true
             when {
                 visible.isEmpty() && wasInterrupted -> m.copy(content = "[Reply interrupted by the user before any output]")
@@ -2336,12 +2361,8 @@ class ChatViewModel(
             val genericCall = parseCallUnlessLean(lastContent)
             if (genericCall != null) {
                 if (genericCall.name.equals("generate_image", ignoreCase = true)) {
-                    val imgPrompt = genericCall.arguments.get("prompt")?.asString?.ifBlank { null }
-                        ?: genericCall.arguments.get("description")?.asString?.ifBlank { null }
-                        ?: ""
-                    if (imgPrompt.isNotBlank()) {
-                        executeImageToolCall(messages.lastIndex, imgPrompt)
-                    }
+                    com.raikaai.app.core.image.ImageRequest.fromArgs(genericCall.arguments)
+                        ?.let { executeImageToolCall(messages.lastIndex, it) }
                     return currentSources
                 }
                 if (isContainerToolCall(genericCall.name) || isSelfToolCall(genericCall.name)) {
@@ -3566,10 +3587,14 @@ class ChatViewModel(
     }
 
     /**
-     * Executes autonomous image generation when the LLM emits a `generate_image` tool call.
-     * Updates the assistant message in place with the resulting image.
+     * Runs a `generate_image` tool call: draws every requested picture in
+     * parallel and replaces the tool-call message with the pictures and the
+     * caption. The prompt is kept in [ChatMessageEntry.imagePrompt] so the
+     * model still knows what it sent, but it is not shown in the chat. When
+     * the picture shows the active character, the avatar goes along as a
+     * reference so the character looks like their card.
      */
-    private fun executeImageToolCall(messageIndex: Int, prompt: String) {
+    private fun executeImageToolCall(messageIndex: Int, req: com.raikaai.app.core.image.ImageRequest) {
         val s = effectiveSettings()
         val imageModel = s.remoteImageModelId.ifBlank { s.remoteModelId }
         if (s.remoteBaseUrl.isBlank() || imageModel.isBlank()) {
@@ -3581,36 +3606,76 @@ class ChatViewModel(
             }
             return
         }
+        val messageId = messages.getOrNull(messageIndex)?.id
+        fun indexNow(): Int = messages.indexOfFirst { it.id == messageId }.takeIf { it >= 0 } ?: -1
+        val n = req.prompts.size
+        val character = activeCharacterName()
+        val avatarUri = activePersona.value.avatarUri.ifBlank { conversation?.personaAvatarUri.orEmpty() }
         viewModelScope.launch(laneContext()) {
-            imageGenState.value = "Generating image…"
-            if (messageIndex in messages.indices) {
-                messages[messageIndex] = messages[messageIndex].copy(
-                    content = "Generating image: \"$prompt\"…"
-                )
+            imageGenState.value = if (n == 1) "Generating image…" else "Generating $n images…"
+            indexNow().takeIf { it >= 0 }?.let { idx ->
+                messages[idx] = messages[idx].copy(content = if (n == 1) "_Drawing…_" else "_Drawing $n pictures…_")
             }
             try {
-                val bytes =
-                    RemoteAiClient.generateImage(
-                        s.remoteBaseUrl,
-                        s.remoteApiKey,
-                        imageModel,
-                        prompt,
-                        "1024x1024",
-                    ).getOrThrow()
+                // References: the avatar, plus the newest picture the user
+                // sent in this chat (often "this is what you look like").
+                val references =
+                    if (character != null && req.self != false) {
+                        listOfNotNull(loadReferenceImage(avatarUri), latestUserImagePath()?.let { loadReferenceImage(it) })
+                    } else {
+                        emptyList()
+                    }
                 val dir = File(app.filesDir, "chat_images").apply { if (!exists()) mkdirs() }
-                val file = File(dir, "gen_${System.currentTimeMillis()}.png")
-                withContext(Dispatchers.IO) { file.writeBytes(bytes) }
-                if (messageIndex in messages.indices) {
-                    messages[messageIndex] = messages[messageIndex].copy(
-                        content = "Generated with `$imageModel`:\n$prompt",
-                        imagePath = file.absolutePath,
-                    )
-                    persist()
+                val results = coroutineScope {
+                    req.prompts.mapIndexed { i, prompt ->
+                        async {
+                            val finalPrompt =
+                                if (references.isNotEmpty() && character != null) {
+                                    com.raikaai.app.core.image.ImagePrompt.withReference(prompt, character)
+                                } else {
+                                    prompt
+                                }
+                            RemoteAiClient.generateImage(s.remoteBaseUrl, s.remoteApiKey, imageModel, finalPrompt, "1024x1024", references)
+                                .mapCatching { img ->
+                                    val file = File(dir, "gen_${System.currentTimeMillis()}_$i.png")
+                                    withContext(Dispatchers.IO) { file.writeBytes(img.bytes) }
+                                    file to img.via
+                                }
+                        }
+                    }.awaitAll()
                 }
+                val made = results.mapNotNull { it.getOrNull() }
+                val files = made.map { it.first }
+                // Shown in the info line, so it is visible whether the
+                // reference picture was actually used.
+                val refNote = when {
+                    references.isEmpty() -> null
+                    made.any { it.second != "text" } -> "with reference"
+                    else -> "reference not supported by this provider"
+                }
+                val failure = results.firstNotNullOfOrNull { it.exceptionOrNull() }
+                val idx = indexNow()
+                if (idx < 0) return@launch
+                if (files.isEmpty()) {
+                    messages[idx] = messages[idx].copy(
+                        content = "Failed to generate image: ${failure?.message ?: "no picture came back"}",
+                    )
+                } else {
+                    val caption = req.caption.ifBlank { "" }
+                    val note = if (files.size < n) "\n\n_${n - files.size} of $n pictures failed._" else ""
+                    messages[idx] = messages[idx].copy(
+                        content = (caption + note).trim(),
+                        attachments = files.map { ChatAttachment(type = "image", path = it.absolutePath, name = it.name, mimeType = "image/png") },
+                        imagePrompt = req.prompts.distinct().joinToString(" | "),
+                        stats = listOfNotNull(messages[idx].stats?.takeIf { it.isNotBlank() }, refNote).joinToString(" · ").ifBlank { null },
+                    )
+                }
+                persist()
             } catch (t: Throwable) {
+                if (t is kotlinx.coroutines.CancellationException) throw t
                 KLog.e("ChatVM", "Image tool call failed", t)
-                if (messageIndex in messages.indices) {
-                    messages[messageIndex] = messages[messageIndex].copy(
+                indexNow().takeIf { it >= 0 }?.let { idx ->
+                    messages[idx] = messages[idx].copy(
                         content = "Failed to generate image: ${t.message ?: t.javaClass.simpleName}"
                     )
                     persist()
@@ -3620,6 +3685,45 @@ class ChatViewModel(
             }
         }
     }
+
+    /** Newest picture the user attached on the current branch, if any. */
+    private fun latestUserImagePath(): String? =
+        messages.asReversed().asSequence()
+            .filter { it.role == ChatConstants.ROLE_USER }
+            .mapNotNull { m ->
+                m.attachments.orEmpty().lastOrNull { it.kind == AttachmentType.IMAGE }?.path
+                    ?: m.imagePath?.takeIf { it.isNotBlank() }
+            }
+            .firstOrNull()
+
+    /** Loads a picture (avatar URL, content URI or file) as a PNG of at most 1024 px, or null. */
+    private suspend fun loadReferenceImage(uri: String): ByteArray? =
+        withContext(Dispatchers.IO) {
+            if (uri.isBlank()) return@withContext null
+            runCatching {
+                val raw: ByteArray? = when {
+                    uri.startsWith("http://") || uri.startsWith("https://") ->
+                        (java.net.URL(uri).openConnection().apply { connectTimeout = 10_000; readTimeout = 15_000 })
+                            .getInputStream().use { it.readBytes() }
+                    uri.startsWith("content://") || uri.startsWith("file://") ->
+                        app.contentResolver.openInputStream(Uri.parse(uri))?.use { it.readBytes() }
+                    else -> File(uri).takeIf { it.isFile }?.readBytes()
+                }
+                raw?.let { bytes ->
+                    val bmp = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return@let null
+                    val scale = minOf(1f, 1024f / maxOf(bmp.width, bmp.height))
+                    val scaled = if (scale < 1f) {
+                        android.graphics.Bitmap.createScaledBitmap(bmp, (bmp.width * scale).toInt(), (bmp.height * scale).toInt(), true)
+                    } else {
+                        bmp
+                    }
+                    java.io.ByteArrayOutputStream().use { out ->
+                        scaled.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
+                        out.toByteArray()
+                    }
+                }
+            }.onFailure { KLog.w("ChatVM", "Avatar reference unavailable: ${it.message}") }.getOrNull()
+        }
 
     /** Appends a user/assistant pair for locally-handled commands (no model call). */
     private fun appendLocalExchange(userText: String, assistantText: String) {
@@ -4345,15 +4449,8 @@ class ChatViewModel(
                             val lastIdx = messages.lastIndex
                             val genericCall = parseCallUnlessLean(messages[lastIdx].content)
                             if (genericCall != null && genericCall.name.equals("generate_image", ignoreCase = true)) {
-                                val imgPrompt = when {
-                                    genericCall.arguments.has("prompt") -> genericCall.arguments.get("prompt").asString
-                                    genericCall.arguments.has("description") -> genericCall.arguments.get("description").asString
-                                    genericCall.arguments.has("query") -> genericCall.arguments.get("query").asString
-                                    else -> ""
-                                }
-                                if (imgPrompt.isNotBlank()) {
-                                    executeImageToolCall(lastIdx, imgPrompt)
-                                }
+                                com.raikaai.app.core.image.ImageRequest.fromArgs(genericCall.arguments)
+                                    ?.let { executeImageToolCall(lastIdx, it) }
                             }
                         }
                             when {
@@ -4653,15 +4750,8 @@ class ChatViewModel(
                             val lastIdx = messages.lastIndex
                             val genericCall = parseCallUnlessLean(messages[lastIdx].content)
                             if (genericCall != null && genericCall.name.equals("generate_image", ignoreCase = true)) {
-                                val imgPrompt = when {
-                                    genericCall.arguments.has("prompt") -> genericCall.arguments.get("prompt").asString
-                                    genericCall.arguments.has("description") -> genericCall.arguments.get("description").asString
-                                    genericCall.arguments.has("query") -> genericCall.arguments.get("query").asString
-                                    else -> ""
-                                }
-                                if (imgPrompt.isNotBlank()) {
-                                    executeImageToolCall(lastIdx, imgPrompt)
-                                }
+                                com.raikaai.app.core.image.ImageRequest.fromArgs(genericCall.arguments)
+                                    ?.let { executeImageToolCall(lastIdx, it) }
                             }
                         }
                         when {

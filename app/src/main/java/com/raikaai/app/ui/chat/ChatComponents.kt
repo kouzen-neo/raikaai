@@ -35,6 +35,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -598,6 +599,14 @@ internal fun MessageBubble(
             }
         }
 
+        // Pictures the assistant generated: a clean grid, no prompt text.
+        if (!isUser && hasAttachmentImages) {
+            val generated = remember(message.attachments) {
+                message.attachments.orEmpty().filter { it.kind == AttachmentType.IMAGE }.map { it.path }
+            }
+            GeneratedImageGrid(paths = generated, onPreviewImage = onPreviewImage)
+        }
+
         // Attached Audio if present (Native multimodal voice note)
         if (!message.audioPath.isNullOrBlank()) {
             AudioMessagePlayer(
@@ -730,7 +739,11 @@ internal fun MessageBubble(
                         modifier = mod,
                     )
                 }
-                if (bubbles) {
+                val imageOnly = hasAttachmentImages && message.content.isBlank() &&
+                    translation?.takeIf { it.shown }?.text.isNullOrBlank()
+                if (imageOnly) {
+                    // Pictures only: the grid above is the whole reply.
+                } else if (bubbles) {
                     Surface(
                         shape = RoundedCornerShape(6.dp, 20.dp, 20.dp, 20.dp),
                         color = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -1576,6 +1589,52 @@ private fun WorkingIndicator(lastContent: String, bubbles: Boolean = false, onSt
                     Spacer(Modifier.width(4.dp))
                     Text("Stop", style = MaterialTheme.typography.labelMedium)
                 }
+            }
+        }
+    }
+}
+
+/**
+ * Generated pictures: one fills the width, several sit in a two-column grid
+ * of square tiles. Tapping a picture opens the full-size preview.
+ */
+@Composable
+private fun GeneratedImageGrid(paths: List<String>, onPreviewImage: (String) -> Unit) {
+    if (paths.isEmpty()) return
+    @Composable
+    fun tile(path: String, modifier: Modifier, crop: Boolean) {
+        val bitmap by produceState<Bitmap?>(initialValue = null, path) {
+            value = withContext(Dispatchers.IO) { decodeSampledBitmapFromFile(File(path), reqSizePx = 1024) }
+        }
+        val current = bitmap
+        Box(
+            modifier = modifier
+                .clip(RoundedCornerShape(16.dp))
+                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                .clickable { onPreviewImage(path) },
+        ) {
+            if (current != null) {
+                Image(
+                    bitmap = current.asImageBitmap(),
+                    contentDescription = stringResource(R.string.chat_attached_image),
+                    modifier = if (crop) Modifier.matchParentSize() else Modifier.fillMaxWidth(),
+                    contentScale = if (crop) ContentScale.Crop else ContentScale.FillWidth,
+                )
+            }
+        }
+    }
+    if (paths.size == 1) {
+        tile(paths.first(), Modifier.fillMaxWidth().heightIn(min = 120.dp).padding(bottom = 6.dp), crop = false)
+        return
+    }
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        paths.chunked(2).forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                row.forEach { tile(it, Modifier.weight(1f).aspectRatio(1f), crop = true) }
+                if (row.size == 1) Spacer(Modifier.weight(1f))
             }
         }
     }

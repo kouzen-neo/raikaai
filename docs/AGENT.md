@@ -42,6 +42,13 @@ prices or a price you enter).
 | `web_search`, `generate_image` | When enabled in Agent → Plugins. |
 | MCP tools | Any tool from a connected MCP server. |
 
+`generate_image` takes `prompt` (or `prompts` for different scenes), `count` (1–4, drawn in
+parallel), `caption` (shown with the pictures) and, for characters, `self` (default true in a
+character chat). The character's avatar and the newest picture the user sent are passed as
+references, tried in order: `images/generations` with `image` / `images` data URLs (9router),
+`images/edits`, `chat/completions` with image output, then a text-only request. The prompt is kept out of the chat but sent back to the model in
+history. Sending pictures is the one tool that also works in Roleplay mode.
+
 Models that write tool calls in their own native format (DeepSeek, Qwen, Llama, Mistral, GLM, Kimi,
 gpt-oss, Claude-style) are translated to the app's `<tool_call>` form as the reply arrives
 (`core/remote/NativeToolCalls.kt`), so open-weight models work too.
