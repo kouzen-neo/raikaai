@@ -86,7 +86,7 @@ through their buttons; tapping outside or pressing back does not deny them.
 | `/compact [focus]` | Summarize earlier turns to free context |
 | `/model` | Switch the model |
 | `/remember <fact>` | Save a fact to memory |
-| `/search <query>`, `/image <prompt>`, `/remind in <n> minutes to <note>` | Tools |
+| `/search <query>`, `/image <prompt>`, `/remind in <n> minutes to <note>` (or `at 15:30` / `at 3pm`), `/remind tomorrow at 9am to <note>` | Tools |
 | `/run <command>`, `/serve [port]`, `/env install \| wipe` | Linux |
 | `/permission ask \| auto \| full` | Permission level |
 | `/continue`, `/ooc <note>`, `/scene <direction>` | Roleplay only |
