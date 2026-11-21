@@ -161,8 +161,15 @@ fun LogsScreen(
             // ── 1b. Last crash report (written by App's uncaught-exception
             // handler; shown here so crashes are diagnosable without adb) ──
             var crashDismissed by remember { mutableStateOf(false) }
-            val crashReport = remember { App.crashReportFile(context)?.readText().orEmpty().takeIf { it.isNotBlank() } }
-            if (!crashDismissed && crashReport != null) {
+            var crashReport by remember { mutableStateOf<String?>(null) }
+            LaunchedEffect(Unit) {
+                crashReport =
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        runCatching { App.crashReportFile(context)?.readText().orEmpty().takeIf { it.isNotBlank() } }.getOrNull()
+                    }
+            }
+            val activeCrashReport = crashReport
+            if (!crashDismissed && activeCrashReport != null) {
                 Card(
                     shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
@@ -176,7 +183,7 @@ fun LogsScreen(
                         )
                         Spacer(Modifier.height(6.dp))
                         Text(
-                            crashReport.take(4000),
+                            activeCrashReport.take(4000),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onErrorContainer,
                             modifier = Modifier
@@ -187,7 +194,7 @@ fun LogsScreen(
                         Spacer(Modifier.height(8.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Button(onClick = {
-                                clipboard.setText(androidx.compose.ui.text.AnnotatedString(crashReport))
+                                clipboard.setText(androidx.compose.ui.text.AnnotatedString(activeCrashReport))
                                 Toast.makeText(context, "Crash report copied", Toast.LENGTH_SHORT).show()
                             }) {
                                 Text("Copy")

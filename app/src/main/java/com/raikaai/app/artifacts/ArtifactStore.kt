@@ -20,16 +20,31 @@ import java.io.File
 import java.util.UUID
 
 data class Artifact(
-    val id: String,
-    val projectId: String,
-    val fileName: String,
-    val language: String,
-    val charCount: Int,
+    val id: String = "",
+    val projectId: String = "",
+    val fileName: String = "",
+    val language: String = "",
+    val charCount: Int = 0,
     val version: Int = 1,
     val chatId: String? = null,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
-)
+) {
+    /** Repairs JVM nulls when Gson deserializes legacy/corrupt JSON. */
+    @Suppress("USELESS_ELVIS")
+    fun normalize(): Artifact =
+        Artifact(
+            id = (id ?: "").trim(),
+            projectId = (projectId ?: "").ifBlank { "project" },
+            fileName = (fileName ?: "").ifBlank { "file.txt" },
+            language = (language ?: ""),
+            charCount = charCount.coerceAtLeast(0),
+            version = version.coerceAtLeast(1),
+            chatId = chatId,
+            createdAt = createdAt,
+            updatedAt = updatedAt,
+        )
+}
 
 /**
  * Internal store for code artifacts generated from assistant answers.
@@ -95,7 +110,9 @@ class ArtifactStore private constructor(context: Context) {
         val parsed: List<Artifact>? =
             try {
                 if (metaFile.exists()) {
-                    gson.fromJson(metaFile.readText(), object : TypeToken<List<Artifact>>() {}.type)
+                    val raw: List<Artifact>? =
+                        gson.fromJson(metaFile.readText(), object : TypeToken<List<Artifact>>() {}.type)
+                    raw.orEmpty().map { it.normalize() }.filter { artifactIdPattern.matches(it.id) }
                 } else {
                     emptyList()
                 }

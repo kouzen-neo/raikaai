@@ -21,7 +21,7 @@ object ChatArchive {
     data class Line(val role: String, val text: String)
 
     /** [raikaHome] is the host dir mounted at /root/.raika. */
-    private fun baseDir(raikaHome: File): File? = File(raikaHome, "chats")
+    private fun baseDir(raikaHome: File): File = File(raikaHome, "chats")
 
     fun write(
         raikaHome: File,
@@ -31,7 +31,7 @@ object ChatArchive {
         updatedAt: Long,
         lines: List<Line>,
     ) {
-        val base = baseDir(raikaHome) ?: return
+        val base = baseDir(raikaHome)
         val dir = if (roleplay) File(base, "roleplay") else base
         dir.mkdirs()
         val safeId = id.filter { it.isLetterOrDigit() || it == '-' || it == '_' }.ifEmpty { return }
@@ -49,13 +49,16 @@ object ChatArchive {
                 }
             }
         val target = File(dir, "$safeId.md")
-        val tmp = File(dir, ".$safeId.md.tmp")
+        val tmp = File(dir, ".$safeId.md.${System.nanoTime()}.tmp")
         tmp.writeText(text)
-        tmp.renameTo(target)
+        if (!tmp.renameTo(target)) {
+            tmp.copyTo(target, overwrite = true)
+            tmp.delete()
+        }
     }
 
     fun delete(raikaHome: File, id: String) {
-        val base = baseDir(raikaHome) ?: return
+        val base = baseDir(raikaHome)
         val safeId = id.filter { it.isLetterOrDigit() || it == '-' || it == '_' }.ifEmpty { return }
         File(base, "$safeId.md").delete()
         File(base, "roleplay/$safeId.md").delete()

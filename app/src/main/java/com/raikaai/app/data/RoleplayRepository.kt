@@ -116,7 +116,7 @@ object RoleplayRepository {
                     if (!response.isSuccessful) error("HTTP ${response.code}")
                 }
             }.onFailure {
-                println("Roleplay view update failed for $characterId: ${it.message}")
+                com.raikaai.app.util.KLog.w("RoleplayRepo", "Roleplay view update failed for $characterId: ${it.message}")
             }
         }
     }

@@ -69,7 +69,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.raikaai.app.ui.chat.ChatViewModel
-import com.raikaai.app.ui.component.ChipsRow
 import com.raikaai.app.ui.component.Material3SettingsGroup
 import com.raikaai.app.ui.component.Material3SettingsItem
 import com.raikaai.app.ui.component.createM3Item
@@ -202,6 +201,17 @@ fun SettingsScreen(
                                             }
                                         }
                                     }
+                                },
+                            ),
+                            Material3SettingsItem(
+                                leadingContent = { Icon(Icons.Outlined.Brightness4, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(24.dp)) },
+                                title = { Text("Pure Black (OLED)") },
+                                description = { Text("Use true #000000 backgrounds in dark theme") },
+                                trailingContent = {
+                                    Switch(
+                                        checked = settings.pureBlack,
+                                        onCheckedChange = { viewModel.setPureBlack(it) },
+                                    )
                                 },
                             ),
                         ),
@@ -470,7 +480,7 @@ fun SettingsScreen(
                             createM3Item(
                                 icon = Icons.Outlined.Share,
                                 title = "Export All Chats (JSON)",
-                                description = "Share and backup all conversations as JSON file",
+                                description = "Google backup does not include RaikaAI. Export your chats here before you change phones.",
                                 trailingContent = {
                                     Icon(
                                         Icons.Outlined.ChevronRight,

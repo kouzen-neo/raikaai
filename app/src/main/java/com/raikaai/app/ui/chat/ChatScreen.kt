@@ -537,7 +537,7 @@ fun ChatScreen(
                         viewModel.refreshContextParts()
                     }
                     val totalContextTokens = viewModel.liveContextTokens.intValue + promptParts.sumOf { it.tokens }
-                    val maxTokens = settings.contextWindowTokens
+                    val maxTokens = viewModel.effectiveContextWindow(settings)
                     var showContextSheet by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
                     if (showContextSheet) {
                         val (msgTokens, summaryTokens) = remember(viewModel.liveContextTokens.intValue) { viewModel.contextMessageTokens() }

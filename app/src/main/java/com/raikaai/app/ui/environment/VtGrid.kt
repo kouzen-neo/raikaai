@@ -107,7 +107,13 @@ class VtGrid(
                     '\u001B' -> state = S.OSC_ESC
                     else -> if (strBuf.length < 1024) strBuf.append(ch)
                 }
-                S.OSC_ESC -> { osc(strBuf.toString()); state = if (ch == '\\') S.NORMAL else S.NORMAL }
+                S.OSC_ESC -> if (ch == '\\') {
+                    osc(strBuf.toString())
+                    state = S.NORMAL
+                } else {
+                    state = S.ESC
+                    escape(ch)
+                }
                 S.STRING -> when (ch) {
                     '\u0007' -> { dcs(strBuf.toString()); state = S.NORMAL }
                     '\u001B' -> state = S.STRING_ESC

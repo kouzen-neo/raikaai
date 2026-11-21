@@ -53,6 +53,7 @@ import com.raikaai.app.ui.chat.ChatViewModel
 import com.raikaai.app.ui.component.ScreenHeader
 import com.raikaai.app.ui.mcp.McpScreen
 import com.raikaai.app.ui.skills.SkillsScreen
+import kotlinx.coroutines.launch
 
 /**
  * One place for everything that shapes how Raika works:
@@ -127,9 +128,16 @@ fun AgentScreen(
 private fun MemoryTab() {
     val context = LocalContext.current
     val config = remember { AgentConfig.get(context) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
     var doc by rememberSaveable { mutableStateOf(AgentConfig.Doc.SOUL) }
-    var text by remember(doc) { mutableStateOf(config.read(doc)) }
-    var saved by remember(doc) { mutableStateOf(text) }
+    var text by remember(doc) { mutableStateOf("") }
+    var saved by remember(doc) { mutableStateOf("") }
+
+    androidx.compose.runtime.LaunchedEffect(doc) {
+        val loaded = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { config.read(doc) }
+        text = loaded
+        saved = loaded
+    }
 
     Column(
         Modifier
@@ -161,14 +169,28 @@ private fun MemoryTab() {
             FilledTonalButton(
                 enabled = text != saved,
                 onClick = {
-                    config.write(doc, text)
-                    saved = text
+                    val toSave = text
+                    val targetDoc = doc
+                    scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                        config.write(targetDoc, toSave)
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            if (doc == targetDoc) saved = toSave
+                        }
+                    }
                 },
             ) { Text(if (text != saved) "Save" else "Saved") }
             TextButton(onClick = {
-                config.resetToDefault(doc)
-                text = config.read(doc)
-                saved = text
+                val targetDoc = doc
+                scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    config.resetToDefault(targetDoc)
+                    val reloaded = config.read(targetDoc)
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                        if (doc == targetDoc) {
+                            text = reloaded
+                            saved = reloaded
+                        }
+                    }
+                }
             }) { Text(if (doc == AgentConfig.Doc.MEMORY) "Clear" else "Reset to default") }
         }
         Text(

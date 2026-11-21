@@ -72,7 +72,7 @@ data class WebSourceCitation(
                     if (title.isNotBlank() || url.isNotBlank()) {
                         WebSourceCitation(
                             title = title.ifBlank { url },
-                            url = url.ifBlank { "https://google.com/search?q=${title}" },
+                            url = url.ifBlank { "https://google.com/search?q=${java.net.URLEncoder.encode(title, "UTF-8")}" },
                             snippet = snippet,
                             index = idx,
                         )

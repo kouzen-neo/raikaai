@@ -2,6 +2,7 @@ package com.raikaai.app
 
 import com.raikaai.app.web.WebSearchItem
 import com.raikaai.app.web.WebSourceCitation
+import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -163,5 +164,21 @@ class WebSearchTest {
         assertEquals(url, parsed?.url)
         assertEquals("en.wikipedia.org", parsed?.domain)
         assertEquals(3, parsed?.index)
+    }
+
+    @Test
+    fun testWebSourceCitationEncodesFallbackSearchUrl() {
+        val raw = """{"title":"Hello World & More","url":""}"""
+        val parsed = WebSourceCitation.parse(raw)
+        assertNotNull(parsed)
+        assertEquals("https://google.com/search?q=Hello+World+%26+More", parsed?.url)
+    }
+
+    @Test
+    fun testReadBodyBoundedStopsAtLimit() {
+        val huge = "x".repeat(50_000)
+        val body = huge.toResponseBody(null)
+        val capped = com.raikaai.app.util.NetworkUtils.readBodyBounded(body, 128)
+        assertEquals(128, capped?.length)
     }
 }

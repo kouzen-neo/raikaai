@@ -1,6 +1,10 @@
 package com.raikaai.app.core.agent
 
 import android.content.Context
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -20,13 +24,30 @@ import java.util.Locale
  * Files live in filesDir/agent; nothing leaves the device.
  */
 class AgentConfig private constructor(context: Context) {
-    private val dir = File(context.applicationContext.filesDir, "agent").apply { mkdirs() }
+    private val dir = File(context.applicationContext.filesDir, "agent")
+    private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     init {
-        // Real files from the start, so Raika sees them at /root/.raika in Linux.
-        listOf(Doc.SOUL, Doc.AGENTS).forEach { d ->
-            val f = file(d)
-            if (!f.exists()) runCatching { f.writeText(defaultFor(d)) }
+        // Materialize default SOUL/AGENTS off the main thread so Raika sees
+        // them at /root/.raika in Linux without blocking UI initialization.
+        ioScope.launch {
+            runCatching {
+                dir.mkdirs()
+                listOf(Doc.SOUL, Doc.AGENTS).forEach { d ->
+                    val f = file(d)
+                    if (!f.exists()) writeAtomically(f, defaultFor(d))
+                }
+            }
+        }
+    }
+
+    private fun writeAtomically(target: File, text: String) {
+        target.parentFile?.mkdirs()
+        val tmp = File(target.parentFile, ".${target.name}.${System.nanoTime()}.tmp")
+        tmp.writeText(text)
+        if (!tmp.renameTo(target)) {
+            tmp.copyTo(target, overwrite = true)
+            tmp.delete()
         }
     }
 
@@ -45,11 +66,11 @@ class AgentConfig private constructor(context: Context) {
     }
 
     fun write(doc: Doc, text: String) {
-        file(doc).writeText(text)
+        writeAtomically(file(doc), text)
     }
 
     fun resetToDefault(doc: Doc) {
-        if (doc == Doc.MEMORY) file(doc).delete() else file(doc).writeText(defaultFor(doc))
+        if (doc == Doc.MEMORY) file(doc).delete() else writeAtomically(file(doc), defaultFor(doc))
     }
 
     /** Appends one line to MEMORY.md; returns the stored line. */
@@ -60,7 +81,7 @@ class AgentConfig private constructor(context: Context) {
         val date = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
         val current = read(Doc.MEMORY).trimEnd()
         val line = "- $clean ($date)"
-        if (current.lines().any { it.substringBefore(" (").trim() == "- $clean" }) return line
+        if (current.lines().any { it.substringBeforeLast(" (").trim() == "- $clean" }) return line
         val base = if (current.isBlank()) MEMORY_HEADER else current
         write(Doc.MEMORY, "$base\n$line\n")
         return line

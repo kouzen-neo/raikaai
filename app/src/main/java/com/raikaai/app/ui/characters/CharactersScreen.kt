@@ -570,7 +570,13 @@ fun CharactersScreen(
     // Raika AI's personality is SOUL.md (same file as Agent → Memory).
     if (editingPersona?.id == "general") {
         val config = remember { com.raikaai.app.core.agent.AgentConfig.get(context) }
-        var soul by remember { mutableStateOf(config.read(com.raikaai.app.core.agent.AgentConfig.Doc.SOUL)) }
+        val soulScope = androidx.compose.runtime.rememberCoroutineScope()
+        var soul by remember { mutableStateOf("") }
+        androidx.compose.runtime.LaunchedEffect(Unit) {
+            soul = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                config.read(com.raikaai.app.core.agent.AgentConfig.Doc.SOUL)
+            }
+        }
         AlertDialog(
             onDismissRequest = { editingPersona = null },
             icon = { com.raikaai.app.ui.component.RaikaLogo(size = 40.dp) },
@@ -593,14 +599,22 @@ fun CharactersScreen(
             },
             confirmButton = {
                 Button(onClick = {
-                    config.write(com.raikaai.app.core.agent.AgentConfig.Doc.SOUL, soul)
+                    val toSave = soul
+                    soulScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                        config.write(com.raikaai.app.core.agent.AgentConfig.Doc.SOUL, toSave)
+                    }
                     editingPersona = null
                 }) { Text("Save") }
             },
             dismissButton = {
                 TextButton(onClick = {
-                    config.resetToDefault(com.raikaai.app.core.agent.AgentConfig.Doc.SOUL)
-                    soul = config.read(com.raikaai.app.core.agent.AgentConfig.Doc.SOUL)
+                    soulScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                        config.resetToDefault(com.raikaai.app.core.agent.AgentConfig.Doc.SOUL)
+                        val reloaded = config.read(com.raikaai.app.core.agent.AgentConfig.Doc.SOUL)
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            soul = reloaded
+                        }
+                    }
                 }) { Text("Reset") }
                 TextButton(onClick = { editingPersona = null }) { Text("Cancel") }
             },

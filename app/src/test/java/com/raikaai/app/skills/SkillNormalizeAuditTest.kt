@@ -46,4 +46,17 @@ class SkillNormalizeAuditTest {
         assertFalse(parsed.isEnabled)
         assertFalse(parsed.isBuiltIn)
     }
+
+    @Test
+    fun `toMarkdown escapes quotes and newlines in YAML frontmatter`() {
+        val skill = Skill(
+            id = "s2",
+            name = "My \"Quoted\" Skill",
+            description = "Line 1\nLine \"2\"",
+            instructions = "Do something.",
+        )
+        val md = skill.toMarkdown()
+        assertTrue(md.contains("""name: "My \"Quoted\" Skill""""))
+        assertTrue(md.contains("""description: "Line 1 Line \"2\"""""))
+    }
 }

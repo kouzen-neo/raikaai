@@ -35,14 +35,17 @@ internal fun Skill.normalize(): Skill {
     )
 }
 
+private fun escapeYamlString(value: String): String =
+    value.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", " ").replace("\r", "")
+
 /** The skill as a SKILL.md document (YAML frontmatter + instructions). */
 fun Skill.toMarkdown(): String =
     buildString {
         appendLine("---")
-        appendLine("name: \"$name\"")
-        appendLine("description: \"$description\"")
-        appendLine("category: \"$category\"")
-        appendLine("icon: \"$iconCategory\"")
+        appendLine("name: \"${escapeYamlString(name)}\"")
+        appendLine("description: \"${escapeYamlString(description)}\"")
+        appendLine("category: \"${escapeYamlString(category)}\"")
+        appendLine("icon: \"${escapeYamlString(iconCategory)}\"")
         appendLine("---")
         appendLine()
         appendLine(instructions.trim())

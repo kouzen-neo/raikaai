@@ -80,34 +80,6 @@ fun ScreenHeader(
     }
 }
 
-/** Small section title above a group of cards ("TOOLS", "YOURS"). */
-@Composable
-fun SectionLabel(
-    text: String,
-    modifier: Modifier = Modifier,
-) {
-    Text(
-        text = text,
-        style = MaterialTheme.typography.labelLarge,
-        color = MaterialTheme.colorScheme.primary,
-        modifier = modifier.padding(start = 4.dp, top = 12.dp, bottom = 4.dp),
-    )
-}
-
-/** Top-level card used for grouped content on every screen. */
-@Composable
-fun SectionCard(
-    modifier: Modifier = Modifier,
-    content: @Composable () -> Unit,
-) {
-    Surface(
-        shape = CardShape,
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        modifier = modifier.fillMaxWidth(),
-        content = content,
-    )
-}
-
 /** Lays the content out [amount] wider on both sides than the space it was given. */
 private fun Modifier.horizontalBleed(amount: androidx.compose.ui.unit.Dp): Modifier =
     this.then(

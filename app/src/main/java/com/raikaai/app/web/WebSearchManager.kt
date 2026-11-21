@@ -41,6 +41,9 @@ class WebSearchManager private constructor(private val context: Context) {
             "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
 
         private const val CACHE_TTL_MS = 20 * 60 * 1000L // 20 minutes
+        private const val MAX_CACHE_ENTRIES = 100
+        private val SCRIPT_OR_STYLE_REGEX =
+            Regex("<(script|style|noscript)\\b[^>]*>[\\s\\S]*?</\\1>", RegexOption.IGNORE_CASE)
     }
 
     private data class CacheEntry(
@@ -49,6 +52,18 @@ class WebSearchManager private constructor(private val context: Context) {
     )
 
     private val searchCache = ConcurrentHashMap<String, CacheEntry>()
+
+    private fun putCache(key: String, result: WebSearchResult) {
+        val now = System.currentTimeMillis()
+        if (searchCache.size >= MAX_CACHE_ENTRIES) {
+            searchCache.entries.removeIf { now - it.value.timestamp >= CACHE_TTL_MS }
+            if (searchCache.size >= MAX_CACHE_ENTRIES) {
+                val oldestKey = searchCache.entries.minByOrNull { it.value.timestamp }?.key
+                if (oldestKey != null) searchCache.remove(oldestKey)
+            }
+        }
+        searchCache[key] = CacheEntry(result, now)
+    }
     private val gson = Gson()
     private val client = NetworkUtils.HttpClient.searchClient
 
@@ -84,7 +99,7 @@ class WebSearchManager private constructor(private val context: Context) {
                         items = listOf(direct),
                         promptContext = buildPromptContext(cleanQuery, listOf(direct), searchLang),
                     )
-                    searchCache[cacheKey] = CacheEntry(result)
+                    putCache(cacheKey, result)
                     return@withContext result
                 }
             }
@@ -131,7 +146,7 @@ class WebSearchManager private constructor(private val context: Context) {
                     items = finalItems,
                     promptContext = compressedPrompt,
                 )
-                searchCache[cacheKey] = CacheEntry(result)
+                putCache(cacheKey, result)
                 KLog.d("WebSearch", "Parallel search retrieved ${finalItems.size} results for: $cleanQuery (cached)")
                 return@withContext result
             }
@@ -399,7 +414,7 @@ class WebSearchManager private constructor(private val context: Context) {
      * Comprehensive HTML entity unescaping and whitespace cleaner.
      */
     fun stripHtml(html: String): String {
-        var text = html.replace(Regex("<[^>]*>"), " ")
+        var text = html.replace(SCRIPT_OR_STYLE_REGEX, " ").replace(Regex("<[^>]*>"), " ")
         text = text
             .replace("&amp;", "&")
             .replace("&lt;", "<")

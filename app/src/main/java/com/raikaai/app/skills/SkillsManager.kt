@@ -232,9 +232,19 @@ class SkillsManager private constructor(private val context: Context) {
         if (builtinChanged) persistPresetToggles()
     }
 
+    private fun writeAtomically(target: File, content: String) {
+        target.parentFile?.mkdirs()
+        val tmp = File(target.parentFile, "${target.name}.${System.nanoTime()}.tmp")
+        tmp.writeText(content)
+        if (!tmp.renameTo(target)) {
+            tmp.copyTo(target, overwrite = true)
+            tmp.delete()
+        }
+    }
+
     private fun persistCustom(customSkills: List<Skill>) {
         try {
-            customSkillsFile.writeText(gson.toJson(customSkills))
+            writeAtomically(customSkillsFile, gson.toJson(customSkills))
         } catch (e: Exception) {
             KLog.e("Skills", "Failed to persist custom skills: ${e.message}")
         }
@@ -243,7 +253,7 @@ class SkillsManager private constructor(private val context: Context) {
     private fun persistPresetToggles() {
         try {
             val map = _skills.value.filter { it.isBuiltIn }.associate { it.id to it.isEnabled }
-            presetTogglesFile.writeText(gson.toJson(map))
+            writeAtomically(presetTogglesFile, gson.toJson(map))
         } catch (e: Exception) {
             KLog.e("Skills", "Failed to persist preset toggles: ${e.message}")
         }

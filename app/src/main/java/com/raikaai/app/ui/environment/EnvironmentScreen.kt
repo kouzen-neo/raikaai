@@ -124,9 +124,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * Dedicated Linux Environment screen (Fase 3–4): manual Terminal + /workspace Files.
- * Terminal is shell-in-a-box over [ContainerManager.run] (no PTY yet);
- * interactive programs (vim/htop) are out of scope for this milestone.
+ * Dedicated Linux Environment screen: multi-tab PTY Terminal (AnsiScreen + VtGrid)
+ * and /workspace file browser.
  */
 @Composable
 fun EnvironmentScreen(
@@ -1264,7 +1263,7 @@ private fun FilesTab(
                     ) {
                         Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                             Icon(
-                                if (isTextFile(f)) Icons.Outlined.InsertDriveFile else Icons.Outlined.Folder,
+                                if (isDir) Icons.Outlined.Folder else Icons.Outlined.InsertDriveFile,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(20.dp),
@@ -1282,23 +1281,25 @@ private fun FilesTab(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
-                            IconButton(onClick = { shareFile(context, f) }) {
-                                Icon(Icons.Outlined.Share, contentDescription = "Share", modifier = Modifier.size(18.dp))
-                            }
-                            IconButton(onClick = {
-                                scope.launch(Dispatchers.IO) {
-                                    saveToDownload(context, f)
-                                    withContext(Dispatchers.Main) { refresh() }
+                            if (!isDir) {
+                                IconButton(onClick = { shareFile(context, f) }) {
+                                    Icon(Icons.Outlined.Share, contentDescription = "Share", modifier = Modifier.size(18.dp))
                                 }
-                            }) {
-                                Icon(Icons.Outlined.CloudDownload, contentDescription = "Save", modifier = Modifier.size(18.dp))
-                            }
-                            IconButton(onClick = {
-                                val uri = fileUri(context, f)
-                                viewModel.addAttachments(listOf(uri))
-                                onNavigateToChat()
-                            }) {
-                                Icon(Icons.Default.Send, contentDescription = "Send to Chat", modifier = Modifier.size(18.dp))
+                                IconButton(onClick = {
+                                    scope.launch(Dispatchers.IO) {
+                                        saveToDownload(context, f)
+                                        withContext(Dispatchers.Main) { refresh() }
+                                    }
+                                }) {
+                                    Icon(Icons.Outlined.CloudDownload, contentDescription = "Save", modifier = Modifier.size(18.dp))
+                                }
+                                IconButton(onClick = {
+                                    val uri = fileUri(context, f)
+                                    viewModel.addAttachments(listOf(uri))
+                                    onNavigateToChat()
+                                }) {
+                                    Icon(Icons.Default.Send, contentDescription = "Send to Chat", modifier = Modifier.size(18.dp))
+                                }
                             }
                             IconButton(onClick = {
                                 scope.launch(Dispatchers.IO) {

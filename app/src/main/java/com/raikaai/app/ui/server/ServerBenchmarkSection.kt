@@ -223,16 +223,26 @@ private fun ServerControlCard(viewModel: ChatViewModel) {
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
 
             // Port & Key Fields
+            var portDraft by remember(settings.serverPort) { mutableStateOf("${settings.serverPort}") }
+            val portNumber = portDraft.toIntOrNull()
+            val portInvalid = portDraft.isNotEmpty() && (portNumber == null || portNumber !in 1024..65535)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 OutlinedTextField(
-                    value = "${settings.serverPort}",
+                    value = portDraft,
                     onValueChange = { str ->
-                        str.toIntOrNull()?.let { viewModel.setServerPort(it) }
+                        val digits = str.filter { it.isDigit() }.take(5)
+                        portDraft = digits
+                        val parsed = digits.toIntOrNull()
+                        if (parsed != null && parsed in 1024..65535) {
+                            viewModel.setServerPort(parsed)
+                        }
                     },
                     label = { Text("Port") },
+                    isError = portInvalid,
+                    supportingText = if (portInvalid) ({ Text("1024–65535") }) else null,
                     singleLine = true,
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.weight(0.4f),
