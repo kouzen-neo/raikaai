@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.5.5] - 2026-11-21
+
+### Added
+- Ask for several pictures at once ("send me 3 selfies"): up to 4 are drawn at the same time and shown in a grid.
+- Characters can send pictures in Roleplay mode.
+
+### Changed
+- Character pictures use the character's avatar, and the latest picture you sent in the chat, as a reference, so hair, eyes and outfit match instead of the model's guess. Works with providers that take the reference in `images/generations` (such as 9router), `images/edits` or image-output chat models; others still get a text-only picture. The info line under the picture says "with reference" when it was used.
+- Generated pictures show cleanly, with only a short caption from the character. The prompt is no longer printed under the picture; the AI still remembers what it sent.
+
+### Fixed
+- Read aloud no longer gets stuck on "TTS engine initializing. Tap again in a moment." Each tap used to restart the voice engine; now the first tap waits for it and starts speaking as soon as it's ready, and falls back to Google's engine if the default one fails.
+
 ## [0.5.4] - 2026-11-21
 
 ### Fixed
