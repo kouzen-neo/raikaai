@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.5.4] - 2026-11-21
+
+### Fixed
+- All chats now lists roleplay chats too, marked with the theater icon. Tapping one opens it with its character; rename, folders, tags, export and delete work on it. Search and "Export all" cover roleplay chats, and "Clear all" now says it deletes them as well.
+
 ## [0.5.3] - 2026-11-21
 
 ### Added

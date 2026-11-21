@@ -39,8 +39,8 @@ android {
         applicationId = "com.raikaai.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 45
-        versionName = "0.5.3"
+        versionCode = 46
+        versionName = "0.5.4"
     }
 
     splits {
